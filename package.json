@@ -1,0 +1,41 @@
+{
+  "name": "hearthstone-mac-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
+    "build:native": "bash scripts/build-native-helpers.sh",
+    "start": "npm run build:native && npm run build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "package:mac-arm64": "npm run build:native && npm run build && bash scripts/package-mac-arm64.sh",
+    "verify:release": "bash scripts/verify-release.sh"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "chokidar": "^4.0.3",
+    "deckstrings": "^3.1.2",
+    "hearthstonejson-client": "^1.18.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "43.1.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^4.1.10",
+    "wait-on": "^8.0.1"
+  }
+}

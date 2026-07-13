@@ -1,0 +1,4 @@
+D 21:00:00.000 Arena.SetDraftMode - DRAFTING
+D 21:00:01.000 DraftManager.OnChosen(): hero=HERO_08
+D 21:00:03.000 Client chooses: [WORK_012]
+D 21:00:05.000 Client chooses: [EDR_105]

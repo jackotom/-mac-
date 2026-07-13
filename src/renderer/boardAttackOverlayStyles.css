@@ -1,0 +1,81 @@
+html.board-attack-overlay-document,
+html.board-attack-overlay-document body,
+html.board-attack-overlay-document #root {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.board-attack-overlay-canvas {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.board-attack-icon {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  color: #fff7df;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.75));
+}
+
+.board-attack-icon svg {
+  position: absolute;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  padding: 8px;
+  border: 1px solid rgba(238, 210, 144, 0.82);
+  border-radius: 50%;
+  color: #f6d786;
+  background: radial-gradient(circle, rgba(61, 67, 73, 0.95) 0%, rgba(15, 20, 26, 0.9) 68%);
+}
+
+.board-attack-icon-opponent svg {
+  color: #ffb09d;
+  border-color: rgba(244, 132, 108, 0.78);
+}
+
+.board-attack-icon strong {
+  position: relative;
+  z-index: 1;
+  font-size: 17px;
+  line-height: 1;
+  color: white;
+  text-shadow: 0 2px 3px #000, 0 0 5px #000;
+}
+
+.opponent-overlay-collapsed {
+  width: max-content;
+  min-width: 0;
+  height: max-content;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.opponent-overlay-restore {
+  width: 46px;
+  height: 38px;
+  border: 1px solid rgba(255, 209, 141, 0.56);
+  border-radius: 8px;
+  color: #fff2d5;
+  background: rgba(11, 17, 22, 0.92);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.opponent-overlay-restore strong {
+  font-size: 12px;
+}

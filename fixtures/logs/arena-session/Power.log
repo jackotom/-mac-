@@ -1,0 +1,5 @@
+D 21:00:02.000 GameState.DebugPrintEntityChoices() - id=1 Player=Local TaskList=4 ChoiceType=GENERAL CountMin=1 CountMax=1
+D 21:00:02.000 GameState.DebugPrintEntityChoices() -   Entities[0]=[entityName=抱团 id=101 zone=SETASIDE zonePos=0 cardId=WORK_012 player=1]
+D 21:00:02.000 GameState.DebugPrintEntityChoices() -   Entities[1]=[entityName=疯狂生物 id=102 zone=SETASIDE zonePos=0 cardId=EDR_105 player=1]
+D 21:00:02.000 GameState.DebugPrintEntityChoices() -   Entities[2]=[entityName=银樽海韵 id=103 zone=SETASIDE zonePos=0 cardId=VAC_520 player=1]
+D 21:00:02.000 ChoiceCardMgr.WaitThenShowChoices() - id=1 BEGIN

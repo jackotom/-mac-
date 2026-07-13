@@ -1,0 +1,2524 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DeckPanel } from "./components/DeckPanel";
+import { EventFeed } from "./components/EventFeed";
+import { ArenaPanel } from "./components/ArenaPanel";
+import { ArenaChoiceOverlayPanel } from "./components/ArenaChoiceOverlayPanel";
+import { CardDetailBody } from "./components/CardDetailBody";
+import { CardLibraryPanel } from "./components/CardLibraryPanel";
+import { OpponentPanel } from "./components/OpponentPanel";
+import { OpponentOverlayPanel } from "./components/OpponentOverlayPanel";
+import { BoardAttackOverlay } from "./components/BoardAttackOverlay";
+import { OverlayPanel } from "./components/OverlayPanel";
+import { LadderDeckRecommendationPanel } from "./components/LadderDeckRecommendationPanel";
+import { TopBar } from "./components/TopBar";
+import type { MainView } from "./components/TopBar";
+import { toOverlayPanelViewModel } from "./overlayView";
+import { shouldApplyInitialTrackerState } from "./stateInitialization";
+import { createSynchronousActionLock, selectVisibleNotice, shouldRequestCardLibrary } from "./frontendStability";
+import { parsePublicTrackerState } from "./runtimeValidation";
+import type {
+  CardTrackerRow,
+  ArenaState,
+  CollectionDeckScanResult,
+  CollectionDeckSummary,
+  LogCandidate,
+  PublicTrackerState,
+  TrackerEvent
+} from "../shared/types";
+import type { CardDetails } from "../shared/cardDatabase";
+import type { LadderDeckRecommendation, LadderDeckRecommendationResult, LadderMode } from "../shared/ladderDeckRecommendation";
+import type {
+  CardLibraryQuery,
+  CardLibraryResult,
+  DeckCard,
+  DeckSummary,
+  GameEvent,
+  OpponentOverview,
+  OpponentPlayedCard,
+  TrackerStatus
+} from "./types";
+
+const demoState: PublicTrackerState = {
+  status: "missing-log",
+  deck: [],
+  opponentPlayed: [],
+  events: [],
+  summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
+  error: "缺少 Power.log。先点“修复日志”，然后重启炉石/开始一局。"
+};
+
+const defaultDeckText = "";
+
+const qaArenaChoiceOverlayState: ArenaState = {
+  status: "drafting",
+  hero: { name: "德鲁伊", className: "Druid" },
+  draftCount: 7,
+  currentChoices: [
+    { name: "小蜘蛛", count: 1, score: 94, rating: { hearthArena: 94, pickRate: 36.4, highWinPickRate: 40.2, highWinThreshold: 6 } },
+    { name: "癫醉歌迷", count: 1, score: 121, rating: { hearthArena: 121, pickRate: 44.8, highWinPickRate: 51.1, highWinThreshold: 6 } },
+    { name: "致命配方", count: 1, score: 108, rating: { hearthArena: 108, pickRate: 39.6, highWinPickRate: 43.8, highWinThreshold: 6 } }
+  ],
+  picks: [],
+  deck: []
+};
+
+const qaOpponentOverlayState: PublicTrackerState = {
+  status: "watching",
+  gameActive: true,
+  logPath: "/QA/Power.log",
+  deck: [],
+  opponentPlayed: [
+    { name: "伺机待发", cardId: "EX1_145", count: 0, remaining: 0, drawn: 0, played: 1 }
+  ],
+  opponentSecrets: [
+    {
+      entityId: "qa-secret-1",
+      candidates: [
+        { cardId: "EX1_287", name: "法术反制", status: "possible" },
+        { cardId: "EX1_289", name: "寒冰屏障", status: "excluded" }
+      ]
+    },
+    {
+      entityId: "qa-secret-2",
+      candidates: [
+        { cardId: "EX1_294", name: "镜像实体", status: "possible" },
+        { cardId: "EX1_295", name: "扰咒术", status: "excluded" }
+      ]
+    }
+  ],
+  boardAttack: { friendly: 7, opponent: 12 },
+  events: [],
+  summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 1 },
+  lastUpdated: "2026-07-12T12:00:00.000Z"
+};
+
+const qaCardPreviewDetails: CardDetails = {
+  dbfId: 315,
+  name: "火球术",
+  manaCost: 4,
+  cardType: "法术",
+  cardTypeId: 5,
+  heroClass: "法师",
+  text: "造成 6 点伤害。",
+  isSpell: true,
+  relatedCards: [
+    { dbfId: 621, name: "炎爆术", manaCost: 10, cardType: "法术", text: "造成 10 点伤害。" },
+    { dbfId: 1001, name: "奥术飞弹", manaCost: 1, cardType: "法术", text: "造成 3 点伤害，随机分配到所有敌人身上。" }
+  ]
+};
+
+const logRepairActions = ["点“修复日志”", "重启炉石", "开始一局"] as const;
+
+interface LogIssueViewModel {
+  title: string;
+  message: string;
+  detail: string;
+  actions: readonly string[];
+}
+
+type PendingAction = "select-log" | "repair-log" | "toggle-overlay" | "tracking" | "import-deck" | "scan-collection" | "import-collection";
+
+const cardLibraryPageSize = 48;
+
+const initialCardLibraryQuery: CardLibraryQuery = {
+  query: "",
+  page: 1,
+  pageSize: cardLibraryPageSize
+};
+
+const emptyDeckSummary: DeckSummary = {
+  deckName: "等待真实对局日志",
+  totalCards: 0,
+  remainingCards: 0
+};
+
+function App() {
+  const api = window.hearthstoneTracker;
+  const overlaySearchParams = new URLSearchParams(window.location.search);
+  const isCardPreview = overlaySearchParams.get("card-preview") === "1";
+
+  if (overlaySearchParams.get("ladder-deck-overlay") === "1") {
+    return <LadderDeckRecommendationWindow searchParams={overlaySearchParams} />;
+  }
+
+  if (isCardPreview) {
+    return (
+      <>
+        <style>{rendererStyles}</style>
+        <CardPreviewWindow />
+      </>
+    );
+  }
+
+  const isOpponentOverlay = overlaySearchParams.get("opponent-overlay") === "1";
+  const isBoardAttackOverlay = overlaySearchParams.get("board-attack-overlay") === "1";
+  const isOverlay = overlaySearchParams.get("overlay") === "1";
+  const isArenaChoiceOverlay = overlaySearchParams.get("arena-choice-overlay") === "1";
+  const isQaArenaChoiceOverlay = overlaySearchParams.get("qa-arena-demo") === "1";
+  const isQaOpponentOverlay = isOpponentOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
+  const isQaBoardAttackOverlay = isBoardAttackOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
+  const [state, setState] = useState<PublicTrackerState>(demoState);
+  const [candidates, setCandidates] = useState<LogCandidate[]>([]);
+  const [selectedLogPath, setSelectedLogPath] = useState<string | undefined>();
+  const [deckText, setDeckText] = useState(defaultDeckText);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(Boolean(api));
+  const [pendingAction, setPendingAction] = useState<PendingAction>();
+  const [initializationError, setInitializationError] = useState<string>();
+  const [deckImported, setDeckImported] = useState(false);
+  const [notice, setNotice] = useState<string | undefined>();
+  const [collectionScan, setCollectionScan] = useState<CollectionDeckScanResult | undefined>();
+  const [collectionError, setCollectionError] = useState<string | undefined>();
+  const [isScanningCollection, setIsScanningCollection] = useState(false);
+  const [importingCollectionDeckId, setImportingCollectionDeckId] = useState<string | undefined>();
+  const [activeView, setActiveView] = useState<MainView>("tracker");
+  const [cardLibraryQuery, setCardLibraryQuery] = useState<CardLibraryQuery>(initialCardLibraryQuery);
+  const [debouncedCardSearch, setDebouncedCardSearch] = useState(initialCardLibraryQuery.query);
+  const [cardLibraryResult, setCardLibraryResult] = useState<CardLibraryResult | undefined>();
+  const [cardLibraryError, setCardLibraryError] = useState<string | undefined>();
+  const [isCardLibraryLoading, setIsCardLibraryLoading] = useState(false);
+  const [isOpponentOverlayCollapsed, setIsOpponentOverlayCollapsed] = useState(false);
+  const actionLock = useRef(createSynchronousActionLock());
+  const lastCardLibraryRequest = useRef<CardLibraryQuery>();
+  const isBusy = isInitializing || pendingAction !== undefined;
+
+  useEffect(() => {
+    if (!api) {
+      setIsInitializing(false);
+      return;
+    }
+
+    let disposed = false;
+    let hasReceivedLiveState = false;
+    setIsInitializing(true);
+    setInitializationError(undefined);
+    const unsubscribe = api.onUpdate((nextState) => {
+      if (!disposed) {
+        hasReceivedLiveState = true;
+        try {
+          setState(parsePublicTrackerState(nextState));
+        } catch (error) {
+          setInitializationError(toUserErrorMessage(error, "收到的记牌状态无效。"));
+        }
+      }
+    });
+
+    const candidateRequest = api.discoverLogs?.() ?? Promise.resolve<LogCandidate[]>([]);
+    void Promise.allSettled([api.getState(), candidateRequest])
+      .then(([stateResult, candidateResult]) => {
+        if (disposed) {
+          return;
+        }
+
+        if (stateResult.status === "fulfilled" && shouldApplyInitialTrackerState(hasReceivedLiveState)) {
+          try {
+            setState(parsePublicTrackerState(stateResult.value));
+          } catch (error) {
+            setInitializationError(toUserErrorMessage(error, "读取到的记牌状态无效。"));
+          }
+        }
+        if (candidateResult.status === "fulfilled") {
+          setCandidates(candidateResult.value);
+        }
+
+        if (stateResult.status === "rejected" && candidateResult.status === "rejected") {
+          setInitializationError("读取本机状态失败，请重启记牌器后重试。");
+        } else if (stateResult.status === "rejected") {
+          setInitializationError("读取当前记牌状态失败，稍后可重试。");
+        } else if (candidateResult.status === "rejected") {
+          setInitializationError("扫描炉石日志失败，稍后可重试。");
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setIsInitializing(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (!isOpponentOverlay || !api) {
+      return;
+    }
+
+    let disposed = false;
+    let hasReceivedLiveState = false;
+    const unsubscribe = api.onOpponentOverlayCollapsedChange?.((collapsed) => {
+      if (!disposed) {
+        hasReceivedLiveState = true;
+        setIsOpponentOverlayCollapsed(collapsed);
+      }
+    });
+
+    if (api.getOpponentOverlayCollapsed) {
+      void api.getOpponentOverlayCollapsed().then((collapsed) => {
+        if (!disposed && !hasReceivedLiveState) {
+          setIsOpponentOverlayCollapsed(collapsed);
+        }
+      });
+    }
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [api, isOpponentOverlay]);
+
+  useEffect(() => {
+    const debounceTimer = window.setTimeout(() => {
+      setDebouncedCardSearch((cardLibraryQuery.query ?? "").trim());
+    }, 220);
+
+    return () => window.clearTimeout(debounceTimer);
+  }, [cardLibraryQuery.query]);
+
+  useEffect(() => {
+    if (activeView !== "card-library") {
+      return;
+    }
+
+    if (!api?.listCardLibrary) {
+      setCardLibraryResult(undefined);
+      setCardLibraryError("当前版本还没有接入本地卡牌数据库，请更新记牌器后重试。");
+      return;
+    }
+
+    let disposed = false;
+    setIsCardLibraryLoading(true);
+    setCardLibraryError(undefined);
+
+    const query: CardLibraryQuery = {
+      ...cardLibraryQuery,
+      query: debouncedCardSearch
+    };
+
+    if (!shouldRequestCardLibrary(lastCardLibraryRequest.current, query)) {
+      setIsCardLibraryLoading(false);
+      return;
+    }
+    lastCardLibraryRequest.current = query;
+
+    void api.listCardLibrary(query)
+      .then((result) => {
+        if (!disposed) {
+          setCardLibraryResult(result);
+          if (result.status === "error") {
+            setCardLibraryError(result.error ?? result.warnings[0] ?? "读取本地卡牌数据库失败，请稍后重试。");
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setCardLibraryResult(undefined);
+          setCardLibraryError(toUserErrorMessage(error, "读取本地卡牌数据库失败，请稍后重试。"));
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setIsCardLibraryLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeView, api, cardLibraryQuery.heroClass, cardLibraryQuery.cardType, cardLibraryQuery.page, cardLibraryQuery.pageSize, debouncedCardSearch]);
+
+  const trackerStatus = useMemo(
+    () => toTrackerStatus(state, candidates, selectedLogPath, isInitializing),
+    [candidates, isInitializing, selectedLogPath, state]
+  );
+  const logIssue = useMemo(() => toLogIssueViewModel(state), [state]);
+  const deckCards = useMemo(() => (logIssue ? [] : toDeckCards(state.deck)), [logIssue, state.deck]);
+  const deckSummary = useMemo(
+    () => (logIssue ? emptyDeckSummary : toDeckSummary(state, deckImported)),
+    [deckImported, logIssue, state]
+  );
+  const events = useMemo(() => (logIssue ? [] : toGameEvents(state.events)), [logIssue, state.events]);
+  const opponentOverview = useMemo(() => toOpponentOverview(state), [state]);
+  const opponentPlayedCards = useMemo(
+    () => (logIssue ? [] : toOpponentPlayedCards(state.opponentPlayed)),
+    [logIssue, state.opponentPlayed]
+  );
+  const autoMatchNotice = !logIssue && state.autoMatchedDeckId
+    ? `已自动匹配收藏套牌：${state.deckName ?? "当前卡组"}。`
+    : undefined;
+
+  function applyTrackerState(value: unknown): boolean {
+    try {
+      setState(parsePublicTrackerState(value));
+      return true;
+    } catch (error) {
+      setNotice(toUserErrorMessage(error, "收到的记牌状态无效。"));
+      return false;
+    }
+  }
+
+  async function runAction<T>(
+    action: PendingAction,
+    task: () => Promise<T>,
+    fallback: string,
+    onError: (message: string) => void = setNotice
+  ): Promise<T | undefined> {
+    if (isBusy || actionLock.current.isLocked()) {
+      return undefined;
+    }
+
+    setPendingAction(action);
+    return actionLock.current.run(async () => {
+      try {
+        return await task();
+      } catch (error) {
+        onError(toUserErrorMessage(error, fallback));
+        return undefined;
+      } finally {
+        setPendingAction(undefined);
+      }
+    });
+  }
+
+  async function selectPath() {
+    if (!api) {
+      const mockPath = "/Applications/Hearthstone/Logs/2026_07_10";
+      setSelectedLogPath(mockPath);
+      setState((current) => ({ ...current, logPath: mockPath, lastUpdated: new Date().toISOString() }));
+      return;
+    }
+
+    const path = await runAction("select-log", () => api.selectLogPath(), "选择日志目录失败，请重试。");
+    if (path) {
+      setSelectedLogPath(path);
+    }
+  }
+
+  async function ensureLogConfig() {
+    if (!api) {
+      setNotice("浏览器预览不能写入炉石日志配置，请在桌面版里操作。");
+      return;
+    }
+
+    const status = await runAction("repair-log", () => api.ensureLogConfig(), "修复日志失败，请重试。");
+    if (!status) {
+      return;
+    }
+    const backupText = status.backupPath ? "，旧配置已备份" : "";
+    setNotice(`日志配置已就绪：${status.path}${backupText}。重启炉石后生效。`);
+  }
+
+  async function toggleOverlay() {
+    if (!api) {
+      setNotice("浏览器预览不能打开桌面小窗，请在桌面版里操作。");
+      return;
+    }
+
+    const visible = await runAction("toggle-overlay", () => api.toggleOverlay(), "打开置顶小窗失败，请重试。");
+    if (visible === undefined) {
+      return;
+    }
+    setNotice(visible ? "置顶小窗已打开。" : "置顶小窗已关闭。");
+  }
+
+  async function toggleOpponentOverlay() {
+    if (!api?.toggleOpponentOverlay) {
+      setNotice("浏览器预览不能打开对手出牌小窗，请在桌面版里操作。");
+      return;
+    }
+
+    const visible = await runAction(
+      "toggle-overlay",
+      () => api.toggleOpponentOverlay!(),
+      "打开对手出牌小窗失败，请重试。"
+    );
+    if (visible === undefined) {
+      return;
+    }
+    setNotice(visible ? "对手出牌小窗已打开。" : "对手出牌小窗已关闭。");
+  }
+
+  async function minimizeMain() {
+    if (!api?.minimizeMain) {
+      setNotice("浏览器预览不能最小化主程序，请在桌面版里操作。");
+      return;
+    }
+
+    const minimized = await api.minimizeMain();
+    if (!minimized) {
+      setNotice("最小化主程序失败，请重试。");
+    }
+  }
+
+  function showCardLibrary() {
+    setActiveView("card-library");
+  }
+
+  function showTracker() {
+    setActiveView("tracker");
+  }
+
+  function updateCardLibraryQuery(update: Partial<CardLibraryQuery>) {
+    setCardLibraryQuery((current) => ({
+      ...current,
+      ...update,
+      page: "page" in update ? Math.max(1, update.page ?? 1) : 1
+    }));
+  }
+
+  async function start() {
+    if (!api) {
+      setState((current) => ({
+        ...current,
+        status: "watching",
+        logPath: selectedLogPath ?? current.logPath,
+        lastUpdated: new Date().toISOString()
+      }));
+      return;
+    }
+
+    const nextState = await runAction("tracking", () => api.start({ logPath: selectedLogPath, deckText }), "开始监听失败，请重试。");
+    if (nextState) {
+      applyTrackerState(nextState);
+    }
+  }
+
+  async function pause() {
+    if (!api) {
+      setState((current) => ({ ...current, status: "paused", lastUpdated: new Date().toISOString() }));
+      return;
+    }
+
+    const nextState = await runAction("tracking", () => api.pause(), "暂停监听失败，请重试。");
+    if (nextState) {
+      applyTrackerState(nextState);
+    }
+  }
+
+  async function toggleTracking() {
+    if (isBusy) {
+      return;
+    }
+
+    if (state.status === "watching" && !logIssue) {
+      await pause();
+      return;
+    }
+
+    await start();
+  }
+
+  async function importDeck() {
+    if (!deckText.trim()) {
+      return;
+    }
+
+    const nextState = await runAction(
+      "import-deck",
+      () => api ? api.importDeck(deckText) : Promise.resolve(withImportedDeck(state, deckText)),
+      "导入卡组失败，请检查内容后重试."
+    );
+    if (!nextState) {
+      return;
+    }
+
+    if (!applyTrackerState(nextState)) return;
+    setDeckImported(true);
+    setIsImportOpen(false);
+  }
+
+  async function scanCollectionDecks() {
+    setCollectionError(undefined);
+
+    if (!api?.scanCollectionDecks) {
+      setCollectionScan(undefined);
+      setCollectionError("浏览器预览不能读取炉石收藏，请在桌面版里操作。");
+      return;
+    }
+
+    if (isBusy) {
+      return;
+    }
+
+    setIsScanningCollection(true);
+    const scan = await runAction(
+      "scan-collection",
+      () => api.scanCollectionDecks!(),
+      "读取收藏失败，请确认炉石已打开并重试。",
+      setCollectionError
+    );
+    setIsScanningCollection(false);
+    if (scan) {
+      setCollectionScan(scan);
+    }
+  }
+
+  async function importCollectionDeck(deckId: string) {
+    setCollectionError(undefined);
+
+    if (!api?.importCollectionDeck) {
+      setCollectionError("当前环境不能导入收藏卡组，请在桌面版里操作。");
+      return;
+    }
+
+    if (isBusy) {
+      return;
+    }
+
+    setImportingCollectionDeckId(deckId);
+    const nextState = await runAction(
+      "import-collection",
+      () => api.importCollectionDeck!(deckId),
+      "导入收藏卡组失败，请重试。",
+      setCollectionError
+    );
+    setImportingCollectionDeckId(undefined);
+    if (nextState) {
+      if (!applyTrackerState(nextState)) return;
+      setDeckImported(true);
+      setIsImportOpen(false);
+    }
+  }
+
+  if (isOpponentOverlay) {
+    return (
+      <>
+        <style>{rendererStyles}</style>
+        <OpponentOverlayWindow
+          state={isQaOpponentOverlay ? qaOpponentOverlayState : state}
+          isCollapsed={isOpponentOverlayCollapsed}
+          onCollapsedChange={api?.setOpponentOverlayCollapsed
+            ? (collapsed) => { void api.setOpponentOverlayCollapsed!(collapsed); }
+            : undefined}
+          isLoading={isQaOpponentOverlay ? false : isInitializing}
+          loadError={isQaOpponentOverlay ? undefined : initializationError}
+        />
+      </>
+    );
+  }
+
+  if (isBoardAttackOverlay) {
+    const boardState = isQaBoardAttackOverlay ? qaOpponentOverlayState : state;
+    return <BoardAttackOverlay attack={boardState.boardAttack} />;
+  }
+
+  if (isArenaChoiceOverlay) {
+    return <ArenaChoiceOverlayPanel arena={isQaArenaChoiceOverlay ? qaArenaChoiceOverlayState : state.arena} />;
+  }
+
+  if (isOverlay) {
+    return (
+      <>
+        <style>{rendererStyles}</style>
+        <OverlayWindow state={state} onClose={api ? toggleOverlay : undefined} isLoading={isInitializing} loadError={initializationError} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <style>{rendererStyles}</style>
+      <main className="app-shell">
+          <TopBar
+          status={trackerStatus}
+          isTracking={state.status === "watching" && !logIssue}
+          isBusy={isBusy}
+          onToggleTracking={toggleTracking}
+          onChooseLogDirectory={selectPath}
+          onEnsureLogConfig={ensureLogConfig}
+          onToggleOverlay={toggleOverlay}
+          onToggleOpponentOverlay={toggleOpponentOverlay}
+          onMinimize={minimizeMain}
+          activeView={activeView}
+          onShowCardLibrary={showCardLibrary}
+          onShowTracker={showTracker}
+          onImportDeck={() => setIsImportOpen(true)}
+        />
+
+        {isInitializing ? (
+          <div className="notice action-notice" role="status" aria-live="polite">
+            <strong>正在读取记牌器状态</strong>
+            <span>正在扫描炉石日志，请稍候。</span>
+          </div>
+        ) : logIssue ? (
+          <div className="notice action-notice" role="status">
+            <strong>{logIssue.title}</strong>
+            <span>{logIssue.message}</span>
+          </div>
+        ) : autoMatchNotice ? (
+          <div className="notice action-notice" role="status" aria-live="polite">
+            <strong>自动匹配成功</strong>
+            <span>{autoMatchNotice}</span>
+          </div>
+        ) : selectVisibleNotice(initializationError, state.error, notice) ? (
+          <div className="notice" role={selectVisibleNotice(initializationError, state.error, notice)!.role}>
+            {selectVisibleNotice(initializationError, state.error, notice)!.message}
+          </div>
+        ) : null}
+
+        {activeView === "card-library" ? (
+          <CardLibraryRoute
+            result={cardLibraryResult}
+            query={cardLibraryQuery}
+            isLoading={isCardLibraryLoading}
+            error={cardLibraryError}
+            onQueryChange={updateCardLibraryQuery}
+          />
+        ) : (
+          <section className="dashboard-grid" aria-label="记牌器工作区">
+            <DeckPanel cards={deckCards} summary={deckSummary} logIssue={logIssue} />
+            <EventFeed events={events} />
+            {state.arena && state.arena.status !== "inactive" ? (
+              <ArenaPanel state={state.arena} />
+            ) : (
+              <OpponentPanel overview={opponentOverview} playedCards={opponentPlayedCards} />
+            )}
+          </section>
+        )}
+
+        {isImportOpen ? (
+          <div className="modal-backdrop" role="presentation" onMouseDown={() => { if (!isBusy) setIsImportOpen(false); }}>
+            <section className="modal" role="dialog" aria-modal="true" aria-labelledby="deck-import-title" aria-describedby="deck-import-description" onMouseDown={(event) => event.stopPropagation()}>
+              <h2 id="deck-import-title">导入卡组</h2>
+              <p id="deck-import-description">粘贴卡组，或从炉石收藏读取本机套牌。</p>
+              <section className="collection-import" aria-label="从收藏读取套牌">
+                <div className="collection-import-header">
+                  <div>
+                    <strong>我的收藏 / 套牌</strong>
+                    <span>{toCollectionScanMeta(collectionScan)}</span>
+                  </div>
+                  <button type="button" onClick={scanCollectionDecks} disabled={isScanningCollection || isBusy}>
+                    {isScanningCollection ? "读取中" : "从收藏读取"}
+                  </button>
+                </div>
+                <p className="collection-help">没读到？先打开炉石，进“我的收藏 → 套牌”，再回这里点读取。</p>
+                {collectionScan?.warning || collectionScan?.message || collectionError ? (
+                  <div className="collection-warning" role="status">
+                    {collectionError ?? collectionScan?.warning ?? collectionScan?.message}
+                  </div>
+                ) : null}
+                {collectionScan?.decks.length ? (
+                  <ul className="collection-deck-list">
+                    {collectionScan.decks.map((deck) => (
+                      <li key={deck.id}>
+                        <div className="collection-deck-main">
+                          <strong title={deck.name?.trim() || "未命名套牌"}>{deck.name?.trim() || "未命名套牌"}</strong>
+                          <span>
+                            {formatCollectionDeckCardCount(deck)} · {deck.heroClass ?? deck.format ?? deck.mode ?? "收藏套牌"}
+                          </span>
+                          <small>{formatCollectionDeckSource(deck, collectionScan)}</small>
+                          {deck.warnings?.length ? <em>{deck.warnings.join("；")}</em> : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="primary-action"
+                          onClick={() => importCollectionDeck(deck.id)}
+                          disabled={Boolean(importingCollectionDeckId) || isBusy}
+                        >
+                          {importingCollectionDeckId === deck.id ? "导入中" : "导入"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : collectionScan && collectionScan.status === "ok" ? (
+                  <div className="collection-empty">没有读到可导入套牌。</div>
+                ) : null}
+              </section>
+              <textarea
+                aria-label="卡组代码或卡牌列表"
+                value={deckText}
+                onChange={(event) => setDeckText(event.target.value)}
+                placeholder="粘贴炉石卡组代码，或每行写 2x 卡名"
+                spellCheck={false}
+              />
+              <div className="modal-actions">
+                <button type="button" onClick={() => setIsImportOpen(false)} disabled={isBusy}>
+                  取消
+                </button>
+                <button type="button" className="primary-action" onClick={importDeck} disabled={!deckText.trim() || isBusy}>
+                  导入
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+      </main>
+    </>
+  );
+}
+
+const qaLadderRecommendation: LadderDeckRecommendation = {
+  id: "qa-standard-top",
+  mode: "standard",
+  region: "CN",
+  patch: "36.0",
+  name: "高胜率节奏战",
+  className: "战士",
+  winRate: 58.4,
+  games: 12_486,
+  deckCode: "AAECAQcCi6AE0LIHDuPmBqr8Bqv8BuiHB9KXB7etB4+xB+yyB4S9B7XAB5XCB5vCB5zCB/nDBwAA",
+  cards: [
+    { name: "赤红深渊", cost: 1, count: 2 },
+    { name: "黑暗的龙骑士", cost: 1, count: 2 },
+    { name: "礼盒雏龙", cost: 2, count: 2 },
+    { name: "龙巢守护者", cost: 2, count: 2 },
+    { name: "石雕工匠", cost: 2, count: 2 },
+    { name: "先行打击", cost: 2, count: 2 },
+    { name: "传送门卫士", cost: 3, count: 2 },
+    { name: "诚恳商家格里伏塔", cost: 4, count: 1 },
+    { name: "幻影绿翼龙", cost: 4, count: 2 },
+    { name: "王室图书管理员", cost: 4, count: 2 },
+    { name: "现场播报员", cost: 4, count: 2 },
+    { name: "休憩飞行员诺莉亚", cost: 6, count: 1 }
+  ],
+  source: { name: "国服天梯统计", url: "https://www.iyingdi.com" },
+  updatedAt: "2026-07-12T06:30:00.000Z"
+};
+
+export function LadderDeckRecommendationWindow({ searchParams }: { searchParams: URLSearchParams }) {
+  const initialMode: LadderMode = searchParams.get("mode") === "wild" ? "wild" : "standard";
+  const isQaDemo = searchParams.get("qa-ladder-demo") === "1";
+  const api = window.hearthstoneTracker;
+  const [mode, setMode] = useState<LadderMode>(initialMode);
+  const [result, setResult] = useState<LadderDeckRecommendationResult | undefined>(
+    isQaDemo ? { status: "ready", recommendation: { ...qaLadderRecommendation, mode: initialMode }, stale: false } : undefined
+  );
+  const [isLoading, setIsLoading] = useState(!isQaDemo);
+  const requestSerial = useRef(0);
+
+  useEffect(() => {
+    if (isQaDemo) return;
+    let disposed = false;
+    const unsubscribe = api?.onLadderDeckRecommendationUpdate?.((nextMode, nextResult) => {
+      if (disposed) return;
+      requestSerial.current += 1;
+      setMode(nextMode);
+      setResult(nextResult);
+      setIsLoading(false);
+    });
+    if (!api?.getLadderDeckRecommendation) {
+      setResult({ status: "unavailable", message: "当前版本未接入天梯推荐数据" });
+      setIsLoading(false);
+    } else {
+      const serial = ++requestSerial.current;
+      void api.getLadderDeckRecommendation(initialMode).then((nextResult) => {
+        if (!disposed && requestSerial.current === serial) {
+          setResult(nextResult);
+          setIsLoading(false);
+        }
+      }).catch(() => {
+        if (!disposed && requestSerial.current === serial) {
+          setResult({ status: "unavailable", message: "天梯推荐读取失败，请稍后重试" });
+          setIsLoading(false);
+        }
+      });
+    }
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [api, initialMode, isQaDemo]);
+
+  const ready = result?.status === "ready" ? result : undefined;
+  const unavailable = result?.status === "unavailable" ? result : undefined;
+  const gameVersion = result && "gameVersion" in result && typeof result.gameVersion === "string"
+    ? result.gameVersion
+    : ready?.recommendation.patch;
+
+  const retryRecommendation = () => {
+    if (!api?.getLadderDeckRecommendation) return;
+    const serial = ++requestSerial.current;
+    setIsLoading(true);
+    void api.getLadderDeckRecommendation(mode).then((nextResult) => {
+      if (requestSerial.current === serial) setResult(nextResult);
+    }).catch(() => {
+      if (requestSerial.current === serial) {
+        setResult({ status: "unavailable", message: "天梯推荐读取失败，请稍后重试" });
+      }
+    }).finally(() => {
+      if (requestSerial.current === serial) setIsLoading(false);
+    });
+  };
+  return (
+    <LadderDeckRecommendationPanel
+      mode={mode}
+      gameVersion={gameVersion}
+      recommendation={ready?.recommendation}
+      unavailable={unavailable}
+      isCached={ready?.stale}
+      isLoading={isLoading}
+      onRetry={retryRecommendation}
+      onCopyDeckCode={async (deckCode) => {
+        if (api?.copyLadderDeckCode) {
+          await api.copyLadderDeckCode(deckCode);
+          return;
+        }
+        if (isQaDemo) return navigator.clipboard.writeText(deckCode);
+        throw new Error("复制功能不可用");
+      }}
+      onClose={() => {
+        if (api?.closeLadderDeckOverlay) void api.closeLadderDeckOverlay();
+        else window.close();
+      }}
+    />
+  );
+}
+
+function CardLibraryRoute({
+  result,
+  query,
+  isLoading,
+  error,
+  onQueryChange
+}: {
+  result: CardLibraryResult | undefined;
+  query: CardLibraryQuery;
+  isLoading: boolean;
+  error: string | undefined;
+  onQueryChange: (update: Partial<CardLibraryQuery>) => void;
+}) {
+  const pageSize = query.pageSize ?? cardLibraryPageSize;
+  const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / pageSize));
+
+  return (
+    <CardLibraryPanel
+      cards={result?.items ?? []}
+      total={result?.total ?? 0}
+      filters={{
+        heroClass: query.heroClass ?? "",
+        cardType: query.cardType ?? "",
+        heroClasses: result?.heroClasses ?? [],
+        cardTypes: result?.cardTypes ?? []
+      }}
+      query={query.query ?? ""}
+      loading={isLoading}
+      error={error}
+      page={{
+        current: result?.page ?? query.page ?? 1,
+        totalPages
+      }}
+      onSearch={(nextQuery) => onQueryChange({ query: nextQuery })}
+      onClassChange={(heroClass) => onQueryChange({ heroClass: heroClass || undefined })}
+      onTypeChange={(cardType) => onQueryChange({ cardType: cardType || undefined })}
+      onPageChange={(page) => onQueryChange({ page })}
+      onSelectCard={() => undefined}
+    />
+  );
+}
+
+function OverlayWindow({
+  state,
+  onClose,
+  isLoading,
+  loadError
+}: {
+  state: PublicTrackerState;
+  onClose?: () => void;
+  isLoading: boolean;
+  loadError?: string;
+}) {
+  const overlayView = toOverlayPanelViewModel(state, { maxDeckRows: 40, maxRecentRows: 3 });
+
+  return <OverlayPanel view={overlayView} onClose={onClose} isLoading={isLoading} loadError={loadError} />;
+}
+
+function OpponentOverlayWindow({
+  state,
+  isCollapsed,
+  onCollapsedChange,
+  isLoading,
+  loadError
+}: {
+  state: PublicTrackerState;
+  isCollapsed: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  isLoading: boolean;
+  loadError?: string;
+}) {
+  const overlayView = toOverlayPanelViewModel(state, { maxDeckRows: 40, maxRecentRows: 40 });
+
+  return (
+    <OpponentOverlayPanel
+      view={overlayView}
+      isCollapsed={isCollapsed}
+      onCollapsedChange={onCollapsedChange}
+      isLoading={isLoading}
+      loadError={loadError}
+    />
+  );
+}
+
+function CardPreviewWindow() {
+  const shouldShowQaPreview = new URLSearchParams(window.location.search).get("qa-card-preview") === "1";
+  const [details, setDetails] = useState<CardDetails | undefined>(shouldShowQaPreview ? qaCardPreviewDetails : undefined);
+  const [isPinned, setIsPinned] = useState(false);
+
+  useEffect(() => {
+    return window.hearthstoneTracker?.onCardPreviewUpdate?.((nextDetails) => {
+      setDetails(nextDetails);
+    });
+  }, []);
+
+  useEffect(() => window.hearthstoneTracker?.onCardPreviewPinnedChange?.(setIsPinned), []);
+
+  return (
+    <section className="card-preview-window-shell" data-pinned={isPinned} aria-label={details ? `卡牌说明：${details.name}` : "卡牌说明"}>
+      {details ? <CardDetailBody details={details} className="card-detail-body-hover" /> : null}
+      {details ? <div className="card-preview-hint">{isPinned ? "已固定 · ⌥Q 取消" : "⌥Q 固定 · 滚轮查看"}</div> : null}
+    </section>
+  );
+}
+
+function toTrackerStatus(
+  state: PublicTrackerState,
+  candidates: LogCandidate[],
+  selectedLogPath: string | undefined,
+  isLoading: boolean
+): TrackerStatus {
+  const logIssue = toLogIssueViewModel(state);
+  const statusState: TrackerStatus["state"] =
+    logIssue
+      ? "offline"
+      : state.status === "watching"
+      ? "tracking"
+      : state.status === "paused"
+        ? "paused"
+        : state.status === "missing-log" || state.status === "error"
+          ? "offline"
+          : "ready";
+
+  return {
+    state: statusState,
+    isLoading,
+    logPath: isLoading ? "正在读取本机日志" : logIssue?.detail ?? selectedLogPath ?? state.logPath ?? "自动寻找炉石日志",
+    watchedFiles: isLoading ? 0 : candidates.filter((candidate) => candidate.exists).length || candidates.length || 1,
+    parsedLines: state.events.length,
+    lastSyncedAt: isLoading ? "读取中" : formatTimeLabel(state.lastUpdated)
+  };
+}
+
+function toUserErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim() ? error.message : fallback;
+}
+
+function toLogIssueViewModel(state: PublicTrackerState): LogIssueViewModel | undefined {
+  const logPath = state.logPath;
+
+  if (state.status === "missing-log") {
+    return {
+      title: "缺少 Power.log",
+      message: "先点“修复日志”，然后重启炉石/开始一局。",
+      detail: state.error ?? "还没有找到可用的 Power.log。",
+      actions: logRepairActions
+    };
+  }
+
+  if (logPath && isPlayerOnlyLogPath(logPath)) {
+    return {
+      title: "只有 Player.log",
+      message: "当前日志不能读取抽牌和出牌。先点“修复日志”，然后重启炉石/开始一局。",
+      detail: `当前只看到 ${compactPath(logPath)}`,
+      actions: logRepairActions
+    };
+  }
+
+  return undefined;
+}
+
+function isPlayerOnlyLogPath(logPath: string | undefined): boolean {
+  return Boolean(logPath?.trim().match(/(^|[\\/])Player\.log$/i));
+}
+
+function toDeckSummary(state: PublicTrackerState, deckImported: boolean): DeckSummary {
+  return {
+    deckName: state.deckName ?? (deckImported || state.deck.length ? "当前卡组" : "自动识别中"),
+    totalCards: state.summary.totalCards,
+    remainingCards: state.summary.remainingCards
+  };
+}
+
+function toDeckCards(rows: CardTrackerRow[]): DeckCard[] {
+  return rows.map((row, index) => ({
+    id: `deck-${row.name}-${index}`,
+    name: row.name,
+    cost: row.details?.manaCost,
+    cardType: row.details?.cardType ?? "卡牌",
+    drawn: row.drawn,
+    copiesRemaining: row.remaining,
+    copiesTotal: row.count,
+    details: row.details
+  }));
+}
+
+function toGameEvents(events: TrackerEvent[]): GameEvent[] {
+  return events.map((event, index) => ({
+    id: event.id,
+    kind: mapEventKind(event),
+    actor: event.player === "friendly" ? "me" : event.player === "opponent" ? "opponent" : "system",
+    turn: Math.max(1, Math.ceil((index + 1) / 2)),
+    timestamp: formatTimeLabel(event.at),
+    title: eventTitle(event),
+    detail: eventDetail(event)
+  }));
+}
+
+function toOpponentOverview(state: PublicTrackerState): OpponentOverview {
+  const latestOpponentEvent = [...state.events].reverse().find((event) => event.player === "opponent");
+  const opponentPlayedCount = state.summary.opponentPlayedCount;
+
+  return {
+    heroClass: "未知职业",
+    currentTurn: Math.max(1, Math.ceil((state.events.length + 1) / 2)),
+    handSize: Math.max(0, 4 + state.events.filter((event) => event.player === "opponent").length - opponentPlayedCount),
+    deckRemaining: Math.max(0, 30 - opponentPlayedCount),
+    secretsInPlay: state.events.filter((event) => event.player === "opponent" && event.kind === "zone-change").length,
+    fatigueDamage: 0,
+    lastAction: latestOpponentEvent ? eventTitle(latestOpponentEvent) : "等待对手动作"
+  };
+}
+
+function toOpponentPlayedCards(rows: CardTrackerRow[]): OpponentPlayedCard[] {
+  return rows
+    .filter((row) => row.played > 0)
+    .map((row, index) => ({
+      id: `opponent-${row.name}-${index}`,
+      name: row.name,
+      cost: row.details?.manaCost,
+      turn: index + 1,
+      count: row.played,
+      details: row.details
+    }));
+}
+
+function withImportedDeck(state: PublicTrackerState, deckText: string): PublicTrackerState {
+  const deck = parseDeckRows(deckText);
+  const totalCards = deck.reduce((total, row) => total + row.count, 0);
+
+  return {
+    ...state,
+    deck,
+    summary: {
+      ...state.summary,
+      totalCards,
+      remainingCards: totalCards,
+      drawnCards: 0
+    },
+    lastUpdated: new Date().toISOString()
+  };
+}
+
+function parseDeckRows(deckText: string): CardTrackerRow[] {
+  return deckText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s*x\s+(.+)$/i);
+      const count = match ? Number(match[1]) : 1;
+      const name = match ? match[2] : line;
+
+      return {
+        name,
+        count,
+        remaining: count,
+        drawn: 0,
+        played: 0
+      };
+    });
+}
+
+function toCollectionScanMeta(scan: CollectionDeckScanResult | undefined): string {
+  if (!scan) {
+    return "未读取";
+  }
+
+  const count = scan.decks.length.toLocaleString("zh-CN");
+  const updatedAt = formatDateTimeLabel(scan.updatedAt);
+
+  return updatedAt ? `${count} 套 · ${updatedAt}` : `${count} 套`;
+}
+
+function formatCollectionDeckCardCount(deck: CollectionDeckSummary): string {
+  if (typeof deck.cardCount === "number") {
+    return `${deck.cardCount} 张`;
+  }
+
+  if (deck.cards) {
+    const cardCount = deck.cards.reduce((total, card) => total + card.count, 0);
+    if (cardCount === 0 && deck.rawDeckString) {
+      return "卡组代码";
+    }
+
+    return `${cardCount} 张`;
+  }
+
+  if (deck.rawDeckString) {
+    return "卡组代码";
+  }
+
+  return "卡牌数待解析";
+}
+
+function formatCollectionDeckSource(deck: CollectionDeckSummary, scan: CollectionDeckScanResult): string {
+  const source = deck.sourcePath ?? scan.sourcePath ?? "炉石收藏";
+  const updatedAt = formatDateTimeLabel(deck.updatedAt ?? scan.updatedAt);
+
+  return updatedAt ? `${compactPath(source)} · ${updatedAt}` : compactPath(source);
+}
+
+function mapEventKind(event: TrackerEvent): GameEvent["kind"] {
+  if (event.kind === "draw") {
+    return "draw";
+  }
+
+  if (event.kind === "friendly-play" || event.kind === "opponent-play") {
+    return "play";
+  }
+
+  if (event.kind === "game-start") {
+    return "turn";
+  }
+
+  if (event.kind === "zone-change") {
+    return "secret";
+  }
+
+  return "log";
+}
+
+function eventTitle(event: TrackerEvent): string {
+  switch (event.kind) {
+    case "draw":
+      return `我方抽到 ${event.cardName ?? "未知卡牌"}`;
+    case "friendly-play":
+      return `我方打出 ${event.cardName ?? "未知卡牌"}`;
+    case "opponent-play":
+      return `对手打出 ${event.cardName ?? "未知卡牌"}`;
+    case "game-start":
+      return "新对局开始";
+    case "zone-change":
+      return event.player === "opponent" ? "对手区域变化" : "区域变化";
+    case "info":
+      return event.cardName?.startsWith("已自动匹配：") ? "已自动匹配收藏套牌" : "日志提示";
+    default:
+      return "日志提示";
+  }
+}
+
+function eventDetail(event: TrackerEvent): string {
+  if (event.raw) {
+    return event.raw;
+  }
+
+  if (event.fromZone || event.toZone) {
+    return `${event.fromZone ?? "未知区域"} -> ${event.toZone ?? "未知区域"}`;
+  }
+
+  return event.cardName ? `记录到卡牌：${event.cardName}` : "等待日志解析提供更多信息。";
+}
+
+function formatTimeLabel(value: string | undefined): string {
+  if (!value) {
+    return "刚刚";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatDateTimeLabel(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function compactPath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+
+  if (parts.length <= 2) {
+    return path;
+  }
+
+  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+}
+
+const rendererStyles = `
+body:not(:has(.overlay-shell)):not(:has(.board-attack-overlay-canvas)) {
+  min-width: 860px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(228, 157, 74, 0.18), transparent 31rem),
+    linear-gradient(135deg, #17110d 0%, #241a11 50%, #111818 100%);
+}
+
+button {
+  border: 1px solid rgba(245, 235, 220, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #f9f1e6;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 0 11px;
+}
+
+button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(245, 196, 108, 0.5);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px;
+  background: transparent;
+}
+
+.top-bar {
+  align-items: center;
+  background: rgba(33, 25, 18, 0.94);
+  border: 1px solid rgba(245, 235, 220, 0.14);
+  border-radius: 8px;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  min-height: 58px;
+  padding: 10px 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
+  -webkit-app-region: drag;
+}
+
+.brand-block,
+.status-strip,
+.top-actions,
+.panel-heading,
+.timeline-meta,
+.hint-line,
+.fatigue-block,
+.subheading {
+  display: flex;
+  align-items: center;
+}
+
+.brand-block {
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand-mark,
+.panel-icon,
+.timeline-icon {
+  align-items: center;
+  border-radius: 8px;
+  display: inline-flex;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.brand-mark {
+  background: linear-gradient(135deg, #e7a64c, #8e3b2c);
+  color: #1b120c;
+  height: 36px;
+  width: 36px;
+}
+
+.brand-block h1,
+.panel-heading h2,
+.timeline-row h3,
+.subheading h3,
+.brand-block p,
+.timeline-row p,
+.last-action p {
+  margin: 0;
+}
+
+.brand-block h1 {
+  color: #f5ebdc;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.brand-block p,
+.timeline-row p,
+.hint-line,
+.last-action p {
+  color: #cdbda8;
+}
+
+.brand-block p {
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-strip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(245, 235, 220, 0.11);
+  border-radius: 8px;
+  gap: 8px;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+
+.status-strip strong {
+  color: #f5ebdc;
+  font-size: 13px;
+}
+
+.status-strip span:last-child {
+  color: #cdbda8;
+  font-size: 12px;
+}
+
+.status-dot {
+  border-radius: 50%;
+  height: 9px;
+  width: 9px;
+}
+
+.status-ready {
+  background: #e5a84e;
+}
+
+.status-tracking {
+  background: #50d38a;
+  box-shadow: 0 0 0 4px rgba(80, 211, 138, 0.14);
+}
+
+.status-paused {
+  background: #d86a48;
+}
+
+.status-offline {
+  background: #8d8a85;
+}
+
+.top-actions {
+  gap: 8px;
+  justify-content: flex-end;
+  -webkit-app-region: no-drag;
+}
+
+.top-actions .icon-action {
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  justify-content: center;
+  padding: 0;
+}
+
+.top-actions button {
+  white-space: nowrap;
+}
+
+.primary-action {
+  background: linear-gradient(135deg, #f4ba59, #b94b35);
+  border-color: rgba(255, 231, 159, 0.34);
+  color: #21130c;
+}
+
+.dashboard-grid {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 0.82fr) minmax(300px, 1.35fr) minmax(220px, 0.9fr);
+  margin-top: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel {
+  background: rgba(29, 23, 18, 0.9);
+  border: 1px solid rgba(245, 235, 220, 0.13);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px;
+  box-shadow: none;
+}
+
+.panel-heading {
+  flex: 0 0 auto;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.eyebrow {
+  color: #d39f59;
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin-bottom: 5px;
+}
+
+.panel-heading h2 {
+  color: #f5ebdc;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.panel-icon {
+  background: rgba(229, 168, 78, 0.14);
+  color: #f0b75e;
+  height: 34px;
+  width: 34px;
+}
+
+.panel-icon.danger {
+  background: rgba(196, 76, 61, 0.17);
+  color: #ff9279;
+}
+
+.deck-summary {
+  background: linear-gradient(135deg, rgba(231, 166, 76, 0.16), rgba(76, 143, 127, 0.12));
+  border: 1px solid rgba(245, 235, 220, 0.12);
+  border-radius: 8px;
+  flex: 0 0 auto;
+  padding: 12px;
+}
+
+.deck-summary strong {
+  color: #f5ebdc;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.deck-summary span {
+  color: #cdbda8;
+  margin-left: 6px;
+}
+
+.meter {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 999px;
+  height: 7px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.meter span {
+  background: linear-gradient(90deg, #50d38a, #f1bb58);
+  display: block;
+  height: 100%;
+  margin: 0;
+}
+
+.card-list,
+.played-list,
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.card-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.deck-card-row,
+.played-list li {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(245, 235, 220, 0.1);
+  border-radius: 8px;
+  display: grid;
+}
+
+.deck-card-row {
+  gap: 10px;
+  grid-template-columns: 30px 1fr auto;
+  min-height: 46px;
+  padding: 7px;
+}
+
+.deck-card-row.is-gone {
+  opacity: 0.48;
+}
+
+.mana-cost {
+  align-items: center;
+  background: radial-gradient(circle at 35% 25%, #84d8ff, #286b9d 72%);
+  border: 1px solid rgba(219, 241, 255, 0.52);
+  border-radius: 50%;
+  color: #f8fcff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.card-main {
+  min-width: 0;
+}
+
+.card-main span,
+.played-list strong {
+  color: #f5ebdc;
+  display: block;
+  font-size: 14px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-main small,
+.played-list small,
+.timeline-meta {
+  color: #b9aa95;
+  font-size: 11px;
+}
+
+.deck-card-row > strong {
+  color: #f1bb58;
+  font-size: 13px;
+}
+
+.hint-line {
+  border-top: 1px solid rgba(245, 235, 220, 0.1);
+  flex: 0 0 auto;
+  gap: 7px;
+  line-height: 1.45;
+  margin-top: 10px;
+  padding-top: 10px;
+  font-size: 12px;
+}
+
+.event-feed {
+  display: flex;
+}
+
+.event-count {
+  background: rgba(76, 143, 127, 0.16);
+  border: 1px solid rgba(96, 190, 169, 0.22);
+  border-radius: 999px;
+  color: #87dac5;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.timeline-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 36px 1fr;
+  position: relative;
+}
+
+.timeline-icon {
+  background: rgba(245, 235, 220, 0.08);
+  border: 1px solid rgba(245, 235, 220, 0.12);
+  color: #f1bb58;
+  height: 36px;
+  width: 36px;
+}
+
+.actor-opponent .timeline-icon {
+  color: #ff9279;
+}
+
+.actor-me .timeline-icon {
+  color: #87dac5;
+}
+
+.timeline-row article {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(245, 235, 220, 0.1);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.timeline-meta {
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.timeline-row h3 {
+  color: #f5ebdc;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.timeline-row p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 5px;
+}
+
+.overview-grid {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-tile {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(245, 235, 220, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 70px;
+  padding: 10px;
+}
+
+.stat-tile svg {
+  color: #87dac5;
+}
+
+.stat-tile span,
+.last-action span,
+.subheading span {
+  color: #b9aa95;
+  font-size: 12px;
+}
+
+.stat-tile strong {
+  color: #f5ebdc;
+  font-size: 24px;
+}
+
+.fatigue-block {
+  background: rgba(185, 75, 53, 0.14);
+  border: 1px solid rgba(255, 146, 121, 0.22);
+  border-radius: 8px;
+  flex: 0 0 auto;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.fatigue-block svg {
+  color: #ff9279;
+}
+
+.fatigue-block span {
+  color: #e0cbbb;
+  flex: 1;
+  font-size: 13px;
+}
+
+.fatigue-block strong {
+  color: #ffb29f;
+  font-size: 20px;
+}
+
+.last-action {
+  border-bottom: 1px solid rgba(245, 235, 220, 0.1);
+  border-top: 1px solid rgba(245, 235, 220, 0.1);
+  flex: 0 0 auto;
+  margin: 10px 0;
+  padding: 10px 0;
+}
+
+.last-action p {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+.subheading {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.subheading h3 {
+  color: #f5ebdc;
+  font-size: 15px;
+}
+
+.played-list {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.played-list li {
+  gap: 10px;
+  grid-template-columns: 30px 1fr auto;
+  min-height: 46px;
+  padding: 7px;
+}
+
+.played-list em {
+  color: #f1bb58;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.arena-panel {
+  gap: 10px;
+}
+
+.arena-icon {
+  background: rgba(116, 173, 222, 0.16);
+  color: #9ad7f4;
+}
+
+.arena-progress {
+  background: rgba(116, 173, 222, 0.1);
+  border: 1px solid rgba(154, 215, 244, 0.18);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+}
+
+.arena-progress strong {
+  color: #e8f7ff;
+  font-size: 23px;
+  line-height: 1;
+}
+
+.arena-progress span,
+.arena-progress small,
+.arena-waiting,
+.arena-choices small,
+.arena-deck li {
+  color: #b9cbd6;
+  font-size: 11px;
+}
+
+.arena-progress small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-choices,
+.arena-deck {
+  min-height: 0;
+}
+
+.arena-choices ul,
+.arena-deck ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.arena-choices ul {
+  flex: 0 1 auto;
+}
+
+.arena-choices li,
+.arena-deck li {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(154, 215, 244, 0.12);
+  border-radius: 7px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.arena-choices li > div {
+  min-width: 0;
+}
+
+.arena-choices strong {
+  color: #f5ebdc;
+  display: block;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-choices small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-choices .arena-rating-breakdown {
+  color: #d4c48e;
+  font-size: 10px;
+}
+
+.arena-score {
+  align-items: center;
+  background: rgba(154, 215, 244, 0.2);
+  border: 1px solid rgba(154, 215, 244, 0.28);
+  border-radius: 6px;
+  color: #c9efff;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 1px;
+  min-width: 48px;
+  padding: 5px 6px;
+  text-align: center;
+}
+
+.arena-score strong {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.arena-score small {
+  color: inherit;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.arena-score-s {
+  background: rgba(250, 204, 21, 0.2);
+  border-color: rgba(250, 204, 21, 0.48);
+  color: #ffe58a;
+}
+
+.arena-score-a {
+  background: rgba(74, 222, 128, 0.18);
+  border-color: rgba(74, 222, 128, 0.38);
+  color: #b5f7c9;
+}
+
+.arena-score-b {
+  background: rgba(154, 215, 244, 0.2);
+  color: #c9efff;
+}
+
+.arena-score-c {
+  background: rgba(148, 163, 184, 0.18);
+  border-color: rgba(148, 163, 184, 0.32);
+  color: #d4dce4;
+}
+
+.arena-score-d {
+  background: rgba(251, 146, 60, 0.18);
+  border-color: rgba(251, 146, 60, 0.36);
+  color: #ffd0a8;
+}
+
+.arena-score-f,
+.arena-score-unknown {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.32);
+  color: #ffc2c2;
+}
+
+.arena-recommendation {
+  color: #fff0a8 !important;
+  font-size: 9px !important;
+  font-weight: 900;
+}
+
+.card-detail-disclosure {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(245, 235, 220, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.card-detail-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.card-detail-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.card-detail-disclosure > summary:focus-visible {
+  outline: 2px solid rgba(154, 215, 244, 0.72);
+  outline-offset: -2px;
+}
+
+.card-detail-disclosure .deck-card-row,
+.card-detail-disclosure .played-card-row {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.card-detail-disclosure .played-card-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  min-height: 46px;
+  padding: 7px;
+}
+
+.card-thumb {
+  background: rgba(8, 13, 20, 0.72);
+  border: 1px solid rgba(219, 241, 255, 0.25);
+  border-radius: 5px;
+  display: block;
+  height: 40px;
+  object-fit: cover;
+  width: 30px;
+}
+
+.card-detail-body {
+  border-top: 1px solid rgba(245, 235, 220, 0.1);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 78px minmax(0, 1fr);
+  padding: 10px;
+}
+
+.card-detail-image {
+  aspect-ratio: 0.72;
+  background: rgba(8, 13, 20, 0.72);
+  border: 1px solid rgba(219, 241, 255, 0.25);
+  border-radius: 6px;
+  display: block;
+  object-fit: cover;
+  width: 78px;
+}
+
+.card-detail-image-empty {
+  align-items: center;
+  color: #8e9aa6;
+  display: flex;
+  font-size: 11px;
+  justify-content: center;
+  text-align: center;
+}
+
+.card-detail-copy {
+  min-width: 0;
+}
+
+.card-detail-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.card-detail-heading strong {
+  color: #f5ebdc;
+  font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-detail-heading span,
+.card-detail-meta,
+.card-detail-stats,
+.card-related-list > span {
+  color: #b9cbd6;
+  font-size: 11px;
+}
+
+.card-detail-stats {
+  color: #f1bb58;
+  margin-top: 4px;
+}
+
+.card-detail-meta {
+  margin-top: 4px;
+}
+
+.card-detail-text {
+  color: #e4eaf0;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+.card-related-list {
+  border-top: 1px solid rgba(245, 235, 220, 0.08);
+  margin-top: 8px;
+  padding-top: 7px;
+}
+
+.card-related-list p {
+  color: #d7e9f2;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+
+.card-detail-empty {
+  border-top: 1px solid rgba(245, 235, 220, 0.1);
+  color: #8e9aa6;
+  font-size: 12px;
+  padding: 10px;
+}
+
+.played-list > li {
+  background: transparent;
+  border: 0;
+  display: block;
+  padding: 0;
+}
+
+.arena-choices li:has(.arena-choice-disclosure) {
+  display: block;
+  padding: 0;
+}
+
+.arena-choice-disclosure {
+  border-color: rgba(154, 215, 244, 0.12);
+}
+
+.arena-choice-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  min-height: 46px;
+  padding: 7px 8px;
+}
+
+.arena-choice-row > div {
+  min-width: 0;
+}
+
+.arena-deck li .card-thumb {
+  height: 32px;
+  width: 24px;
+}
+
+.arena-waiting {
+  align-items: center;
+  border: 1px dashed rgba(245, 235, 220, 0.16);
+  display: flex;
+  gap: 7px;
+  padding: 9px;
+}
+
+.arena-deck {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.arena-deck ul {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.arena-deck li {
+  min-height: 30px;
+}
+
+.arena-deck li span {
+  color: #f5ebdc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-deck li strong {
+  color: #f1bb58;
+  flex: 0 0 auto;
+}
+
+.arena-last-pick {
+  align-items: center;
+  border-top: 1px solid rgba(245, 235, 220, 0.1);
+  color: #87dac5;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding-top: 9px;
+}
+
+.arena-last-pick span {
+  color: #cfeee3;
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-backdrop {
+  z-index: 20;
+}
+
+.modal {
+  background: #1d1712;
+  box-sizing: border-box;
+  color: #f5ebdc;
+  display: flex;
+  flex-direction: column;
+  max-height: min(650px, calc(100vh - 48px));
+  min-height: 0;
+  overflow: hidden;
+  width: min(660px, calc(100vw - 36px));
+}
+
+.modal textarea {
+  color: #f5ebdc;
+  background: #130f0c;
+  flex: 0 1 150px;
+  min-height: 120px;
+}
+
+.collection-import {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(245, 235, 220, 0.1);
+  border-radius: 8px;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.collection-import-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.collection-import-header div,
+.collection-deck-main {
+  min-width: 0;
+}
+
+.collection-import-header strong,
+.collection-deck-main strong {
+  color: #f5ebdc;
+  display: block;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-import-header span,
+.collection-help,
+.collection-deck-main span,
+.collection-deck-main small {
+  color: #b9aa95;
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-import .collection-help {
+  margin: -4px 0 0;
+}
+
+.collection-warning,
+.collection-empty {
+  background: rgba(185, 75, 53, 0.14);
+  border: 1px solid rgba(255, 146, 121, 0.18);
+  border-radius: 8px;
+  color: #ffcabd;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.collection-empty {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(245, 235, 220, 0.1);
+  color: #cdbda8;
+}
+
+.collection-deck-list {
+  display: grid;
+  flex: 0 1 auto;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  max-height: 190px;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 2px 0 0;
+}
+
+.collection-deck-list li {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(245, 235, 220, 0.09);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 8px;
+}
+
+.collection-deck-main em {
+  color: #e6ae65;
+  display: block;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .top-bar {
+    grid-template-columns: minmax(220px, 1fr) auto auto;
+  }
+
+  .top-actions {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: minmax(200px, 0.8fr) minmax(280px, 1.12fr) minmax(210px, 0.88fr);
+  }
+
+  .panel {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 980px), (max-height: 680px) {
+  .app-shell {
+    padding: 8px;
+  }
+
+  .top-bar {
+    min-height: 46px;
+    padding: 7px 8px;
+  }
+
+  .brand-mark {
+    height: 30px;
+    width: 30px;
+  }
+
+  .brand-block h1 {
+    font-size: 14px;
+  }
+
+  .brand-block p,
+  .status-strip span:last-child {
+    font-size: 11px;
+  }
+
+  .status-strip {
+    padding: 7px 8px;
+  }
+
+  button {
+    min-height: 30px;
+    padding: 0 9px;
+  }
+
+  .top-actions {
+    gap: 6px;
+  }
+
+  .top-actions button {
+    width: 32px;
+    gap: 0;
+    overflow: hidden;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .top-actions button svg {
+    flex: 0 0 auto;
+  }
+
+  .dashboard-grid {
+    gap: 7px;
+    grid-template-columns: minmax(190px, 0.78fr) minmax(260px, 1.08fr) minmax(200px, 0.86fr);
+    margin-top: 7px;
+  }
+
+  .panel {
+    padding: 9px;
+  }
+
+  .panel-heading {
+    margin-bottom: 7px;
+  }
+
+  .panel-heading h2 {
+    font-size: 14px;
+  }
+
+  .panel-icon {
+    height: 30px;
+    width: 30px;
+  }
+
+  .deck-summary {
+    padding: 9px;
+  }
+
+  .deck-summary strong {
+    font-size: 24px;
+  }
+
+  .deck-card-row,
+  .played-list li {
+    min-height: 38px;
+    padding: 5px;
+  }
+
+  .mana-cost {
+    height: 26px;
+    width: 26px;
+  }
+
+  .card-main span,
+  .played-list strong,
+  .timeline-row h3 {
+    font-size: 12.5px;
+  }
+
+  .hint-line {
+    display: none;
+  }
+
+  .timeline {
+    gap: 8px;
+  }
+
+  .timeline-row {
+    gap: 8px;
+    grid-template-columns: 30px 1fr;
+  }
+
+  .timeline-icon {
+    height: 30px;
+    width: 30px;
+  }
+
+  .timeline-row article {
+    padding: 8px;
+  }
+
+  .timeline-row p,
+  .last-action p {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .stat-tile {
+    min-height: 58px;
+    padding: 8px;
+  }
+
+  .stat-tile strong {
+    font-size: 20px;
+  }
+
+  .fatigue-block,
+  .last-action {
+    margin-top: 8px;
+  }
+
+  .modal-backdrop {
+    padding: 12px;
+  }
+
+  .modal {
+    max-height: calc(100vh - 24px);
+    padding: 12px;
+  }
+
+  .modal h2 {
+    margin-bottom: 6px;
+    font-size: 16px;
+  }
+
+  .modal p {
+    margin-bottom: 8px;
+  }
+
+  .modal textarea {
+    flex-basis: 110px;
+    min-height: 92px;
+  }
+
+  .collection-import {
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 8px;
+  }
+
+  .collection-deck-list {
+    max-height: clamp(112px, 22vh, 160px);
+  }
+
+  .modal-actions {
+    margin-top: 10px;
+  }
+}
+`;
+
+export default App;

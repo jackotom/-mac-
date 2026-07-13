@@ -1,0 +1,166 @@
+import { Check, Crown, Star } from "lucide-react";
+import { getArenaScoreQuality } from "../../shared/arenaRatings";
+import type { ArenaCardChoice, ArenaState } from "../../shared/types";
+import { ArenaChoiceMetrics } from "./ArenaChoiceMetrics";
+import { CardDetailBody } from "./CardDetailBody";
+
+interface ArenaPanelProps {
+  state: ArenaState;
+}
+
+export function ArenaPanel({ state }: ArenaPanelProps) {
+  const latestChoices = state.currentChoices;
+  const sortedChoices = sortChoices(latestChoices);
+  const latestPick = state.picks[state.picks.length - 1];
+  const statusLabel = state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成";
+
+  return (
+    <aside className="panel arena-panel" aria-label="竞技场选牌评分">
+      <div className="panel-heading">
+        <div>
+          <span className="eyebrow">竞技场</span>
+          <h2>{statusLabel}</h2>
+        </div>
+        <div className="panel-icon arena-icon">
+          <Crown aria-hidden="true" size={20} />
+        </div>
+      </div>
+
+      <div className="arena-progress">
+        <strong>{state.draftCount}/30</strong>
+        <span>{state.hero?.name ?? "等待职业"}</span>
+        <small>{state.error ?? state.scoreSource ?? "评分数据待更新"}</small>
+      </div>
+
+      {latestChoices.length > 0 ? (
+        <section className="arena-choices" aria-label="当前候选牌">
+          <div className="subheading">
+            <h3>当前三选一</h3>
+            <span>自动评分</span>
+          </div>
+          <ul>
+            {sortedChoices.map((choice, index) => (
+              <li key={`${choice.cardId ?? choice.name}-${choice.entityId ?? "choice"}`}>
+                <details className="card-detail-disclosure arena-choice-disclosure">
+                  <summary className="arena-choice-row">
+                    {choice.details?.cropImageUrl || choice.details?.imageUrl ? (
+                      <img className="card-thumb" src={choice.details.cropImageUrl ?? choice.details.imageUrl} alt="" loading="lazy" />
+                    ) : null}
+                    <div>
+                      <strong title={choice.name} aria-label={choice.name}>{choice.name}</strong>
+                      <small>{choice.cardId ?? "卡牌编号待解析"}</small>
+                      {choice.rating ? <small className="arena-rating-breakdown">{formatRating(choice)}</small> : null}
+                    </div>
+                    <Score
+                      score={choice.score}
+                      quality={choice.quality}
+                      isRecommended={index === 0 && choice.score !== undefined}
+                    />
+                    <ArenaChoiceMetrics choice={choice} />
+                  </summary>
+                  <CardDetailBody details={choice.details} />
+                </details>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <div className="arena-waiting" role="status">
+          <Star aria-hidden="true" size={16} />
+          等待下一轮候选牌
+        </div>
+      )}
+
+      <section className="arena-deck" aria-label="当前竞技场牌库">
+        <div className="subheading">
+          <h3>当前牌库</h3>
+          <span>{state.deck.reduce((total, card) => total + card.count, 0)} 张</span>
+        </div>
+        <ul>
+          {state.deck.map((card) => (
+            <li key={card.cardId ?? card.name}>
+              {card.details?.cropImageUrl || card.details?.imageUrl ? (
+                <img className="card-thumb" src={card.details.cropImageUrl ?? card.details.imageUrl} alt="" loading="lazy" />
+              ) : null}
+              <span title={card.name}>{card.name}</span>
+              <strong>x{card.count}</strong>
+            </li>
+          ))}
+          {state.deck.length === 0 ? (
+            <li className="arena-empty-deck" role="status">尚未选择牌，完成选牌后会生成竞技场牌库。</li>
+          ) : null}
+        </ul>
+      </section>
+
+      {latestPick ? (
+        <div className="arena-last-pick">
+          <Check aria-hidden="true" size={15} />
+          <span title={latestPick.chosen.name}>最近选择：{latestPick.chosen.name}</span>
+          <Score score={latestPick.chosen.score} quality={latestPick.chosen.quality} />
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
+function sortChoices(choices: readonly ArenaCardChoice[]) {
+  return [...choices].sort((left, right) => (right.score ?? -1) - (left.score ?? -1));
+}
+
+function Score({
+  score,
+  quality,
+  isRecommended = false
+}: {
+  score: number | undefined;
+  quality?: ArenaCardChoice["quality"];
+  isRecommended?: boolean;
+}) {
+  const resolvedQuality = quality ?? getArenaScoreQuality(score);
+  return (
+    <span
+      className={`arena-score arena-score-${resolvedQuality.tier}`}
+      title={score === undefined ? "暂无评分" : `评分 ${score}，质量：${resolvedQuality.label}`}
+    >
+      {isRecommended ? <small className="arena-recommendation">首选</small> : null}
+      <strong>{score === undefined ? "—" : score}</strong>
+      <small>{resolvedQuality.label}</small>
+    </span>
+  );
+}
+
+function formatRating(choice: ArenaCardChoice): string {
+  const rating = choice.rating;
+  if (!rating) {
+    return "";
+  }
+
+  const parts = [rating.hearthArena === undefined ? undefined : `HA ${rating.hearthArena}`];
+  if (rating.firestone?.includedWinrate !== undefined) {
+    const sample =
+      rating.firestone.sampleSize === undefined
+        ? ""
+        : rating.firestone.sampleSize < 2000
+          ? ` · 样本偏少 ${formatSampleSize(rating.firestone.sampleSize)}`
+          : ` · ${formatSampleSize(rating.firestone.sampleSize)}样本`;
+    parts.push(`入选胜率 ${rating.firestone.includedWinrate.toFixed(1)}%${sample}`);
+  }
+  if (rating.firestone?.playedWinrate !== undefined) {
+    parts.push(`出牌 ${rating.firestone.playedWinrate.toFixed(1)}%`);
+  }
+  if (rating.highWinPickRate !== undefined) {
+    const label = rating.highWinThreshold === undefined ? "高胜选取" : `${rating.highWinThreshold}+胜选取`;
+    parts.push(`${label} ${rating.highWinPickRate.toFixed(1)}%`);
+  }
+  if (rating.twelveWinRate !== undefined) {
+    parts.push(`实际12胜 ${rating.twelveWinRate.toFixed(1)}%`);
+  }
+  return parts.filter((part): part is string => part !== undefined).join(" · ");
+}
+
+function formatSampleSize(value: number): string {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+  }
+  return Math.round(value).toString();
+}

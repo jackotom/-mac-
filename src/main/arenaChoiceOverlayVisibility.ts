@@ -1,0 +1,11 @@
+import type { ArenaState } from "../shared/types.js";
+import { isHearthstoneFrontmost } from "./frontmostApp.js";
+
+export function shouldShowArenaChoiceOverlay(arena: ArenaState | undefined, frontmostAppName: string | undefined): boolean {
+  return Boolean(
+    arena &&
+    (arena.status === "drafting" || arena.status === "redrafting") &&
+    arena.currentChoices.length >= 3 &&
+    isHearthstoneFrontmost(frontmostAppName)
+  );
+}

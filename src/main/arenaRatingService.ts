@@ -1,0 +1,644 @@
+import { app } from "electron";
+import { createHash } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import type {
+  ArenaRatingTable,
+  FirestoneCardRating,
+  FirestoneDraftBucket,
+  FirestoneRatingSource,
+  HearthArenaWebLocaleRatingSource,
+  HearthArenaWebRatingSource
+} from "../shared/arenaRatings.js";
+
+const SOURCE = "Arena Tracker / HearthArena";
+const VERSION_URL = "https://raw.githubusercontent.com/supertriodo/Arena-Tracker/master/HearthArena/haVersion.json";
+const RATINGS_URL = "https://raw.githubusercontent.com/supertriodo/Arena-Tracker/master/HearthArena/hearthArena.json";
+const FIRESTONE_CARD_STATS_URL = "https://static.zerotoheroes.com/api/arena/stats/cards/arena-underground/last-patch/global.gz.json?v=6";
+const FIRESTONE_DRAFT_STATS_URLS = [
+  "https://static.zerotoheroes.com/api/arena/stats/draft/arena/last-patch/global.gz.json?v=6",
+  "https://static.zerotoheroes.com/api/arena/stats/draft/arena-underground/last-patch/global.gz.json?v=6"
+] as const;
+const HEARTH_ARENA_WEB_SOURCES = [
+  { locale: "zh-cn", url: "https://www.heartharena.com/zh-cn/tierlist" },
+  { locale: "zh-tw", url: "https://www.heartharena.com/zh-tw/tierlist" }
+] as const;
+const CACHE_FILE_NAME = "hearthstone-arena-ratings.json";
+const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 20000;
+const HEARTH_ARENA_CLASS_BY_SLUG: Readonly<Record<string, string>> = {
+  "death-knight": "Death Knight",
+  "demon-hunter": "Demon Hunter",
+  druid: "Druid",
+  hunter: "Hunter",
+  mage: "Mage",
+  paladin: "Paladin",
+  priest: "Priest",
+  rogue: "Rogue",
+  shaman: "Shaman",
+  warlock: "Warlock",
+  warrior: "Warrior",
+  any: "Neutral",
+  neutral: "Neutral"
+};
+
+export interface ArenaRatingLoadResult {
+  readonly table?: ArenaRatingTable;
+  readonly warnings: readonly string[];
+}
+
+export class ArenaRatingService {
+  private readonly cachePath: string | undefined;
+  private readonly fetcher: typeof fetch;
+  private cachedTable: ArenaRatingTable | undefined;
+
+  constructor(cachePath?: string, fetcher: typeof fetch = fetch) {
+    this.cachePath = cachePath;
+    this.fetcher = fetcher;
+  }
+
+  async loadRatings(): Promise<ArenaRatingLoadResult> {
+    if (this.cachedTable) {
+      return { table: this.cachedTable, warnings: [] };
+    }
+
+    const cached = await this.readCache();
+    if (cached) {
+      this.cachedTable = cached;
+      if (!cached.firestone || !hasFirestoneDraftStats(cached.firestone) || !hasHearthArenaWebStats(cached.hearthArenaWeb) || (await this.isStale())) {
+        return this.refresh(cached);
+      }
+      return { table: cached, warnings: [] };
+    }
+
+    return this.refresh(undefined);
+  }
+
+  private async refresh(cached: ArenaRatingTable | undefined): Promise<ArenaRatingLoadResult> {
+    const warnings: string[] = [];
+
+    try {
+      const cacheIsStale = !cached || (await this.isStale());
+      const versionPayload = await this.fetchJson(VERSION_URL);
+      const version = parseVersion(versionPayload);
+      const firestoneVersion = await this.fetchFirestoneVersion().catch((error) => {
+        warnings.push(`Firestone 评分版本读取失败：${formatError(error)}`);
+        return undefined;
+      });
+      const needsHearthArena = !cached || version !== cached.version;
+      const needsHearthArenaWeb = cacheIsStale || !hasHearthArenaWebStats(cached.hearthArenaWeb);
+      const needsFirestone =
+        !cached?.firestone ||
+        firestoneVersion === undefined ||
+        cached.firestone.version !== firestoneVersion ||
+        !hasFirestoneDraftStats(cached.firestone);
+
+      if (!needsHearthArena && !needsHearthArenaWeb && !needsFirestone && cached) {
+        return { table: cached, warnings };
+      }
+
+      const ratings = needsHearthArena ? parseRatings(await this.fetchJson(RATINGS_URL)) : cached?.ratings;
+      if (!ratings) {
+        throw new Error("HearthArena 评分数据为空");
+      }
+
+      let hearthArenaWeb = cached?.hearthArenaWeb;
+      if (needsHearthArenaWeb) {
+        const nextLocales = await Promise.all(
+          HEARTH_ARENA_WEB_SOURCES.map(async (source) => {
+            try {
+              return parseHearthArenaWebLocale(source.locale, source.url, await this.fetchText(source.url));
+            } catch (error) {
+              warnings.push(`HearthArena ${source.locale} 网页评分读取失败：${formatError(error)}`);
+              return cached?.hearthArenaWeb?.locales[source.locale];
+            }
+          })
+        );
+        hearthArenaWeb = buildHearthArenaWebSource(nextLocales.filter((locale): locale is HearthArenaWebLocaleRatingSource => Boolean(locale))) ?? hearthArenaWeb;
+      }
+
+      let firestone = cached?.firestone;
+      if (needsFirestone) {
+        try {
+          const cardStatsPayload = await this.fetchJson(FIRESTONE_CARD_STATS_URL);
+          const draftStatsPayloads = await Promise.all(
+            FIRESTONE_DRAFT_STATS_URLS.map(async (url) => {
+              try {
+                return await this.fetchJson(url);
+              } catch (error) {
+                warnings.push(`Firestone 选牌统计读取失败：${formatError(error)}`);
+                return undefined;
+              }
+            })
+          );
+          firestone = parseFirestone(cardStatsPayload, draftStatsPayloads, firestoneVersion);
+        } catch (error) {
+          if (!firestone) {
+            throw error;
+          }
+          warnings.push(`Firestone 评分读取失败，继续使用本地缓存：${formatError(error)}`);
+        }
+      }
+
+      const table: ArenaRatingTable = {
+        source: SOURCE,
+        version,
+        fetchedAt: new Date().toISOString(),
+        ratings,
+        hearthArenaWeb,
+        firestone
+      };
+      const cachePath = this.getCachePath();
+      await fs.mkdir(path.dirname(cachePath), { recursive: true });
+      await fs.writeFile(cachePath, JSON.stringify(table), "utf8");
+      this.cachedTable = table;
+      return { table, warnings };
+    } catch (error) {
+      if (cached) {
+        return { table: cached, warnings: [`竞技场评分更新失败，继续使用本地 v${cached.version}：${formatError(error)}`] };
+      }
+      return { warnings: [`竞技场评分读取失败：${formatError(error)}`] };
+    }
+  }
+
+  private async readCache(): Promise<ArenaRatingTable | undefined> {
+    try {
+      const raw = JSON.parse(await fs.readFile(this.getCachePath(), "utf8")) as unknown;
+      return parseCachedTable(raw);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async isStale() {
+    try {
+      const stat = await fs.stat(this.getCachePath());
+      return Date.now() - stat.mtimeMs > CACHE_MAX_AGE_MS;
+    } catch {
+      return true;
+    }
+  }
+
+  private getCachePath(): string {
+    return this.cachePath ?? path.join(app.getPath("userData"), CACHE_FILE_NAME);
+  }
+
+  private async fetchJson(url: string): Promise<unknown> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const response = await this.fetcher(url, { headers: { accept: "application/json" }, signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async fetchText(url: string): Promise<string> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const response = await this.fetcher(url, {
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          "user-agent": "Mozilla/5.0 HearthstoneMacTracker/0.1"
+        },
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.text();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async fetchFirestoneVersion(): Promise<string> {
+    const [cardVersion, draftVersion] = await Promise.all([
+      this.fetchVersionHeader(FIRESTONE_CARD_STATS_URL),
+      Promise.all(FIRESTONE_DRAFT_STATS_URLS.map((url) => this.fetchVersionHeader(url))).then((versions) => uniqueStrings(versions).join(","))
+    ]);
+    return `cards:${cardVersion}|draft:${draftVersion}`;
+  }
+
+  private async fetchVersionHeader(url: string): Promise<string> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const response = await this.fetcher(url, {
+        method: "HEAD",
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const version = response.headers.get("last-modified") ?? response.headers.get("etag");
+      if (!version) {
+        throw new Error("Firestone 评分版本号未找到");
+      }
+      return version;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function parseCachedTable(value: unknown): ArenaRatingTable | undefined {
+  if (!isRecord(value) || typeof value.source !== "string" || typeof value.version !== "number" || typeof value.fetchedAt !== "string") {
+    return undefined;
+  }
+
+  const ratings = parseRatings(value.ratings);
+  const hearthArenaWeb = parseHearthArenaWebCache(value.hearthArenaWeb);
+  const firestone = parseFirestoneCache(value.firestone);
+  return { source: value.source, version: value.version, fetchedAt: value.fetchedAt, ratings, hearthArenaWeb, firestone };
+}
+
+function parseHearthArenaWebCache(value: unknown): HearthArenaWebRatingSource | undefined {
+  if (!isRecord(value) || value.source !== "HearthArena Web" || typeof value.version !== "string" || !isRecord(value.locales)) {
+    return undefined;
+  }
+
+  const locales: HearthArenaWebLocaleRatingSource[] = [];
+  for (const [locale, rawLocale] of Object.entries(value.locales)) {
+    if (!isRecord(rawLocale) || typeof rawLocale.url !== "string" || typeof rawLocale.version !== "string" || typeof rawLocale.fetchedAt !== "string") {
+      continue;
+    }
+
+    const ratings = parseRatings(rawLocale.ratings);
+    const ratingCount = numberValue(rawLocale.ratingCount) ?? countRatings(ratings);
+    if (ratingCount <= 0) {
+      continue;
+    }
+
+    locales.push({
+      locale,
+      url: rawLocale.url,
+      version: rawLocale.version,
+      fetchedAt: rawLocale.fetchedAt,
+      ratingCount,
+      ratings
+    });
+  }
+
+  return buildHearthArenaWebSource(locales);
+}
+
+function parseHearthArenaWebLocale(locale: string, url: string, html: string): HearthArenaWebLocaleRatingSource {
+  const ratings: Record<string, Record<string, number>> = {};
+  const sectionPattern = /<section class="tab tierlist [^"]*" id="([^"]+)">([\s\S]*?)(?=<section class="tab tierlist [^"]*" id="|<section class="footer"|$)/g;
+  const cardPattern =
+    /<dl class="card[^"]*">\s*<dt class="([^"]*)"[^>]*data-card-image="([^"]+)"[^>]*>[\s\S]*?<\/dt>\s*<dd class="score[^"]*">\s*([^<]+?)\s*<\/dd>/g;
+
+  for (const sectionMatch of html.matchAll(sectionPattern)) {
+    const className = HEARTH_ARENA_CLASS_BY_SLUG[sectionMatch[1] ?? ""];
+    if (!className) {
+      continue;
+    }
+
+    const classRatings = ratings[className] ?? {};
+    for (const cardMatch of (sectionMatch[2] ?? "").matchAll(cardPattern)) {
+      const cardId = extractCardIdFromImageUrl(cardMatch[2] ?? "");
+      const score = parseScoreText(cardMatch[3] ?? "");
+      if (cardId && score !== undefined) {
+        classRatings[cardId] = score;
+      }
+    }
+    if (Object.keys(classRatings).length) {
+      ratings[className] = classRatings;
+    }
+  }
+
+  const ratingCount = countRatings(ratings);
+  if (ratingCount <= 0) {
+    throw new Error("HearthArena 网页评分为空");
+  }
+
+  return {
+    locale,
+    url,
+    version: shortHash(html),
+    fetchedAt: new Date().toISOString(),
+    ratingCount,
+    ratings
+  };
+}
+
+function buildHearthArenaWebSource(locales: readonly HearthArenaWebLocaleRatingSource[]): HearthArenaWebRatingSource | undefined {
+  if (locales.length === 0) {
+    return undefined;
+  }
+
+  const byLocale: Record<string, HearthArenaWebLocaleRatingSource> = {};
+  for (const locale of locales) {
+    byLocale[locale.locale] = locale;
+  }
+
+  return {
+    source: "HearthArena Web",
+    version: locales.map((locale) => `${locale.locale}:${locale.version}`).sort().join("|"),
+    locales: byLocale
+  };
+}
+
+function parseFirestone(value: unknown, draftValue: unknown | readonly unknown[] | undefined, version: string | undefined): FirestoneRatingSource {
+  if (!isRecord(value) || typeof value.lastUpdated !== "string" || !Array.isArray(value.stats)) {
+    throw new Error("Firestone 评分数据格式无效");
+  }
+
+  const ratings: Record<string, FirestoneCardRating> = {};
+  for (const entry of value.stats) {
+    if (!isRecord(entry) || typeof entry.cardId !== "string" || !isRecord(entry.stats)) {
+      continue;
+    }
+
+    const stats = entry.stats;
+    const includedGames = numberValue(stats.decksWithCard);
+    const includedWins = numberValue(stats.decksWithCardThenWin);
+    const playedGames = numberValue(stats.played);
+    const playedWins = numberValue(stats.playedThenWin);
+    const rating: FirestoneCardRating = {
+      includedWinrate: ratioAsPercent(includedWins, includedGames),
+      playedWinrate: ratioAsPercent(playedWins, playedGames),
+      sampleSize: includedGames
+    };
+
+    if (rating.includedWinrate !== undefined || rating.playedWinrate !== undefined) {
+      ratings[entry.cardId.trim().toUpperCase()] = rating;
+    }
+  }
+
+  for (const draftRating of parseFirestoneDraftRatings(draftValue)) {
+    const current = ratings[draftRating.cardId] ?? {};
+    ratings[draftRating.cardId] = {
+      ...current,
+      ...draftRating.rating
+    };
+  }
+
+  return {
+    source: "Firestone",
+    version: version ?? value.lastUpdated,
+    lastUpdated: value.lastUpdated,
+    ratings
+  };
+}
+
+function parseFirestoneCache(value: unknown): FirestoneRatingSource | undefined {
+  if (!isRecord(value) || value.source !== "Firestone" || typeof value.version !== "string" || typeof value.lastUpdated !== "string") {
+    return undefined;
+  }
+
+  if (!isRecord(value.ratings)) {
+    return undefined;
+  }
+
+  const ratings: Record<string, FirestoneCardRating> = {};
+  for (const [cardId, rawRating] of Object.entries(value.ratings)) {
+    if (!isRecord(rawRating)) {
+      continue;
+    }
+
+    const rating: FirestoneCardRating = {
+      includedWinrate: numberValue(rawRating.includedWinrate),
+      playedWinrate: numberValue(rawRating.playedWinrate),
+      sampleSize: numberValue(rawRating.sampleSize),
+      pickRate: numberValue(rawRating.pickRate),
+      pickRateSampleSize: numberValue(rawRating.pickRateSampleSize),
+      highWinPickRate: numberValue(rawRating.highWinPickRate),
+      highWinPickRateSampleSize: numberValue(rawRating.highWinPickRateSampleSize),
+      highWinThreshold: numberValue(rawRating.highWinThreshold),
+      highWinPickRateImpact: numberValue(rawRating.highWinPickRateImpact),
+      twelveWinRate: numberValue(rawRating.twelveWinRate),
+      twelveWinRateSampleSize: numberValue(rawRating.twelveWinRateSampleSize),
+      draftBuckets: parseCachedDraftBuckets(rawRating.draftBuckets)
+    };
+    if (hasUsefulFirestoneRating(rating)) {
+      ratings[cardId.trim().toUpperCase()] = rating;
+    }
+  }
+
+  return { source: "Firestone", version: value.version, lastUpdated: value.lastUpdated, ratings };
+}
+
+function parseFirestoneDraftRatings(value: unknown | readonly unknown[]): Array<{ cardId: string; rating: FirestoneCardRating }> {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => parseFirestoneDraftRatings(entry));
+  }
+
+  if (!isRecord(value) || !Array.isArray(value.stats)) {
+    return [];
+  }
+
+  const ratings: Array<{ cardId: string; rating: FirestoneCardRating }> = [];
+  for (const entry of value.stats) {
+    if (!isRecord(entry) || typeof entry.cardId !== "string" || !isRecord(entry.statsByWins)) {
+      continue;
+    }
+
+    const draftBuckets = parseDraftBuckets(entry.statsByWins) ?? {};
+    const baseStats = draftBuckets["0"];
+    const highWinBucket = selectHighWinBucket(entry.statsByWins);
+    const twelveWinBucket = draftBuckets["12"];
+    const pickRate = ratioAsPercent(baseStats?.picked, baseStats?.offered);
+    const highWinPickRate = ratioAsPercent(highWinBucket?.bucket.picked, highWinBucket?.bucket.offered);
+    const twelveWinRate = ratioAsPercent(twelveWinBucket?.picked, twelveWinBucket?.offered);
+    const rating: FirestoneCardRating = {
+      pickRate,
+      pickRateSampleSize: baseStats?.offered,
+      highWinPickRate,
+      highWinPickRateSampleSize: highWinBucket?.bucket.offered,
+      highWinThreshold: highWinBucket?.wins,
+      highWinPickRateImpact:
+        highWinPickRate === undefined || pickRate === undefined
+          ? undefined
+          : roundPercent(highWinPickRate - pickRate),
+      twelveWinRate,
+      twelveWinRateSampleSize: twelveWinBucket?.offered,
+      draftBuckets
+    };
+
+    if (hasUsefulFirestoneRating(rating)) {
+      ratings.push({ cardId: entry.cardId.trim().toUpperCase(), rating });
+    }
+  }
+
+  return ratings;
+}
+
+function selectHighWinBucket(statsByWins: Record<string, unknown>): { wins: number; bucket: DraftBucket } | undefined {
+  for (const wins of [6, 3]) {
+    const bucket = parseDraftBucket(statsByWins[String(wins)]);
+    if (bucket?.offered !== undefined) {
+      return { wins, bucket };
+    }
+  }
+
+  return Object.entries(statsByWins)
+    .map(([wins, rawBucket]) => ({ wins: Number(wins), bucket: parseDraftBucket(rawBucket) }))
+    .filter((entry): entry is { wins: number; bucket: DraftBucket } => entry.wins > 0 && entry.wins < 12 && Number.isSafeInteger(entry.wins) && entry.bucket !== undefined)
+    .sort((left, right) => right.wins - left.wins)[0];
+}
+
+interface DraftBucket {
+  readonly offered?: number;
+  readonly picked?: number;
+}
+
+function parseDraftBucket(value: unknown): DraftBucket | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const offered = numberValue(value.offered);
+  const picked = numberValue(value.picked);
+  return offered === undefined && picked === undefined ? undefined : { offered, picked };
+}
+
+function parseDraftBuckets(value: unknown): Readonly<Record<string, FirestoneDraftBucket>> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const buckets: Record<string, FirestoneDraftBucket> = {};
+  for (const [wins, rawBucket] of Object.entries(value)) {
+    const bucket = parseDraftBucket(rawBucket);
+    if (!bucket) {
+      continue;
+    }
+    buckets[wins] = {
+      ...bucket,
+      pickRate: ratioAsPercent(bucket.picked, bucket.offered)
+    };
+  }
+
+  return Object.keys(buckets).length ? buckets : undefined;
+}
+
+function parseCachedDraftBuckets(value: unknown): Readonly<Record<string, FirestoneDraftBucket>> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const buckets: Record<string, FirestoneDraftBucket> = {};
+  for (const [wins, rawBucket] of Object.entries(value)) {
+    if (!isRecord(rawBucket)) {
+      continue;
+    }
+    const bucket: FirestoneDraftBucket = {
+      offered: numberValue(rawBucket.offered),
+      picked: numberValue(rawBucket.picked),
+      pickRate: numberValue(rawBucket.pickRate)
+    };
+    if (bucket.offered !== undefined || bucket.picked !== undefined || bucket.pickRate !== undefined) {
+      buckets[wins] = bucket;
+    }
+  }
+
+  return Object.keys(buckets).length ? buckets : undefined;
+}
+
+function hasUsefulFirestoneRating(rating: FirestoneCardRating): boolean {
+  return (
+    rating.includedWinrate !== undefined ||
+    rating.playedWinrate !== undefined ||
+    rating.pickRate !== undefined ||
+    rating.highWinPickRate !== undefined ||
+    rating.twelveWinRate !== undefined
+  );
+}
+
+function hasFirestoneDraftStats(source: FirestoneRatingSource): boolean {
+  return Object.values(source.ratings).some(
+    (rating) => rating.pickRate !== undefined || rating.highWinPickRate !== undefined || rating.twelveWinRate !== undefined
+  );
+}
+
+function hasHearthArenaWebStats(source: HearthArenaWebRatingSource | undefined): boolean {
+  if (!source) {
+    return false;
+  }
+
+  return Object.values(source.locales).some((locale) => locale.ratingCount > 0 && countRatings(locale.ratings) > 0);
+}
+
+function ratioAsPercent(numerator: number | undefined, denominator: number | undefined): number | undefined {
+  if (numerator === undefined || denominator === undefined || denominator <= 0) {
+    return undefined;
+  }
+
+  return roundPercent((numerator / denominator) * 100);
+}
+
+function roundPercent(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseScoreText(value: string): number | undefined {
+  const score = Number(value.match(/-?\d+(?:\.\d+)?/)?.[0]);
+  return Number.isFinite(score) ? score : undefined;
+}
+
+function extractCardIdFromImageUrl(value: string): string | undefined {
+  const fileName = value.split(/[?#]/)[0]?.split("/").pop();
+  const cardId = fileName?.replace(/\.(?:webp|png|jpe?g)$/i, "").trim();
+  return cardId ? cardId.toUpperCase() : undefined;
+}
+
+function countRatings(ratings: Readonly<Record<string, Readonly<Record<string, number>>>>): number {
+  return Object.values(ratings).reduce((total, classRatings) => total + Object.keys(classRatings).length, 0);
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function parseVersion(value: unknown): number {
+  if (!isRecord(value) || typeof value.haVersion !== "number" || !Number.isSafeInteger(value.haVersion)) {
+    throw new Error("评分版本格式无效");
+  }
+  return value.haVersion;
+}
+
+function parseRatings(value: unknown): Readonly<Record<string, Readonly<Record<string, number>>>> {
+  if (!isRecord(value)) {
+    throw new Error("评分数据格式无效");
+  }
+
+  const result: Record<string, Readonly<Record<string, number>>> = {};
+  for (const [className, classValue] of Object.entries(value)) {
+    if (!isRecord(classValue)) {
+      continue;
+    }
+
+    const classRatings: Record<string, number> = {};
+    for (const [cardId, score] of Object.entries(classValue)) {
+      if (typeof score === "number" && Number.isFinite(score)) {
+        classRatings[cardId.toUpperCase()] = score;
+      }
+    }
+    result[className] = classRatings;
+  }
+  return result;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function formatError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function uniqueStrings(values: readonly string[]) {
+  return [...new Set(values)];
+}

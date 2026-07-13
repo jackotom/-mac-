@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist-electron/
+native/bin/
+.DS_Store
+*.log
+!fixtures/logs/**/*.log
+coverage/
+outputs/
+.superpowers/
+
+# Local configuration and runtime data
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.session*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+
+# Legacy generated files kept outside the current build directories
+/logDiscovery.js
+/trackerService.js

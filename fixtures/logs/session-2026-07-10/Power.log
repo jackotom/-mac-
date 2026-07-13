@@ -1,0 +1,5 @@
+D 18:20:01.0000000 GameState.DebugPrintPower() - CREATE_GAME
+D 18:20:02.0000000 GameState.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=0 cardId=CS2_029 player=1] tag=ZONE value=HAND
+D 18:20:03.0000000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=Chillwind Yeti id=88 zone=HAND zonePos=1 cardId=CS2_182 player=2] EffectCardId= EffectIndex=0 Target=0 SubOption=-1
+D 18:20:04.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=89 zone=DECK zonePos=0 cardId= player=2] CardID=CS2_029
+D 18:20:05.0000000 GameState.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Frostbolt id=65 zone=DECK zonePos=0 cardId=CS2_024 player=1] tag=ZONE value=HAND

@@ -1,0 +1,686 @@
+.opponent-overlay-shell {
+  --opponent-overlay-bg: rgba(8, 13, 17, 0.9);
+  --opponent-overlay-panel: rgba(21, 31, 39, 0.9);
+  --opponent-overlay-row: rgba(255, 255, 255, 0.045);
+  --opponent-overlay-line: rgba(202, 224, 237, 0.15);
+  --opponent-overlay-line-soft: rgba(202, 224, 237, 0.09);
+  --opponent-overlay-text: #eff6fa;
+  --opponent-overlay-muted: #91a7b5;
+  --opponent-overlay-faint: #6e8491;
+  --opponent-overlay-live: #8ce9c0;
+  --opponent-overlay-count: #ffd18d;
+  --opponent-overlay-danger: #ffaaa0;
+  display: grid;
+  grid-template-rows: 36px auto auto minmax(0, 1fr);
+  gap: 6px;
+  width: 100vw;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  padding: 7px;
+  overflow: hidden;
+  color: var(--opponent-overlay-text);
+  background: var(--opponent-overlay-bg);
+  border: 1px solid var(--opponent-overlay-line);
+  border-radius: 8px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px) saturate(1.18);
+  -webkit-backdrop-filter: blur(16px) saturate(1.18);
+}
+
+.opponent-overlay-shell:not(:has(.opponent-secret-section)) {
+  grid-template-rows: 36px auto minmax(0, 1fr);
+}
+
+.opponent-board-attack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.opponent-board-attack button {
+  display: flex;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--opponent-overlay-line-soft);
+  border-radius: 6px;
+  color: var(--opponent-overlay-muted);
+  background: var(--opponent-overlay-panel);
+  font: inherit;
+}
+
+.opponent-board-attack button:hover,
+.opponent-board-attack button:focus-visible,
+.opponent-secret-tabs button:hover,
+.opponent-secret-tabs button:focus-visible {
+  border-color: rgba(255, 209, 141, 0.48);
+  outline: 2px solid rgba(255, 209, 141, 0.24);
+  outline-offset: -2px;
+}
+
+.opponent-board-attack span {
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-board-attack strong {
+  color: var(--opponent-overlay-count);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.opponent-secret-section {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--opponent-overlay-line-soft);
+  border-radius: 7px;
+  background: rgba(16, 24, 30, 0.86);
+}
+
+.opponent-secret-tabs {
+  display: flex;
+  min-height: 30px;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.opponent-secret-tabs button {
+  flex: 0 0 auto;
+  min-width: 36px;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 209, 141, 0.3);
+  border-radius: 5px;
+  color: var(--opponent-overlay-count);
+  background: rgba(255, 209, 141, 0.08);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.opponent-secret-tabs button[aria-expanded="true"] {
+  color: #11191f;
+  background: var(--opponent-overlay-count);
+}
+
+.opponent-secret-candidates {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 3px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.opponent-secret-candidates li {
+  display: grid;
+  min-height: 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  list-style: none;
+}
+
+.opponent-secret-candidates strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-secret-candidates span {
+  font-size: 9.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.secret-candidate-possible {
+  color: var(--opponent-overlay-text);
+  background: rgba(255, 209, 141, 0.08);
+  box-shadow: inset 2px 0 0 rgba(255, 209, 141, 0.68);
+}
+
+.secret-candidate-possible span {
+  color: var(--opponent-overlay-count);
+}
+
+.secret-candidate-excluded {
+  color: #26323a;
+  background: rgba(247, 249, 250, 0.94);
+}
+
+.secret-candidate-excluded strong {
+  text-decoration: line-through;
+  text-decoration-color: rgba(38, 50, 58, 0.5);
+}
+
+.secret-candidate-excluded span {
+  color: #52616a;
+}
+
+body:has(.opponent-overlay-shell) {
+  overflow: hidden;
+  background: transparent;
+}
+
+.opponent-overlay-shell,
+.opponent-overlay-shell * {
+  box-sizing: border-box;
+}
+
+.opponent-overlay-shell h1,
+.opponent-overlay-shell h2,
+.opponent-overlay-shell h3,
+.opponent-overlay-shell p {
+  margin: 0;
+}
+
+.opponent-overlay-header,
+.opponent-overlay-shell .overlay-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid var(--opponent-overlay-line-soft);
+  border-radius: 7px;
+  background: rgba(12, 19, 24, 0.8);
+  -webkit-app-region: drag;
+}
+
+.opponent-overlay-heading,
+.opponent-overlay-header > div:first-child,
+.opponent-overlay-shell .overlay-header > div:first-child {
+  min-width: 0;
+}
+
+.opponent-overlay-heading strong,
+.opponent-overlay-heading h1,
+.opponent-overlay-header strong,
+.opponent-overlay-shell .overlay-header strong {
+  display: block;
+  overflow: hidden;
+  color: var(--opponent-overlay-text);
+  font-size: 12.5px;
+  font-weight: 760;
+  line-height: 1.12;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-overlay-heading span,
+.opponent-overlay-header p,
+.opponent-overlay-header > div:first-child > span,
+.opponent-overlay-shell .overlay-header p,
+.opponent-overlay-shell .overlay-header > div:first-child > span {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--opponent-overlay-muted);
+  font-size: 10px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-overlay-status,
+.opponent-overlay-shell .overlay-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid rgba(140, 233, 192, 0.25);
+  border-radius: 6px;
+  color: var(--opponent-overlay-live);
+  background: rgba(140, 233, 192, 0.08);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.opponent-overlay-status::before,
+.opponent-overlay-shell .overlay-status::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 9px currentColor;
+  content: "";
+}
+
+.opponent-overlay-header button,
+.opponent-overlay-shell .overlay-header button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--opponent-overlay-line);
+  border-radius: 6px;
+  color: var(--opponent-overlay-text);
+  background: rgba(255, 255, 255, 0.06);
+  -webkit-app-region: no-drag;
+}
+
+.opponent-overlay-header button:hover,
+.opponent-overlay-shell .overlay-header button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.opponent-overlay-summary,
+.opponent-overlay-section-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--opponent-overlay-line-soft);
+  border-radius: 7px;
+  background: var(--opponent-overlay-panel);
+}
+
+.opponent-overlay-summary span,
+.opponent-overlay-section-title h2 {
+  overflow: hidden;
+  color: #dce9ef;
+  font-size: 11.5px;
+  font-weight: 760;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-overlay-summary strong,
+.opponent-overlay-section-title em {
+  flex: 0 0 auto;
+  color: var(--opponent-overlay-count);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 820;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.opponent-overlay-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--opponent-overlay-line-soft);
+  border-radius: 7px;
+  background: rgba(16, 24, 30, 0.86);
+}
+
+.opponent-overlay-section .opponent-overlay-section-title {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: rgba(29, 42, 52, 0.76);
+}
+
+.opponent-overlay-list {
+  display: flex;
+  min-height: 0;
+  margin: 0;
+  padding: 4px;
+  flex-direction: column;
+  gap: 3px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(137, 164, 180, 0.48) transparent;
+  scrollbar-width: thin;
+}
+
+.opponent-overlay-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.opponent-overlay-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(137, 164, 180, 0.42);
+}
+
+.opponent-overlay-list li {
+  display: block;
+  flex: 0 0 auto;
+  min-width: 0;
+  list-style: none;
+}
+
+.opponent-overlay-list > li {
+  min-height: 44px;
+  padding: 0;
+}
+
+.opponent-overlay-list > li:has(.overlay-card-thumb) {
+  min-height: 48px;
+}
+
+.opponent-overlay-list > li > .overlay-card-hover-target {
+  min-height: inherit;
+}
+
+.opponent-overlay-list li:nth-child(odd) {
+  background: var(--opponent-overlay-row);
+}
+
+.opponent-overlay-list li:nth-child(even) {
+  background: rgba(0, 0, 0, 0.11);
+}
+
+.opponent-overlay-card,
+.opponent-overlay-shell .overlay-card-hover-target {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: inherit;
+}
+
+.opponent-overlay-card:has(.opponent-overlay-card-thumb),
+.opponent-overlay-shell .overlay-card-hover-target:has(.overlay-card-thumb) {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+
+.opponent-overlay-card-thumb,
+.opponent-overlay-shell .overlay-card-thumb {
+  display: block;
+  width: 32px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid rgba(154, 215, 244, 0.34);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.26);
+}
+
+.opponent-overlay-card-main,
+.opponent-overlay-shell .overlay-card-main {
+  min-width: 0;
+}
+
+.opponent-overlay-card-main strong,
+.opponent-overlay-shell .overlay-card-main strong {
+  display: block;
+  overflow: hidden;
+  color: var(--opponent-overlay-text);
+  font-size: 12px;
+  font-weight: 730;
+  line-height: 1.16;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-overlay-card-time,
+.opponent-overlay-card-main small,
+.opponent-overlay-shell .overlay-card-main small {
+  display: block;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--opponent-overlay-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-overlay-card-count,
+.opponent-overlay-shell .overlay-count-badge {
+  min-width: 28px;
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 209, 141, 0.26);
+  border-radius: 5px;
+  color: #11191f;
+  background: var(--opponent-overlay-count);
+  font-size: 10.5px;
+  font-weight: 830;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  text-align: center;
+}
+
+.opponent-overlay-card:hover,
+.opponent-overlay-card:focus-visible,
+.opponent-overlay-shell .overlay-card-hover-target:hover,
+.opponent-overlay-shell .overlay-card-hover-target:focus-visible {
+  background: rgba(154, 215, 244, 0.12);
+  box-shadow: inset 2px 0 0 rgba(154, 215, 244, 0.7);
+}
+
+.opponent-overlay-card:hover .opponent-overlay-card-thumb,
+.opponent-overlay-shell .overlay-card-hover-target:hover .overlay-card-thumb {
+  border-color: rgba(154, 215, 244, 0.76);
+}
+
+.opponent-overlay-empty,
+.opponent-overlay-shell .overlay-empty {
+  display: grid;
+  min-height: 94px;
+  place-items: center;
+  margin: 4px;
+  padding: 12px;
+  border: 1px dashed rgba(145, 167, 181, 0.25);
+  border-radius: 6px;
+  color: var(--opponent-overlay-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.opponent-overlay-empty strong {
+  display: block;
+  color: #dbe8ef;
+  font-size: 12px;
+}
+
+.opponent-overlay-empty span {
+  display: block;
+  margin-top: 3px;
+  color: var(--opponent-overlay-faint);
+}
+
+.opponent-overlay-repair {
+  display: grid;
+  min-height: 0;
+  place-content: center;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(255, 209, 141, 0.22);
+  border-radius: 7px;
+  color: var(--opponent-overlay-muted);
+  background: rgba(255, 209, 141, 0.08);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.opponent-overlay-repair strong {
+  color: var(--opponent-overlay-count);
+  font-size: 14px;
+}
+
+@media (min-height: 400px) {
+  .opponent-overlay-shell {
+    grid-template-rows: 40px auto auto minmax(0, 1fr);
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .opponent-overlay-shell:not(:has(.opponent-secret-section)) {
+    grid-template-rows: 40px auto minmax(0, 1fr);
+  }
+
+  .opponent-overlay-card,
+  .opponent-overlay-shell .overlay-card-hover-target {
+    min-height: 44px;
+  }
+
+  .opponent-overlay-card:has(.opponent-overlay-card-thumb),
+  .opponent-overlay-shell .overlay-card-hover-target:has(.overlay-card-thumb) {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  .opponent-overlay-card-thumb,
+  .opponent-overlay-shell .overlay-card-thumb {
+    width: 34px;
+    height: 42px;
+  }
+}
+
+@media (max-width: 280px) {
+  .opponent-overlay-shell {
+    padding: 6px;
+  }
+
+  .opponent-overlay-header,
+  .opponent-overlay-shell .overlay-header {
+    padding: 0 7px;
+  }
+
+  .opponent-overlay-heading span,
+  .opponent-overlay-header p,
+  .opponent-overlay-header > div:first-child > span,
+  .opponent-overlay-shell .overlay-header p,
+  .opponent-overlay-shell .overlay-header > div:first-child > span {
+    display: none;
+  }
+
+  .opponent-overlay-status,
+  .opponent-overlay-shell .overlay-status {
+    padding: 4px 5px;
+  }
+
+  .opponent-overlay-card,
+  .opponent-overlay-shell .overlay-card-hover-target {
+    gap: 6px;
+    padding: 4px 5px;
+  }
+
+  .opponent-overlay-card:has(.opponent-overlay-card-thumb),
+  .opponent-overlay-shell .overlay-card-hover-target:has(.overlay-card-thumb) {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .opponent-overlay-card-thumb,
+  .opponent-overlay-shell .overlay-card-thumb {
+    width: 28px;
+    height: 35px;
+  }
+}
+
+@media (max-height: 260px) {
+  .opponent-overlay-shell {
+    grid-template-rows: 32px auto auto minmax(0, 1fr);
+    gap: 5px;
+    padding: 6px;
+  }
+
+
+  .opponent-overlay-shell:not(:has(.opponent-secret-section)) {
+    grid-template-rows: 32px auto minmax(0, 1fr);
+  }
+
+  .opponent-board-attack button {
+    min-height: 26px;
+    padding-block: 2px;
+  }
+
+  .opponent-secret-section {
+    max-height: 86px;
+  }
+
+  .opponent-overlay-card,
+  .opponent-overlay-shell .overlay-card-hover-target {
+    min-height: 34px;
+  }
+
+  .opponent-overlay-card-thumb,
+  .opponent-overlay-shell .overlay-card-thumb {
+    width: 28px;
+    height: 34px;
+  }
+
+  .opponent-overlay-empty,
+  .opponent-overlay-shell .overlay-empty {
+    min-height: 62px;
+    padding: 8px;
+  }
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  padding: 3px;
+  border-color: rgba(255, 209, 141, 0.42);
+  background: rgba(8, 13, 17, 0.9);
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell > :not(.overlay-header) {
+  display: none;
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell .overlay-header {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell .overlay-header > :not(button) {
+  display: none;
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell .overlay-header button {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-color: rgba(255, 209, 141, 0.36);
+  color: transparent;
+  background: rgba(255, 209, 141, 0.1);
+  -webkit-app-region: no-drag;
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell .overlay-header button svg {
+  display: none;
+}
+
+html.opponent-overlay-collapsed .opponent-overlay-shell .overlay-header button::after {
+  display: grid;
+  position: absolute;
+  inset: 0;
+  place-items: center;
+  color: var(--opponent-overlay-count);
+  content: "?";
+  font-size: 18px;
+  font-weight: 900;
+}

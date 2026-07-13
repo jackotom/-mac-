@@ -1,0 +1,22 @@
+{
+  "7": {
+    "dbfId": 7,
+    "name": "Sample Mage Hero",
+    "cardId": "HERO_08"
+  },
+  "1001": {
+    "dbfId": 1001,
+    "name": "Sample Singleton",
+    "cardId": "TEST_001"
+  },
+  "1002": {
+    "dbfId": 1002,
+    "name": "Sample Pair",
+    "cardId": "TEST_002"
+  },
+  "1003": {
+    "dbfId": 1003,
+    "name": "Sample Multi",
+    "cardId": "TEST_003"
+  }
+}
