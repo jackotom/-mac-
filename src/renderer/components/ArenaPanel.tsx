@@ -13,6 +13,10 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
   const sortedChoices = sortChoices(latestChoices);
   const latestPick = state.picks[state.picks.length - 1];
   const statusLabel = state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成";
+  const confirmedCount = 30 - state.unresolvedCount;
+  const hasUnresolvedCards = state.unresolvedCount > 0;
+  const visibleDeck = state.deck.filter((card) => !card.unresolved);
+  const sourceLabel = state.error ?? state.scoreSource ?? "评分数据待更新";
 
   return (
     <aside className="panel arena-panel" aria-label="竞技场选牌评分">
@@ -27,9 +31,16 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
       </div>
 
       <div className="arena-progress">
-        <strong>{state.draftCount}/30</strong>
-        <span>{state.hero?.name ?? "等待职业"}</span>
-        <small>{state.error ?? state.scoreSource ?? "评分数据待更新"}</small>
+        <strong>{confirmedCount}/30</strong>
+        <span>{hasUnresolvedCards ? `已确认 ${confirmedCount}/30` : state.hero?.name ?? "等待职业"}</span>
+        <small title={hasUnresolvedCards ? `${state.unresolvedCount} 张待识别 · ${state.hero?.name ?? "等待职业"} · ${sourceLabel}` : sourceLabel}>
+          {hasUnresolvedCards ? (
+            <>
+              <span role="status">{state.unresolvedCount} 张待识别</span>
+              {` · ${state.hero?.name ?? "等待职业"} · ${sourceLabel}`}
+            </>
+          ) : sourceLabel}
+        </small>
       </div>
 
       {latestChoices.length > 0 ? (
@@ -74,10 +85,10 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
       <section className="arena-deck" aria-label="当前竞技场牌库">
         <div className="subheading">
           <h3>当前牌库</h3>
-          <span>{state.deck.reduce((total, card) => total + card.count, 0)} 张</span>
+          <span>{confirmedCount} 张</span>
         </div>
         <ul>
-          {state.deck.map((card) => (
+          {visibleDeck.map((card) => (
             <li key={card.cardId ?? card.name}>
               {card.details?.cropImageUrl || card.details?.imageUrl ? (
                 <img className="card-thumb" src={card.details.cropImageUrl ?? card.details.imageUrl} alt="" loading="lazy" />
@@ -86,8 +97,12 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
               <strong>x{card.count}</strong>
             </li>
           ))}
-          {state.deck.length === 0 ? (
-            <li className="arena-empty-deck" role="status">尚未选择牌，完成选牌后会生成竞技场牌库。</li>
+          {visibleDeck.length === 0 ? (
+            <li className="arena-empty-deck" role="status">
+              {hasUnresolvedCards
+                ? `暂无可确认卡牌，${state.unresolvedCount} 张牌仍待识别。`
+                : "尚未选择牌，完成选牌后会生成竞技场牌库。"}
+            </li>
           ) : null}
         </ul>
       </section>

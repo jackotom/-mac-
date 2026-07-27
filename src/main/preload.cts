@@ -1,22 +1,27 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  CardDatabaseRefreshResult,
   CollectionDeckScanResult,
   CardLibraryQuery,
   CardLibraryResult,
   CardPreviewRequest,
   LogCandidate,
+  MatchHistoryResult,
   PublicLogConfigStatus,
-  PublicTrackerState
+  PublicTrackerState,
+  TrackerSettings
 } from "../shared/types.js";
+import type { ArenaHeroWinRateRankingResult } from "../shared/arenaHeroStats.js";
 import type { CardDetails } from "../shared/cardDatabase.js";
 import type { LadderDeckRecommendationResult, LadderMode } from "../shared/ladderDeckRecommendation.js";
 
-type PreloadCapability = "main" | "tracker-overlay" | "opponent-overlay" | "state-display" | "card-preview" | "ladder-deck";
+type PreloadCapability = "main" | "tracker-overlay" | "opponent-overlay" | "state-display" | "card-preview" | "ladder-deck" | "arena-hero-ranking";
 
 function getPreloadCapability(search: string): PreloadCapability {
   const params = new URLSearchParams(search);
   if (params.get("card-preview") === "1") return "card-preview";
   if (params.get("ladder-deck-overlay") === "1") return "ladder-deck";
+  if (params.get("arena-hero-ranking-overlay") === "1") return "arena-hero-ranking";
   if (params.get("board-attack-overlay") === "1" || params.get("arena-choice-overlay") === "1") return "state-display";
   if (params.get("opponent-overlay") === "1") return "opponent-overlay";
   if (params.get("overlay") === "1") return "tracker-overlay";
@@ -32,6 +37,14 @@ const stateDisplayApi = {
   }
 };
 
+const opponentSecretPredictionApi = {
+  onOpponentSecretPredictionChange: (callback: (enabled: boolean) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, enabled: boolean) => callback(enabled);
+    ipcRenderer.on("tracker:secret-prediction:update", listener);
+    return () => ipcRenderer.removeListener("tracker:secret-prediction:update", listener);
+  }
+};
+
 const cardPreviewSourceApi = {
   showCardPreview: (request: CardPreviewRequest) =>
     ipcRenderer.invoke("tracker:show-card-preview", request) as Promise<void>,
@@ -43,9 +56,46 @@ const cardPreviewSourceApi = {
   }
 };
 
+const friendlyOverlayLifecycleApi = {
+  closeFriendlyOverlay: () => ipcRenderer.invoke("tracker:close-friendly-overlay") as Promise<void>
+};
+
+const settingsApi = {
+  getTrackerSettings: () => ipcRenderer.invoke("tracker:get-settings") as Promise<TrackerSettings>,
+  setTrackerSettings: (settings: TrackerSettings) =>
+    ipcRenderer.invoke("tracker:replace-settings", settings) as Promise<TrackerSettings>,
+  restoreDefaultSettings: () => ipcRenderer.invoke("tracker:restore-default-settings") as Promise<TrackerSettings>,
+  openLogFolder: () => ipcRenderer.invoke("tracker:open-log-folder") as Promise<void>,
+  refreshCardDatabase: () => ipcRenderer.invoke("tracker:refresh-card-database") as Promise<CardDatabaseRefreshResult>,
+  openSettings: () => ipcRenderer.invoke("tracker:open-settings") as Promise<boolean>
+};
+
+const arenaHeroRankingApi = {
+  onArenaHeroWinRateRankingUpdate: (callback: (result: ArenaHeroWinRateRankingResult) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, result: ArenaHeroWinRateRankingResult) => callback(result);
+    ipcRenderer.on("tracker:arena-hero-win-rate-ranking:update", listener);
+    return () => ipcRenderer.removeListener("tracker:arena-hero-win-rate-ranking:update", listener);
+  },
+  closeArenaHeroWinRateRanking: () =>
+    ipcRenderer.invoke("tracker:close-arena-hero-win-rate-ranking") as Promise<void>
+};
+
 const mainApi = {
   ...stateDisplayApi,
   ...cardPreviewSourceApi,
+  ...settingsApi,
+  ...arenaHeroRankingApi,
+  onOpenSettings: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("tracker:open-settings", listener);
+    return () => ipcRenderer.removeListener("tracker:open-settings", listener);
+  },
+  onTrackerSettingsUpdate: (callback: (settings: TrackerSettings) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, settings: TrackerSettings) => callback(settings);
+    ipcRenderer.on("tracker:settings:update", listener);
+    return () => ipcRenderer.removeListener("tracker:settings:update", listener);
+  },
+  getMatchHistory: () => ipcRenderer.invoke("tracker:get-match-history") as Promise<MatchHistoryResult>,
   discoverLogs: () => ipcRenderer.invoke("tracker:discover-logs") as Promise<LogCandidate[]>,
   selectLogPath: () => ipcRenderer.invoke("tracker:select-log-path") as Promise<string | undefined>,
   start: (options?: { logPath?: string; deckText?: string }) =>
@@ -97,12 +147,21 @@ const mainApi = {
 const capability = getPreloadCapability(window.location.search);
 const api = capability === "state-display"
   ? stateDisplayApi
+  : capability === "arena-hero-ranking"
+    ? arenaHeroRankingApi
   : capability === "tracker-overlay"
-    ? { ...stateDisplayApi, ...cardPreviewSourceApi }
+    ? {
+        ...stateDisplayApi,
+        ...cardPreviewSourceApi,
+        openSettings: mainApi.openSettings,
+        ...friendlyOverlayLifecycleApi
+      }
     : capability === "opponent-overlay"
       ? {
           ...stateDisplayApi,
           ...cardPreviewSourceApi,
+          ...opponentSecretPredictionApi,
+          openSettings: mainApi.openSettings,
           getOpponentOverlayCollapsed: mainApi.getOpponentOverlayCollapsed,
           setOpponentOverlayCollapsed: mainApi.setOpponentOverlayCollapsed,
           onOpponentOverlayCollapsedChange: mainApi.onOpponentOverlayCollapsedChange
@@ -123,4 +182,4 @@ const api = capability === "state-display"
 
 contextBridge.exposeInMainWorld("hearthstoneTracker", api);
 
-export type HearthstoneTrackerApi = typeof mainApi;
+export type HearthstoneTrackerApi = typeof mainApi & Partial<typeof friendlyOverlayLifecycleApi>;

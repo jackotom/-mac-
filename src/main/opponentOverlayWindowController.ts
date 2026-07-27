@@ -35,6 +35,13 @@ export class OpponentOverlayWindowController {
     return this.host.getState()?.isCollapsed() ?? false;
   }
 
+  showInactive(): boolean {
+    const window = this.liveWindow();
+    if (!window) return false;
+    window.showInactive();
+    return true;
+  }
+
   async collapse(): Promise<boolean> {
     const session = this.liveSession();
     if (!session) {
@@ -62,7 +69,7 @@ export class OpponentOverlayWindowController {
 
     const { window, state } = session;
     window.setBounds(state.expand(), false);
-    window.setMinimumSize(220, 150);
+    window.setMinimumSize(100, 150);
     window.setResizable(true);
     this.publish(window, state.isCollapsed());
     if (focus) {

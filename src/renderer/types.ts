@@ -1,16 +1,19 @@
 import type {
+  CardDatabaseRefreshResult,
   CardLibraryQuery,
   CardLibraryResult,
   CardPreviewRequest,
   CollectionDeckScanResult,
   LogCandidate,
   PublicLogConfigStatus,
-  PublicTrackerState
+  PublicTrackerState,
+  TrackerSettings
 } from "../shared/types";
 import type { CardDetails } from "../shared/cardDatabase";
 import type { ArenaCardRating, ArenaScoreQuality } from "../shared/arenaRatings";
 import type { CSSProperties } from "react";
 import type { LadderDeckRecommendationResult, LadderMode } from "../shared/ladderDeckRecommendation";
+import type { ArenaHeroWinRateRankingResult } from "../shared/arenaHeroStats";
 
 export type { CardLibraryQuery, CardLibraryResult };
 
@@ -25,21 +28,34 @@ export interface HearthstoneTrackerApi {
   ensureLogConfig: () => Promise<PublicLogConfigStatus>;
   inspectLogConfig: () => Promise<PublicLogConfigStatus>;
   toggleOverlay: () => Promise<boolean>;
+  closeFriendlyOverlay?: () => Promise<void>;
   toggleOpponentOverlay?: () => Promise<boolean>;
   getOpponentOverlayCollapsed?: () => Promise<boolean>;
   setOpponentOverlayCollapsed?: (collapsed: boolean) => Promise<boolean>;
   onOpponentOverlayCollapsedChange?: (callback: (collapsed: boolean) => void) => () => void;
+  onOpponentSecretPredictionChange?: (callback: (enabled: boolean) => void) => () => void;
   minimizeMain?: () => Promise<boolean>;
   listCardLibrary?: (query: CardLibraryQuery) => Promise<CardLibraryResult>;
   showCardPreview?: (request: CardPreviewRequest) => Promise<void>;
   hideCardPreview?: () => Promise<void>;
   onCardPreviewUpdate?: (callback: (details: CardDetails) => void) => () => void;
   onCardPreviewPinnedChange?: (callback: (pinned: boolean) => void) => () => void;
+  getMatchHistory?: () => Promise<import("../shared/types").MatchHistoryResult>;
+  getTrackerSettings?: () => Promise<TrackerSettings>;
+  setTrackerSettings?: (settings: TrackerSettings) => Promise<TrackerSettings>;
+  restoreDefaultSettings?: () => Promise<TrackerSettings>;
+  openLogFolder?: () => Promise<void>;
+  refreshCardDatabase?: () => Promise<CardDatabaseRefreshResult>;
+  openSettings?: () => Promise<boolean>;
+  onOpenSettings?: (callback: () => void) => () => void;
+  onTrackerSettingsUpdate?: (callback: (settings: TrackerSettings) => void) => () => void;
   getState: () => Promise<PublicTrackerState>;
   getLadderDeckRecommendation?: (mode: LadderMode) => Promise<LadderDeckRecommendationResult>;
   copyLadderDeckCode?: (deckCode: string) => Promise<void>;
   closeLadderDeckOverlay?: () => Promise<void>;
   onLadderDeckRecommendationUpdate?: (callback: (mode: LadderMode, result: LadderDeckRecommendationResult) => void) => () => void;
+  onArenaHeroWinRateRankingUpdate?: (callback: (result: ArenaHeroWinRateRankingResult) => void) => () => void;
+  closeArenaHeroWinRateRanking?: () => Promise<void>;
   onUpdate: (callback: (state: PublicTrackerState) => void) => () => void;
 }
 
@@ -107,9 +123,12 @@ export interface OverlayCardItem {
   name: string;
   cost?: number;
   count?: number;
+  pickRate?: number;
+  deckImpact?: number;
   detail?: string;
   thumbnailUrl?: string;
   details?: CardDetails;
+  unresolved?: true;
 }
 
 export interface OverlayStatusView {
@@ -146,8 +165,11 @@ export interface OverlayArenaChoice {
 
 export interface OverlayArenaView {
   isChoosing: boolean;
+  showDeckStats: boolean;
   statusLabel: string;
   progress: string;
+  confirmedCount: number;
+  unresolvedCount: number;
   hero: string;
   scoreSource?: string;
   error?: string;
@@ -174,6 +196,12 @@ export interface OverlayBoardAttack {
   opponent: number;
 }
 
+export interface OverlayPublicMatchCounters {
+  nextFatigueDamage?: number;
+  corpses?: number;
+  spellsPlayed?: number;
+}
+
 export interface OverlayPanelViewModel {
   summary: OverlayDeckSummary;
   deckIdentity: OverlayDeckIdentity;
@@ -182,8 +210,18 @@ export interface OverlayPanelViewModel {
   otherCards?: OverlayCardItem[];
   recentDraws: OverlayCardItem[];
   opponentRecentPlays: OverlayCardItem[];
+  globalEffects?: OverlayCardItem[];
+  opponentGlobalEffects?: OverlayCardItem[];
+  opponentDeck?: OverlayCardItem[];
+  opponentHand?: OverlayCardItem[];
+  opponentOther?: OverlayCardItem[];
+  opponentDeckCount?: number;
+  opponentHandCount?: number;
+  opponentUnknownHandCount?: number;
   opponentSecrets?: OverlaySecretSlot[];
   boardAttack?: OverlayBoardAttack;
+  friendlyCounters?: OverlayPublicMatchCounters;
+  opponentCounters?: OverlayPublicMatchCounters;
   status: OverlayStatusView;
   arena?: OverlayArenaView;
 }
@@ -193,6 +231,7 @@ export interface OverlayPanelProps {
   className?: string;
   style?: CSSProperties;
   onClose?: () => void;
+  onOpenSettings?: () => void;
   isLoading?: boolean;
   loadError?: string;
 }

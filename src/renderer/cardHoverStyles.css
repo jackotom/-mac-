@@ -166,6 +166,34 @@ body:has(.card-preview-window-shell),
   font-size: 9.5px;
 }
 
+.card-spell-history {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.card-game-context + .card-game-context {
+  margin-top: 6px;
+}
+
+.card-game-context > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-spell-history-empty {
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid rgba(137, 181, 202, 0.13);
+  border-radius: 1px;
+  background: #10253a;
+  color: #8298a4;
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+
 .card-related-cards {
   display: grid;
   gap: 3px;

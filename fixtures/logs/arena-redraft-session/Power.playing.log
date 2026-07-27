@@ -1,0 +1,6 @@
+D 12:01:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 12:01:00.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA
+D 12:01:00.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=本地玩家
+D 12:01:00.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=UNKNOWN HUMAN PLAYER
+D 12:01:00.400 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:01:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=测试牌01 id=65 zone=DECK zonePos=1 cardId=TEST_ARENA_01 player=1] tag=ZONE value=HAND

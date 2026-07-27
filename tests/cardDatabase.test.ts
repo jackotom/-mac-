@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createCardDatabase, getCardInfo, listCardLibrary, toCardDetails } from "../src/shared/cardDatabase";
+import {
+  createCardDatabase,
+  getCardInfo,
+  inferCardSynergies,
+  listCardLibrary,
+  toCardDetails
+} from "../src/shared/cardDatabase";
 
 describe("card database details", () => {
   it("normalizes official metadata and resolves related cards", () => {
@@ -47,6 +53,226 @@ describe("card database details", () => {
       isSpell: false,
       relatedCards: [{ dbfId: 2002, name: "测试法术", cardId: "TEST_SPELL", rarity: "RARE" }]
     });
+  });
+
+  it("infers bidirectional complementary synergies through a full real card name", () => {
+    const database = createCardDatabase([
+      {
+        id: 6001,
+        name: "测试衍生物",
+        collectible: 1,
+        card_type_id: 4,
+        text: "<b>亡语：</b>对一个敌人造成2点伤害。",
+        image: "https://example.test/token.png"
+      },
+      {
+        id: 6002,
+        cardId: "TEST_PRODUCER",
+        name: "寒霜工坊",
+        collectible: 1,
+        card_type_id: 5,
+        text: "召唤两个测试衍生物。",
+        image: "https://example.test/producer.png"
+      },
+      {
+        id: 6003,
+        cardId: "TEST_CONSUMER",
+        name: "灵魂收割者",
+        collectible: 1,
+        card_type_id: 4,
+        text: "<b>战吼：</b>复活你的测试衍生物。",
+        image: "https://example.test/consumer.png"
+      },
+      {
+        id: 6004,
+        cardId: "CORE_TEST_PRODUCER",
+        name: "寒霜工坊",
+        text: "召唤两个测试衍生物。"
+      },
+      {
+        id: 6005,
+        cardId: "CORE_TEST_CONSUMER",
+        name: "灵魂收割者",
+        text: "复活你的测试衍生物。"
+      }
+    ]);
+    const producer = getCardInfo(database, 6002)!;
+    const consumer = getCardInfo(database, 6003)!;
+
+    expect(inferCardSynergies(database, producer)).toEqual([
+      expect.objectContaining({
+        dbfId: 6003,
+        name: "灵魂收割者",
+        reason: "共同关联「测试衍生物」：召唤 ↔ 复活"
+      })
+    ]);
+    expect(inferCardSynergies(database, consumer)).toEqual([
+      expect.objectContaining({
+        dbfId: 6002,
+        name: "寒霜工坊",
+        reason: "共同关联「测试衍生物」：复活 ↔ 召唤"
+      })
+    ]);
+    expect(toCardDetails(database, producer)).toMatchObject({
+      relatedCards: [],
+      synergyCards: [expect.objectContaining({ dbfId: 6003, name: "灵魂收割者" })]
+    });
+    expect(toCardDetails(database, getCardInfo(database, 6004)!)).toMatchObject({
+      synergyCards: [expect.objectContaining({ dbfId: 6003, name: "灵魂收割者" })]
+    });
+    expect(toCardDetails(database, getCardInfo(database, 6005)!)).toMatchObject({
+      synergyCards: [expect.objectContaining({ dbfId: 6002, name: "寒霜工坊" })]
+    });
+  });
+
+  it("requires verified full names and complementary actions", () => {
+    const database = createCardDatabase([
+      {
+        id: 7001,
+        name: "测试衍生物",
+        collectible: 1,
+        card_type_id: 4,
+        text: "亡语：造成2点伤害。",
+        image: "https://example.test/token.png"
+      },
+      {
+        id: 7002,
+        name: "第一工坊",
+        collectible: 1,
+        card_type_id: 5,
+        text: "召唤一个测试衍生物。",
+        image: "https://example.test/producer-one.png"
+      },
+      {
+        id: 7003,
+        name: "第二工坊",
+        collectible: 1,
+        card_type_id: 5,
+        text: "召唤两个测试衍生物。",
+        image: "https://example.test/producer-two.png"
+      },
+      {
+        id: 7004,
+        name: "部分名称利用者",
+        collectible: 1,
+        card_type_id: 4,
+        text: "复活你的衍生物。",
+        image: "https://example.test/partial-consumer.png"
+      },
+      {
+        id: 7005,
+        name: "法术伤害",
+        collectible: 1,
+        card_type_id: 5
+      },
+      {
+        id: 7006,
+        name: "奥术供给者",
+        collectible: 1,
+        card_type_id: 4,
+        text: "获得法术伤害。",
+        image: "https://example.test/generic-producer.png"
+      },
+      {
+        id: 7007,
+        name: "奥术利用者",
+        collectible: 1,
+        card_type_id: 4,
+        text: "如果你拥有法术伤害，抽一张牌。",
+        image: "https://example.test/generic-consumer.png"
+      },
+      {
+        id: 7008,
+        name: "无图生成者",
+        collectible: 1,
+        card_type_id: 5,
+        text: "召唤一个测试衍生物。"
+      }
+    ]);
+
+    expect(inferCardSynergies(database, getCardInfo(database, 7002)!)).toEqual([]);
+    expect(inferCardSynergies(database, getCardInfo(database, 7004)!)).toEqual([]);
+    expect(inferCardSynergies(database, getCardInfo(database, 7006)!)).toEqual([]);
+    expect(inferCardSynergies(database, getCardInfo(database, 7008)!)).toEqual([]);
+  });
+
+  it("does not treat a shorter card name inside a longer card name as the same reference", () => {
+    const database = createCardDatabase([
+      {
+        id: 7501,
+        name: "测试衍生物",
+        collectible: 1,
+        card_type_id: 4,
+        text: "亡语：造成2点伤害。",
+        image: "https://example.test/short-token.png"
+      },
+      {
+        id: 7502,
+        name: "测试衍生物王",
+        collectible: 1,
+        card_type_id: 4,
+        text: "亡语：造成4点伤害。",
+        image: "https://example.test/long-token.png"
+      },
+      {
+        id: 7503,
+        name: "长名生成者",
+        collectible: 1,
+        card_type_id: 5,
+        text: "召唤一个测试衍生物王。",
+        image: "https://example.test/long-producer.png"
+      },
+      {
+        id: 7504,
+        name: "短名利用者",
+        collectible: 1,
+        card_type_id: 4,
+        text: "复活你的测试衍生物。",
+        image: "https://example.test/short-consumer.png"
+      }
+    ]);
+
+    expect(inferCardSynergies(database, getCardInfo(database, 7503)!)).toEqual([]);
+    expect(inferCardSynergies(database, getCardInfo(database, 7504)!)).toEqual([]);
+  });
+
+  it("deduplicates inferred cards by name and returns at most six", () => {
+    const consumers = Array.from({ length: 8 }, (_, index) => ({
+      id: 8010 + index,
+      name: `利用随从${index}号`,
+      collectible: 1,
+      card_type_id: 4,
+      text: "复活你的测试衍生物。",
+      image: `https://example.test/consumer-${index}.png`
+    }));
+    const database = createCardDatabase([
+      {
+        id: 8001,
+        name: "测试衍生物",
+        collectible: 1,
+        card_type_id: 4,
+        text: "亡语：造成2点伤害。",
+        image: "https://example.test/token.png"
+      },
+      {
+        id: 8002,
+        name: "批量生成者",
+        collectible: 1,
+        card_type_id: 5,
+        text: "召唤一个测试衍生物。",
+        image: "https://example.test/producer.png"
+      },
+      ...consumers,
+      {
+        ...consumers[0],
+        id: 8099,
+        image: "https://example.test/duplicate-consumer.png"
+      }
+    ]);
+
+    const synergies = inferCardSynergies(database, getCardInfo(database, 8002)!);
+    expect(synergies).toHaveLength(6);
+    expect(new Set(synergies.map((card) => card.name)).size).toBe(6);
   });
 
   it("recognizes legacy spell type names", () => {

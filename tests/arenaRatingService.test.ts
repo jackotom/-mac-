@@ -1,4 +1,4 @@
-import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,7 +56,7 @@ describe("ArenaRatingService", () => {
         },
         firestone: {
           source: "Firestone",
-          version: "firestone-v1",
+          version: "cards:card-v1|draft:draft-v1",
           lastUpdated: "2026-07-10T00:00:00.000Z",
           ratings: { TEST_001: { includedWinrate: 54.2, sampleSize: 2000, pickRate: 42.1, highWinPickRate: 49.5, highWinThreshold: 6 } }
         }
@@ -70,6 +70,559 @@ describe("ArenaRatingService", () => {
 
     expect(result.table).toMatchObject({ version: 3, source: "cached" });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("loads deck impact for only the current Arena class", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-10T00:00:00.000Z",
+        ratings: { Priest: { TEST_001: 88 } },
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-10T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Priest: { TEST_001: 89 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "firestone-v1",
+          lastUpdated: "2026-07-10T00:00:00.000Z",
+          ratings: { TEST_001: { pickRate: 42.1, highWinPickRate: 49.5, highWinThreshold: 6 } }
+        }
+      }),
+      "utf8"
+    );
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/stats/classes/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:00:00.000Z",
+            stats: [
+              { playerClass: "priest", playerHeroPower: "HERO_POWER_A", totalGames: 3, totalsWins: 1 },
+              { playerClass: "priest", playerHeroPower: "HERO_POWER_B", totalGames: 1, totalsWins: 1 }
+            ]
+          })
+        } as Response;
+      }
+      if (url.endsWith("/priest.gz.json?v=6")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:30:00.000Z",
+            stats: [
+              { cardId: "TEST_001", stats: { decksWithCard: 3, decksWithCardThenWin: 2 } },
+              { cardId: "TEST_NO_SAMPLE", stats: { decksWithCard: 0, decksWithCardThenWin: 0 } }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const result = await new ArenaRatingService(cachePath, fetcher).loadRatings("Priest");
+
+    expect(result.table?.firestoneClasses?.priest).toMatchObject({
+      playerClass: "priest",
+      overallWinrate: 50,
+      ratings: {
+        TEST_001: { includedWinrate: 66.67, sampleSize: 3, deckImpact: 16.67 }
+      }
+    });
+    expect(result.table?.firestoneClasses?.priest.ratings.TEST_NO_SAMPLE).toBeUndefined();
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      expect.stringContaining("/stats/classes/arena-underground/last-patch/overview.gz.json"),
+      expect.stringContaining("/stats/cards/arena-underground/last-patch/priest.gz.json?v=6")
+    ]);
+
+    const classCachePath = path.join(root, "ratings-firestone-priest.json");
+    expect(JSON.parse(await readFile(classCachePath, "utf8"))).toMatchObject({
+      overallWins: 2,
+      overallGames: 4,
+      ratings: { TEST_001: { includedWins: 2, sampleSize: 3 } }
+    });
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await utimes(classCachePath, old, old);
+    const offlineFetcher = vi.fn(async () => { throw new Error("offline"); });
+    const offlineService = new ArenaRatingService(cachePath, offlineFetcher);
+    const offlineResult = await offlineService.loadRatings("Priest");
+    expect(offlineResult.table?.firestoneClasses?.priest.ratings.TEST_001?.deckImpact).toBe(16.67);
+    expect(offlineResult.firestoneClassCacheStatus).toBe("stale");
+    expect(offlineResult.warnings).toEqual(expect.arrayContaining([expect.stringContaining("继续使用本地缓存")]));
+    await offlineService.loadRatings("Priest");
+    await vi.waitFor(() => expect(offlineFetcher).toHaveBeenCalledTimes(4));
+  });
+
+  it("keeps class tables loaded by concurrent requests", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-22T00:00:00.000Z",
+        ratings: {},
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-22T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Priest: { TEST_001: 90 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "firestone-v1",
+          lastUpdated: "2026-07-22T00:00:00.000Z",
+          ratings: {
+            TEST_001: {
+              pickRate: 50,
+              highWinPickRate: 55,
+              highWinThreshold: 6,
+              draftBuckets: { 0: { offered: 10, picked: 5, pickRate: 50 } }
+            }
+          }
+        }
+      }),
+      "utf8"
+    );
+
+    let releasePriest!: () => void;
+    let releaseDruid!: () => void;
+    const priestGate = new Promise<void>((resolve) => { releasePriest = resolve; });
+    const druidGate = new Promise<void>((resolve) => { releaseDruid = resolve; });
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/stats/classes/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:00:00.000Z",
+            stats: [
+              { playerClass: "priest", totalGames: 10, totalsWins: 5 },
+              { playerClass: "druid", totalGames: 10, totalsWins: 4 }
+            ]
+          })
+        } as Response;
+      }
+      if (url.endsWith("/priest.gz.json?v=6")) {
+        await priestGate;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:00:00.000Z",
+            stats: [{ cardId: "PRIEST_CARD", stats: { decksWithCard: 10, decksWithCardThenWin: 6 } }]
+          })
+        } as Response;
+      }
+      if (url.endsWith("/druid.gz.json?v=6")) {
+        await druidGate;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:00:00.000Z",
+            stats: [{ cardId: "DRUID_CARD", stats: { decksWithCard: 10, decksWithCardThenWin: 5 } }]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const service = new ArenaRatingService(cachePath, fetcher);
+    const priest = service.loadRatings("Priest");
+    const druid = service.loadRatings("Druid");
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+    releaseDruid();
+    await druid;
+    releasePriest();
+    await priest;
+
+    expect((await service.loadRatings()).table?.firestoneClasses).toMatchObject({
+      priest: { ratings: { PRIEST_CARD: { deckImpact: 10 } } },
+      druid: { ratings: { DRUID_CARD: { deckImpact: 10 } } }
+    });
+  });
+
+  it("keeps warning and retrying when a stale base cache cannot refresh", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-10T00:00:00.000Z",
+        ratings: { Hunter: { TEST_001: 88 } }
+      }),
+      "utf8"
+    );
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await utimes(cachePath, old, old);
+    const fetcher = vi.fn(async () => { throw new Error("offline"); });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const service = new ArenaRatingService(cachePath, fetcher);
+    const first = await service.loadRatings();
+    const second = await service.loadRatings();
+
+    expect(first.warnings[0]).toContain("继续使用本地");
+    expect(second.warnings[0]).toContain("继续使用本地");
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  });
+
+  it("returns an expired base cache immediately while a stuck refresh runs in the background", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-10T00:00:00.000Z",
+        ratings: { Hunter: { TEST_001: 88 } },
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-10T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Hunter: { TEST_001: 89 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "cards:card-v1|draft:draft-v1",
+          lastUpdated: "2026-07-10T00:00:00.000Z",
+          ratings: {
+            TEST_001: { includedWinrate: 54.2, sampleSize: 2000, pickRate: 42.1 }
+          }
+        }
+      }),
+      "utf8"
+    );
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await utimes(cachePath, old, old);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetcher = vi.fn(async () => {
+      await gate;
+      throw new Error("offline");
+    });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const loading = new ArenaRatingService(cachePath, fetcher).loadRatings();
+    const quickResult = await Promise.race([
+      loading.then((result) => ({ quick: true, result })),
+      new Promise<{ quick: false; result?: never }>((resolve) =>
+        setTimeout(() => resolve({ quick: false }), 50)
+      )
+    ]);
+    release();
+    await loading;
+
+    expect(quickResult.quick).toBe(true);
+    expect(quickResult.result?.table?.firestone?.ratings.TEST_001).toMatchObject({
+      pickRate: 42.1,
+      includedWinrate: 54.2
+    });
+  });
+
+  it("returns an expired class cache immediately while its refresh is stuck", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-22T00:00:00.000Z",
+        ratings: { Priest: { TEST_001: 88 } },
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-22T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Priest: { TEST_001: 89 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "firestone-v1",
+          lastUpdated: "2026-07-22T00:00:00.000Z",
+          ratings: { TEST_001: { pickRate: 42.1 } }
+        }
+      }),
+      "utf8"
+    );
+    const classCachePath = path.join(root, "ratings-firestone-priest.json");
+    await writeFile(
+      classCachePath,
+      JSON.stringify({
+        source: "Firestone",
+        playerClass: "priest",
+        version: "priest-cache",
+        lastUpdated: "2026-07-10T00:00:00.000Z",
+        overallWins: 50,
+        overallGames: 100,
+        ratings: { TEST_001: { includedWins: 60, sampleSize: 100 } }
+      }),
+      "utf8"
+    );
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await utimes(classCachePath, old, old);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetcher = vi.fn(async () => {
+      await gate;
+      throw new Error("offline");
+    });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const loading = new ArenaRatingService(cachePath, fetcher).loadRatings("Priest");
+    const quickResult = await Promise.race([
+      loading.then((result) => ({ quick: true, result })),
+      new Promise<{ quick: false; result?: never }>((resolve) =>
+        setTimeout(() => resolve({ quick: false }), 50)
+      )
+    ]);
+    release();
+    await loading;
+
+    expect(quickResult.quick).toBe(true);
+    expect(quickResult.result?.firestoneClassCacheStatus).toBe("stale");
+    expect(quickResult.result?.table?.firestoneClasses?.priest.ratings.TEST_001).toMatchObject({
+      includedWinrate: 60,
+      deckImpact: 10
+    });
+  });
+
+  it("retries a transient base refresh before falling back to the last successful cache", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-10T00:00:00.000Z",
+        ratings: { Hunter: { TEST_001: 88 } },
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-10T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Hunter: { TEST_001: 89 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "cards:card-v1|draft:draft-v1",
+          lastUpdated: "2026-07-10T00:00:00.000Z",
+          ratings: {
+            TEST_001: {
+              includedWinrate: 54.2,
+              sampleSize: 2000,
+              pickRate: 42.1,
+              highWinPickRate: 49.5,
+              highWinThreshold: 6
+            }
+          }
+        }
+      }),
+      "utf8"
+    );
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await utimes(cachePath, old, old);
+    let versionAttempts = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("haVersion")) {
+        versionAttempts += 1;
+        if (versionAttempts === 1) {
+          throw new Error("temporary offline");
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ haVersion: 3 })
+        } as Response;
+      }
+      if (init?.method === "HEAD") {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            etag: url.includes("/draft/") ? "draft-v1" : "card-v1"
+          })
+        } as Response;
+      }
+      if (url.includes("heartharena.com/zh-cn/tierlist")) {
+        return { ok: true, status: 200, text: async () => hearthArenaHtml("TEST_001", 89) } as Response;
+      }
+      if (url.includes("heartharena.com/zh-tw/tierlist")) {
+        return { ok: true, status: 200, text: async () => hearthArenaHtml("TEST_001", 88) } as Response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const service = new ArenaRatingService(cachePath, fetcher);
+    const stale = await service.loadRatings();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(7));
+    let result = await service.loadRatings();
+    await vi.waitFor(async () => {
+      result = await service.loadRatings();
+      expect(result.warnings).toEqual([]);
+    });
+
+    expect(stale.table?.firestone?.ratings.TEST_001.pickRate).toBe(42.1);
+    expect(versionAttempts).toBe(2);
+    expect(result.warnings).toEqual([]);
+    expect(result.table?.firestone?.ratings.TEST_001).toMatchObject({
+      pickRate: 42.1,
+      includedWinrate: 54.2
+    });
+  });
+
+  it("deduplicates concurrent class refreshes so a late duplicate cannot overwrite ratings", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-22T00:00:00.000Z",
+        ratings: { Priest: { TEST_001: 88 } },
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-22T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Priest: { TEST_001: 89 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "firestone-v1",
+          lastUpdated: "2026-07-22T00:00:00.000Z",
+          ratings: { TEST_001: { pickRate: 42.1, highWinPickRate: 49.5, highWinThreshold: 6 } }
+        }
+      }),
+      "utf8"
+    );
+
+    let releaseOld!: () => void;
+    const oldGate = new Promise<void>((resolve) => { releaseOld = resolve; });
+    let overviewCalls = 0;
+    let cardCalls = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/stats/classes/")) {
+        overviewCalls += 1;
+        await oldGate;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:00:00.000Z",
+            stats: [{ playerClass: "priest", totalGames: 10, totalsWins: 5 }]
+          })
+        } as Response;
+      }
+      if (url.endsWith("/priest.gz.json?v=6")) {
+        cardCalls += 1;
+        await oldGate;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdated: "2026-07-22T00:00:00.000Z",
+            stats: [{
+              cardId: "TEST_001",
+              stats: {
+                decksWithCard: 10,
+                decksWithCardThenWin: 8
+              }
+            }]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const service = new ArenaRatingService(cachePath, fetcher);
+    const oldRequest = service.loadRatings("Priest");
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    const newRequest = service.loadRatings("Priest");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    releaseOld();
+    await Promise.all([oldRequest, newRequest]);
+
+    expect((await service.loadRatings()).table?.firestoneClasses?.priest.ratings.TEST_001).toMatchObject({
+      includedWinrate: 80,
+      deckImpact: 30
+    });
   });
 
   it("fetches the full table only when the cached version changes", async () => {
@@ -403,11 +956,20 @@ describe("ArenaRatingService", () => {
 
     const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
     const { getArenaScore } = await import("../src/shared/arenaRatings.js");
-    const result = await new ArenaRatingService(cachePath, fetcher).loadRatings();
+    const service = new ArenaRatingService(cachePath, fetcher);
+    await service.loadRatings();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(7));
+    let result = await service.loadRatings();
+    await vi.waitFor(async () => {
+      result = await service.loadRatings();
+      expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining("zh-tw")]));
+    });
 
     expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining("zh-tw")]));
+    const repeatedResult = await service.loadRatings();
+    expect(repeatedResult.warnings).toEqual(expect.arrayContaining([expect.stringContaining("zh-tw")]));
     expect(getArenaScore(result.table, "TEST_005", "Warrior")).toBe(99);
     expect(getArenaScore(result.table, "TEST_006", "Warrior")).toBe(88);
-    expect(fetcher).toHaveBeenCalledTimes(6);
+    expect(fetcher).toHaveBeenCalledTimes(7);
   });
 });

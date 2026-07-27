@@ -14,10 +14,100 @@ function state(overrides: Partial<PublicTrackerState> = {}): PublicTrackerState 
 }
 
 describe("LadderDeckOverlayController", () => {
+  it("invalidates an in-flight refresh when stopped", async () => {
+    let resolveFrontmost!: (value: string) => void;
+    const frontmost = new Promise<string>((resolve) => {
+      resolveFrontmost = resolve;
+    });
+    const createWindow = vi.fn(async () => undefined);
+    const updateMode = vi.fn(async () => undefined);
+    const showInactive = vi.fn();
+    const controller = new LadderDeckOverlayController({
+      getState: () => state({ constructedScreenMode: "standard" }),
+      getFrontmostAppName: () => frontmost,
+      hasWindow: () => false,
+      isVisible: () => false,
+      createWindow,
+      updateMode,
+      showInactive,
+      hide: vi.fn()
+    });
+
+    const refresh = controller.refresh();
+    controller.stop();
+    resolveFrontmost("Hearthstone");
+    await refresh;
+
+    expect(createWindow).not.toHaveBeenCalled();
+    expect(updateMode).not.toHaveBeenCalled();
+    expect(showInactive).not.toHaveBeenCalled();
+  });
+
+  it("ignores a window-creation rejection caused by stopping the refresh", async () => {
+    let rejectCreation!: (error: Error) => void;
+    const creation = new Promise<void>((_resolve, reject) => {
+      rejectCreation = reject;
+    });
+    const createWindow = vi.fn(() => creation);
+    const controller = new LadderDeckOverlayController({
+      getState: () => state({ constructedScreenMode: "standard" }),
+      getFrontmostAppName: async () => "Hearthstone",
+      hasWindow: () => false,
+      isVisible: () => false,
+      createWindow,
+      updateMode: vi.fn(async () => undefined),
+      showInactive: vi.fn(),
+      hide: vi.fn()
+    });
+
+    const refresh = controller.refresh();
+    await vi.waitFor(() => expect(createWindow).toHaveBeenCalledOnce());
+    controller.stop();
+    rejectCreation(new Error("window destroyed during load"));
+
+    await expect(refresh).resolves.toBeUndefined();
+  });
+
+  it("does not let a stopped creation close a replacement window", async () => {
+    let finishCreation!: () => void;
+    let windowIdentity: "none" | "old" | "replacement" = "none";
+    const creation = new Promise<void>((resolve) => {
+      finishCreation = () => {
+        windowIdentity = "old";
+        resolve();
+      };
+    });
+    const hide = vi.fn(() => {
+      windowIdentity = "none";
+    });
+    const createWindow = vi.fn(() => creation);
+    const controller = new LadderDeckOverlayController({
+      getState: () => state({ constructedScreenMode: "standard" }),
+      getFrontmostAppName: async () => "Hearthstone",
+      hasWindow: () => windowIdentity !== "none",
+      isVisible: () => windowIdentity !== "none",
+      createWindow,
+      updateMode: vi.fn(async () => undefined),
+      showInactive: vi.fn(),
+      hide
+    });
+
+    const refresh = controller.refresh();
+    await vi.waitFor(() => expect(createWindow).toHaveBeenCalledOnce());
+    controller.stop();
+    windowIdentity = "replacement";
+    finishCreation();
+    windowIdentity = "replacement";
+    await refresh;
+
+    expect(windowIdentity).toBe("replacement");
+    expect(hide).not.toHaveBeenCalled();
+  });
+
   it("resolves only constructed standard and wild contexts", () => {
     expect(resolveLadderDeckMode(state({ constructedScreenMode: "standard" }))).toBe("standard");
     expect(resolveLadderDeckMode(state({ constructedScreenMode: "wild" }))).toBe("wild");
-    expect(resolveLadderDeckMode(state({ constructedScreenMode: "standard", arena: { status: "drafting", draftCount: 0, currentChoices: [], picks: [], deck: [] } }))).toBeUndefined();
+    expect(resolveLadderDeckMode(state({ constructedScreenMode: "standard", arena: { status: "drafting", draftCount: 0, unresolvedCount: 30, currentChoices: [], picks: [], deck: [] } }))).toBeUndefined();
     expect(resolveLadderDeckMode(state())).toBeUndefined();
   });
 

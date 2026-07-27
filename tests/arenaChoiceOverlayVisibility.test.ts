@@ -7,6 +7,7 @@ const draftingArena: ArenaState = {
   status: "drafting",
   hero: { name: "德鲁伊" },
   draftCount: 11,
+  unresolvedCount: 30,
   currentChoices: [
     { name: "闪光试剂瓶", count: 1 },
     { name: "野蛮先锋", count: 1 },

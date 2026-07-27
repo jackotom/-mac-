@@ -1,0 +1,2930 @@
+/* Hearthstone tavern skin, scoped to the main desktop window only. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) {
+  min-width: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #050403;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) #root {
+  min-height: 100vh;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+  --replica-bg: #090806;
+  --replica-sidebar: #100d09;
+  --replica-sidebar-deep: #080706;
+  --replica-panel: #15110c;
+  --replica-panel-raised: #1d160e;
+  --replica-panel-soft: #251a0f;
+  --replica-border: #634316;
+  --replica-border-soft: rgba(194, 132, 37, 0.24);
+  --replica-blue: #c88922;
+  --replica-blue-light: #f0bd55;
+  --replica-gold: #d69a2c;
+  --replica-text: #f0e2c1;
+  --replica-muted: #a38d69;
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--replica-text);
+  background:
+    radial-gradient(circle at 58% -16%, rgba(151, 86, 17, 0.13), transparent 42%),
+    var(--replica-bg);
+  border: 1px solid #795018;
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 213, 132, 0.09), 0 0 34px rgba(96, 52, 7, 0.18);
+  font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame.is-settings-frame {
+  grid-template-columns: 184px minmax(0, 1fr);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-sidebar {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 27px 8px 12px;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid #5a3a13;
+  background:
+    radial-gradient(circle at 48px 74px, rgba(185, 112, 25, 0.18), transparent 96px),
+    radial-gradient(circle at 34px 96%, rgba(191, 103, 16, 0.13), transparent 95px),
+    linear-gradient(180deg, #151008 0%, var(--replica-sidebar) 46%, var(--replica-sidebar-deep) 100%);
+  box-shadow: inset -1px 0 0 rgba(218, 151, 51, 0.09);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-controls {
+  display: flex;
+  height: 14px;
+  align-items: center;
+  gap: 7px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-dot {
+  width: 11px;
+  height: 11px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .is-close { background: #f46b68; }
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .is-minimize { background: #eabf4f; }
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .is-zoom { background: #62c46f; }
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand {
+  display: flex;
+  min-width: 0;
+  min-height: 72px;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 9px 8px;
+  border: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand-mark {
+  display: grid;
+  width: 45px;
+  height: 45px;
+  flex: 0 0 45px;
+  place-items: center;
+  border: 1px solid #d7a23d;
+  border-radius: 50%;
+  color: #f0bd55;
+  background:
+    radial-gradient(circle at 50% 45%, #d89b31 0 20%, #5c340d 22% 42%, transparent 44%),
+    conic-gradient(from 20deg, #f0bf59, #6f410f, #f0bf59, #6f410f, #f0bf59);
+  box-shadow: 0 0 16px rgba(212, 139, 35, 0.22), inset 0 0 0 4px #20160b;
+  transform: rotate(-5deg);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand strong {
+  overflow: hidden;
+  color: #f1c665;
+  font-size: 20px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 8px rgba(231, 183, 84, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand small {
+  color: #8f7958;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 6px 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #b7a17c;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item svg {
+  color: #a88a5d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item:hover {
+  border-color: rgba(190, 130, 39, 0.26);
+  color: #f4e7ca;
+  background: rgba(87, 54, 17, 0.46);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item.is-active {
+  border-color: rgba(218, 151, 47, 0.48);
+  color: #fff0c9;
+  background: linear-gradient(90deg, #50300d, #271a0c);
+  box-shadow: inset 3px 0 0 #e2a73c, 0 5px 18px rgba(0, 0, 0, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item.is-active svg {
+  color: #f0bd55;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 12px 8px 4px;
+  border-top: 1px solid rgba(174, 117, 33, 0.24);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-status-dot {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #cfaa55;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d99524 0 28%, #30200d 30% 100%);
+  box-shadow: inset 0 0 0 3px #100c07, 0 0 12px rgba(211, 139, 34, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer strong {
+  color: #e9d8b5;
+  font-size: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer small {
+  overflow: hidden;
+  color: #806f54;
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-shell {
+  display: flex;
+  width: auto;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 92% 4%, rgba(136, 77, 13, 0.15), transparent 38%),
+    linear-gradient(180deg, #0d0a07, #080706);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-shell.view-settings {
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero {
+  position: relative;
+  min-width: 0;
+  min-height: 168px;
+  flex: 0 0 clamp(168px, 27.5vh, 205px);
+  overflow: hidden;
+  border: 1px solid #6d5938;
+  border-radius: 7px;
+  background: #071326;
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.24), 0 5px 14px rgba(0, 0, 0, 0.24);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 58%;
+  opacity: 0.95;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(90deg, rgba(3, 10, 21, 0.96) 0%, rgba(4, 13, 26, 0.8) 22%, rgba(5, 16, 33, 0.16) 55%, rgba(4, 12, 25, 0.05));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(46%, 400px);
+  height: 100%;
+  padding: 26px 28px 20px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-eyebrow {
+  display: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero h1 {
+  margin: 0;
+  color: #f6f8ff;
+  font-size: clamp(23px, 2.4vw, 31px);
+  line-height: 1.14;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero p {
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: #cbd7e9;
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-footer {
+  display: flex;
+  max-width: 100%;
+  align-items: flex-end;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-action {
+  min-height: 30px;
+  padding: 0 18px;
+  border: 1px solid #4b9dff;
+  border-radius: 4px;
+  color: #f4f9ff;
+  background: linear-gradient(180deg, #3187ef, #1d65c8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 4px 11px rgba(0, 70, 170, 0.3);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-action:hover {
+  border-color: #78baff;
+  background: linear-gradient(180deg, #4597f4, #2872d6);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts {
+  display: flex;
+  max-width: 100%;
+  gap: 6px;
+  margin: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+  padding: 6px 9px;
+  border: 1px solid rgba(83, 139, 213, 0.45);
+  border-radius: 4px;
+  background: rgba(15, 35, 67, 0.78);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts dt {
+  color: #8296b7;
+  font-size: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts dd {
+  max-width: 112px;
+  margin: 0;
+  overflow: hidden;
+  color: #e8f2ff;
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-grid {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  grid-template-rows: minmax(0, 1.85fr) minmax(0, 1fr);
+  gap: 7px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-grid.is-ladder-unavailable {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-grid.is-ladder-unavailable .home-activity-panel {
+  grid-column: 1 / -1;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--replica-border);
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(20, 31, 55, 0.98), rgba(13, 22, 40, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025), 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel > header {
+  display: flex;
+  min-height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border-bottom: 1px solid rgba(91, 117, 161, 0.22);
+  color: #dce6f7;
+  background: rgba(21, 32, 56, 0.62);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel > header svg {
+  color: #80bfff;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel-body {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #2f4772 transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-stat-grid,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-history-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: 100%;
+  gap: 6px;
+  margin: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-stat-grid > div,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-history-stats > div {
+  display: flex;
+  min-width: 0;
+  min-height: 45px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(83, 110, 155, 0.24);
+  border-radius: 5px;
+  background: rgba(24, 37, 63, 0.66);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-stat-grid dt,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-history-stats dt {
+  overflow: hidden;
+  color: #8f9eb8;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-stat-grid dd,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-history-stats dd {
+  margin: 0;
+  color: #79c8ff;
+  font-size: 15px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-detail-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-detail-list > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 31px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(91, 117, 161, 0.16);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-detail-list dt {
+  color: #8291aa;
+  font-size: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-detail-list dd {
+  margin: 0;
+  overflow: hidden;
+  color: #d7e2f3;
+  font-size: 10.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-list li {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid rgba(91, 117, 161, 0.16);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-result {
+  color: #9ba9be;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-result.is-win { color: #72d88f; }
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-result.is-loss { color: #ff8179; }
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-list strong {
+  overflow: hidden;
+  color: #dce6f5;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-match-list time {
+  color: #74829a;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-empty-state {
+  display: grid;
+  height: 100%;
+  min-height: 50px;
+  margin: 0;
+  place-items: center;
+  color: #8190a9;
+  font-size: 10.5px;
+  text-align: center;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-empty-state[role="alert"] {
+  color: #ff9c98;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-events {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-events li,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-current-progress {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #d7e2f3;
+  font-size: 10.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-events time,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-current-progress span {
+  color: #8190a9;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-inline-unavailable {
+  margin: 0;
+  color: #74839c;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-activity-panel .home-dashboard-panel-body,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-panel .home-dashboard-panel-body,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-panel .home-dashboard-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-activity-current {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(82, 118, 174, 0.28);
+  border-radius: 6px;
+  background: rgba(23, 39, 68, 0.66);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7c8ba4;
+  box-shadow: 0 0 8px currentColor;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-status-dot.is-watching { color: #54d48a; background: #54d48a; }
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-status-dot.is-error,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-status-dot.is-missing-log { color: #f08178; background: #f08178; }
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-activity-current > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-activity-current small,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-match > small,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-source,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-more {
+  color: #7f8ea8;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-activity-current strong {
+  color: #e8f2ff;
+  font-size: 12px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-activity-current > div > span {
+  grid-column: 1 / -1;
+  color: #9eacc2;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-match {
+  display: grid;
+  gap: 5px;
+  min-height: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-match > small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-match-row {
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr) auto auto;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border-top: 1px solid rgba(91, 117, 161, 0.17);
+  color: #8796ad;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-recent-match-row strong {
+  overflow: hidden;
+  color: #dce7f6;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-ready,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-ready {
+  display: grid;
+  min-height: 0;
+  gap: 7px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-heading,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-heading strong,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-heading strong {
+  overflow: hidden;
+  color: #e9f2ff;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-heading span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-heading span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-heading em {
+  color: #8fa0b8;
+  font-size: 9px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-stats,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-stats > div,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-stats > div {
+  display: grid;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid rgba(76, 110, 165, 0.25);
+  border-radius: 5px;
+  background: rgba(24, 39, 67, 0.68);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-stats dt,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-stats dt {
+  color: #7f8ea8;
+  font-size: 8.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-stats dd,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-stats dd {
+  margin: 0;
+  color: #77c4ff;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-ladder-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-copy-deck {
+  display: flex;
+  min-height: 29px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--tracker-accent, #3b82f6) 75%, #ffffff 0%);
+  border-radius: 5px;
+  color: #f2f7ff;
+  background: color-mix(in srgb, var(--tracker-accent, #3b82f6) 74%, #0c172b);
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-copy-error {
+  margin: 0;
+  color: #ff9c98;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-arena-details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-arena-details > div {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(91, 117, 161, 0.16);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-arena-details dt {
+  color: #8291aa;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-arena-details dd {
+  margin: 0;
+  overflow: hidden;
+  color: #d7e2f3;
+  font-size: 9.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-list li {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(91, 117, 161, 0.14);
+  color: #becbe0;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-list li strong {
+  color: #77bfff;
+}
+
+/* Warm brass framing keeps the real dashboard content visually tied to the tavern reference. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero {
+  border-color: #7a511b;
+  background: #0b0906;
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.5), 0 5px 16px rgba(0, 0, 0, 0.34);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero::after {
+  background: linear-gradient(90deg, rgba(7, 5, 3, 0.98) 0%, rgba(13, 9, 5, 0.88) 23%, rgba(20, 12, 5, 0.26) 56%, rgba(8, 6, 4, 0.08));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero h1,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-dashboard-panel h2,
+  .home-activity-current strong,
+  .home-ladder-heading strong,
+  .home-deck-heading strong,
+  .home-recent-match-row strong,
+  .home-match-list strong
+) {
+  color: var(--replica-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero p,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-empty-state,
+  .home-inline-unavailable,
+  .home-recent-events time,
+  .home-current-progress span,
+  .home-activity-current small,
+  .home-recent-match > small,
+  .home-ladder-source,
+  .home-deck-more,
+  .home-ladder-heading span,
+  .home-deck-heading span,
+  .home-ladder-heading em
+) {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-action {
+  border-color: #e0a239;
+  color: #211306;
+  background: linear-gradient(180deg, #e7ae42, #a96813);
+  box-shadow: inset 0 1px 0 rgba(255, 238, 184, 0.42), 0 5px 14px rgba(119, 67, 8, 0.34);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-action:hover {
+  border-color: #f1c765;
+  background: linear-gradient(180deg, #f0bd55, #bd7c1d);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts > div {
+  border-color: rgba(204, 143, 47, 0.48);
+  background: rgba(28, 19, 9, 0.84);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts dt {
+  color: #a58b62;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-facts dd {
+  color: #f0dfbb;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel {
+  border-color: var(--replica-border);
+  background:
+    radial-gradient(circle at 90% 0%, rgba(126, 72, 13, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(27, 21, 14, 0.99), rgba(16, 13, 9, 0.99));
+  box-shadow: inset 0 1px 0 rgba(242, 188, 87, 0.045), 0 5px 14px rgba(0, 0, 0, 0.24);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel > header {
+  border-color: var(--replica-border-soft);
+  color: #e7d5b2;
+  background: linear-gradient(180deg, rgba(43, 30, 15, 0.78), rgba(27, 21, 14, 0.7));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel > header svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-deck-list li strong {
+  color: var(--replica-blue-light);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-dashboard-panel-body {
+  scrollbar-color: #704817 transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-stat-grid > div,
+  .home-history-stats > div,
+  .home-ladder-stats > div,
+  .home-deck-stats > div,
+  .home-activity-current
+) {
+  border-color: var(--replica-border-soft);
+  background: rgba(45, 30, 14, 0.62);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-stat-grid dd,
+  .home-history-stats dd,
+  .home-ladder-stats dd,
+  .home-deck-stats dd
+) {
+  color: var(--replica-blue-light);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-detail-list > div,
+  .home-match-list li,
+  .home-recent-match-row,
+  .home-arena-details > div,
+  .home-deck-list li
+) {
+  border-color: rgba(176, 119, 35, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-detail-list dt,
+  .home-arena-details dt,
+  .home-stat-grid dt,
+  .home-history-stats dt,
+  .home-ladder-stats dt,
+  .home-deck-stats dt,
+  .home-match-list time,
+  .home-match-result
+) {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-detail-list dd,
+  .home-arena-details dd,
+  .home-recent-events li,
+  .home-current-progress,
+  .home-deck-list li
+) {
+  color: #ddcaa6;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-copy-deck {
+  border-color: #d79a31;
+  color: #241507;
+  background: linear-gradient(180deg, #dfa63d, #a76812);
+}
+
+/* Settings live in the same right-hand workspace as every other primary route. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--replica-border);
+  border-radius: 7px;
+  background: var(--replica-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header {
+  display: flex;
+  min-width: 0;
+  min-height: 88px;
+  align-items: center;
+  padding: 16px clamp(18px, 2.4vw, 30px);
+  border-bottom: 1px solid rgba(91, 117, 161, 0.22);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(51, 126, 223, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(23, 35, 61, 0.88), rgba(17, 27, 48, 0.88));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 13px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 1px solid rgba(77, 145, 239, 0.48);
+  border-radius: 9px;
+  color: #8bc8ff;
+  background: linear-gradient(145deg, #1d3d6d, #15284a);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 7px 20px rgba(0, 0, 0, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-eyebrow {
+  color: #6faeea;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block h1 {
+  margin: 0;
+  color: #f1f6ff;
+  font-size: 19px;
+  line-height: 1.2;
+  outline: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block p {
+  margin: 1px 0 0;
+  color: #8d9ab0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--replica-border);
+  border-radius: 7px;
+  background: var(--replica-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-titlebar {
+  display: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-titlebar h1 {
+  margin: 0;
+  color: #f0f3fa;
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-dot.is-close {
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-body {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-nav {
+  display: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-nav button {
+  display: grid;
+  grid-template-columns: 21px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #9eabc0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-nav button:hover {
+  color: #dce9f9;
+  background: rgba(42, 62, 102, 0.5);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-nav button.is-selected {
+  border-color: rgba(67, 124, 218, 0.28);
+  color: #8fc9ff;
+  background: #1c2e55;
+  box-shadow: inset 3px 0 0 #438df1;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-content {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(18px, 2.4vw, 30px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(circle at 72% 0%, rgba(63, 90, 143, 0.14), transparent 42%),
+    #121b30;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-all-sections {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-all-sections > .settings-form-section {
+  padding: 16px;
+  border: 1px solid rgba(76, 100, 141, 0.38);
+  border-radius: 7px;
+  background: rgba(11, 20, 37, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-overlay-section,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-section {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(93, 116, 156, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-header h2 {
+  margin: 0;
+  color: #f0f4fb;
+  font-size: 16px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-header p {
+  margin: 5px 0 0;
+  color: #8e9ab0;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid #2c3b59;
+  border-radius: 5px;
+  color: #9daac0;
+  background: #111a2d;
+  font-size: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button small {
+  color: #6f7f9b;
+  font-size: 8.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button.is-selected {
+  border-color: #3c78cf;
+  color: #e9f4ff;
+  background: #1d3767;
+  box-shadow: inset 0 0 0 1px rgba(72, 139, 238, 0.12);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-group-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-group-heading strong {
+  color: #dce5f3;
+  font-size: 11.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-group-heading span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-group-heading small {
+  color: #7988a2;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid #2b3955;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(15, 23, 41, 0.52);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 66px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(91, 113, 151, 0.2);
+  border-radius: 0;
+  color: #e1e9f5;
+  background: transparent;
+  text-align: left;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button:last-child {
+  border-bottom: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button:hover:not(:disabled) {
+  background: rgba(38, 58, 96, 0.42);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  color: #87bff5;
+  background: transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-copy > span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-copy > small {
+  overflow: hidden;
+  color: #8390a7;
+  font-size: 9px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state {
+  display: grid;
+  grid-template-columns: auto 36px;
+  align-items: center;
+  gap: 6px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state strong {
+  color: #87c2ff;
+  font-size: 8.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state > span {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border: 1px solid #2d78dc;
+  border-radius: 999px;
+  background: #327df0;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state > span::after {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  content: "";
+  background: #f5f7fb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.46);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] .settings-switch-state strong {
+  color: #78859b;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] .settings-switch-state > span {
+  border-color: #43506a;
+  background: #303b53;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] .settings-switch-state > span::after {
+  right: 18px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-list {
+  display: grid;
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-row {
+  display: flex;
+  min-width: 0;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid #2a3854;
+  border-radius: 6px;
+  background: rgba(15, 24, 43, 0.58);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-row strong {
+  color: #e4ebf6;
+  font-size: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-row p {
+  margin: 0;
+  color: #8390a6;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-info-row svg {
+  flex: 0 0 auto;
+  color: #657793;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-message {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(76, 129, 193, 0.35);
+  border-radius: 5px;
+  color: #b9d5ee;
+  background: rgba(36, 77, 121, 0.18);
+  font-size: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-message.is-error {
+  border-color: rgba(218, 99, 103, 0.42);
+  color: #ffb9bb;
+  background: rgba(130, 42, 49, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-content > .settings-notice {
+  margin-top: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-form-section {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-group {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #2b3955;
+  border-radius: 6px;
+  background: rgba(12, 20, 37, 0.48);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(91, 113, 151, 0.2);
+  border-radius: 0;
+  color: #e4ebf6;
+  background: transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-row:last-child {
+  border-bottom: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) button.settings-control-row {
+  width: 100%;
+  text-align: left;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) button.settings-control-row:hover:not(:disabled) {
+  background: rgba(39, 59, 96, 0.38);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-copy strong {
+  overflow: hidden;
+  color: #e6edf8;
+  font-size: 11px;
+  font-weight: 610;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-copy small {
+  overflow: hidden;
+  color: #7f8ca3;
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border: 1px solid #2d78dc;
+  border-radius: 999px;
+  background: #327df0;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-track > span {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f7f9fd;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.48);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-toggle[aria-checked="false"] .settings-switch-track {
+  border-color: #43506a;
+  background: #303b53;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-toggle[aria-checked="false"] .settings-switch-track > span {
+  right: 18px;
+  background: #d7dce5;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-select-row select {
+  width: 148px;
+  min-height: 30px;
+  padding: 0 28px 0 9px;
+  border: 1px solid #32415f;
+  border-radius: 5px;
+  color: #dbe6f5;
+  background: #111a2d;
+  font: inherit;
+  font-size: 10px;
+  color-scheme: dark;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-range-control {
+  display: grid;
+  grid-template-columns: 124px 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-range-control input {
+  width: 100%;
+  accent-color: #3d8af2;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-range-control output {
+  color: #aebbd0;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-choice-row {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(91, 113, 151, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-choice-row > strong {
+  color: #dce5f3;
+  font-size: 10.5px;
+  font-weight: 610;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-theme-choices,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-font-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-theme-choices button,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-font-choices button {
+  min-height: 34px;
+  border: 1px solid #31415f;
+  border-radius: 5px;
+  color: #9eabc0;
+  background: #111a2d;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-theme-choices button.is-selected,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-font-choices button.is-selected {
+  border-color: #458ff4;
+  color: #eef6ff;
+  background: #1d3767;
+  box-shadow: inset 0 0 0 1px rgba(88, 157, 255, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-accent-choices {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-accent-choices button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-accent-choices button.is-selected {
+  border-color: #8fc8ff;
+  box-shadow: 0 0 0 2px rgba(64, 141, 241, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-accent-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-accent-choices button > span:last-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-shortcut-card,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-card {
+  display: flex;
+  min-width: 0;
+  min-height: 68px;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  border: 1px solid #2b3955;
+  border-radius: 6px;
+  background: rgba(12, 20, 37, 0.48);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-shortcut-card > div,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-card > div {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 4px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-shortcut-card strong,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-card strong {
+  color: #e5edf8;
+  font-size: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-shortcut-card small,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-card p {
+  margin: 0;
+  color: #8290a7;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-shortcut-card kbd {
+  min-width: 29px;
+  padding: 5px 7px;
+  border: 1px solid #41516f;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: #dce9f8;
+  background: #17233a;
+  font-size: 9px;
+  text-align: center;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-inline-note {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(86, 113, 154, 0.22);
+  border-radius: 5px;
+  color: #8290a7;
+  background: rgba(27, 42, 70, 0.35);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #354662;
+  border-radius: 5px;
+  color: #cbd7e8;
+  background: #18233a;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions button:last-child {
+  grid-column: 1 / -1;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions button:hover:not(:disabled) {
+  border-color: #4b79bb;
+  color: #eef6ff;
+  background: #21375f;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list {
+  display: grid;
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list article {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid #2b3955;
+  border-radius: 6px;
+  background: rgba(12, 20, 37, 0.48);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list article > svg {
+  color: #72b5f3;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list article > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list strong {
+  color: #e3ebf7;
+  font-size: 10.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list p {
+  margin: 0;
+  color: #8290a7;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list article > span {
+  padding: 4px 6px;
+  border: 1px solid rgba(84, 119, 160, 0.34);
+  border-radius: 4px;
+  color: #91a4bf;
+  background: #111b2f;
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  place-items: center;
+  border: 1px solid #c99b47;
+  border-radius: 9px;
+  color: #84c5ff;
+  background: #15325d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-saving-status {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid rgba(64, 126, 202, 0.38);
+  border-radius: 5px;
+  color: #a9d2f6;
+  background: #142744;
+  font-size: 9px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-row:has(:disabled),
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-row:disabled,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-choice-row button:disabled,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+/* The settings remain one continuous page; only their material language changes. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.settings-page, .settings-window) {
+  border-color: var(--replica-border);
+  background: var(--replica-panel);
+  box-shadow: inset 0 1px 0 rgba(241, 190, 92, 0.045);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header {
+  border-color: var(--replica-border-soft);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(184, 111, 23, 0.15), transparent 42%),
+    linear-gradient(180deg, rgba(35, 26, 14, 0.96), rgba(20, 16, 11, 0.96));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-icon {
+  border-color: rgba(220, 155, 50, 0.55);
+  color: #efbc55;
+  background: linear-gradient(145deg, #4d2f0e, #24180b);
+  box-shadow: inset 0 1px 0 rgba(255, 228, 164, 0.13), 0 7px 20px rgba(0, 0, 0, 0.25);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-eyebrow {
+  color: #c68a2e;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .settings-title-block h1,
+  .settings-section-header h2,
+  .settings-control-copy strong,
+  .settings-group-heading strong,
+  .settings-shortcut-card strong,
+  .settings-about-card strong,
+  .settings-note-list strong,
+  .settings-info-row strong
+) {
+  color: var(--replica-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .settings-title-block p,
+  .settings-section-header p,
+  .settings-control-copy small,
+  .settings-group-heading span,
+  .settings-group-heading small,
+  .settings-shortcut-card small,
+  .settings-about-card p,
+  .settings-note-list p,
+  .settings-info-row p,
+  .settings-inline-note
+) {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-content {
+  background:
+    radial-gradient(circle at 74% 0%, rgba(127, 73, 15, 0.12), transparent 42%),
+    #0f0c08;
+  scrollbar-color: #704817 transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-all-sections > .settings-form-section {
+  border-color: var(--replica-border-soft);
+  background: rgba(23, 17, 10, 0.72);
+  box-shadow: inset 0 1px 0 rgba(242, 190, 92, 0.035);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-header,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-choice-row,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-control-row,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button {
+  border-color: rgba(173, 116, 33, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .settings-control-group,
+  .settings-switches,
+  .settings-shortcut-card,
+  .settings-about-card,
+  .settings-note-list article,
+  .settings-info-row
+) {
+  border-color: var(--replica-border-soft);
+  background: rgba(18, 14, 9, 0.7);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  button.settings-control-row:hover:not(:disabled),
+  .settings-switches button:hover:not(:disabled)
+) {
+  background: rgba(86, 53, 15, 0.38);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-icon,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list article > svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-mark {
+  color: var(--replica-blue-light);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.settings-theme-choices button, .settings-font-choices button),
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-select-row select {
+  border-color: #503718;
+  color: #bba781;
+  background: #120e09;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button.is-selected,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.settings-theme-choices button.is-selected, .settings-font-choices button.is-selected) {
+  border-color: #c28629;
+  color: #fff0ca;
+  background: linear-gradient(180deg, #4a2d0d, #2c1d0d);
+  box-shadow: inset 0 0 0 1px rgba(230, 171, 67, 0.12);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button small {
+  color: #8f7856;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.settings-switch-track, .settings-switch-state > span) {
+  border-color: #c78625;
+  background: linear-gradient(180deg, #d99c32, #a56213);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .settings-toggle[aria-checked="false"] .settings-switch-track,
+  .settings-switches button[aria-checked="false"] .settings-switch-state > span
+) {
+  border-color: #59472f;
+  background: #33281b;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state strong {
+  color: #e1aa45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-range-control input {
+  accent-color: var(--replica-blue);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-range-control output,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-choice-row > strong {
+  color: #c9b58d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-shortcut-card kbd {
+  border-color: #765222;
+  color: #f0dfbd;
+  background: #261a0c;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-inline-note {
+  border-color: var(--replica-border-soft);
+  background: rgba(62, 42, 17, 0.32);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions button {
+  border-color: #5b411e;
+  color: #d9c6a1;
+  background: #21170d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-actions button:hover:not(:disabled) {
+  border-color: #aa7427;
+  color: #fff0ca;
+  background: #38240d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-note-list article > span {
+  border-color: var(--replica-border-soft);
+  color: #b6a17d;
+  background: #181109;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-about-mark {
+  border-color: #b47a28;
+  background: #39230c;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-message,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-saving-status {
+  border-color: rgba(195, 133, 38, 0.38);
+  color: #d8bc86;
+  background: rgba(83, 51, 14, 0.36);
+}
+
+/* Retain the detailed tracker routes, but bring them into the same tavern shell. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-bar,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .dashboard-overview > article {
+  border-color: var(--replica-border);
+  color: var(--replica-text);
+  background: linear-gradient(180deg, var(--replica-panel-raised), var(--replica-panel));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-actions button,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .status-strip {
+  border-color: #5b411e;
+  color: #ddc9a4;
+  background: #1b140c;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-actions .primary-action {
+  border-color: #dc9f36;
+  color: #241506;
+  background: linear-gradient(180deg, #e2aa41, #a96914);
+}
+
+/* Keep every detailed desktop route on the same tavern materials. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel-heading {
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--replica-border-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel-heading h2,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-main span, .played-list strong, .timeline-row h3, .subheading h3) {
+  color: var(--replica-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.eyebrow, .deck-summary strong, .deck-card-row > strong, .played-list em) {
+  color: var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel-icon {
+  border: 1px solid var(--replica-border-soft);
+  color: var(--replica-gold);
+  background: #2a1c0c;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel-icon.danger {
+  border-color: rgba(214, 103, 83, 0.34);
+  color: #ef8f7b;
+  background: rgba(116, 42, 29, 0.28);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary:has(.meter span[style*="width: 0%"]),
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary:has(.meter span[style*="width: 0%"]):hover {
+  border-color: var(--replica-border-soft);
+  background: linear-gradient(135deg, #2b1d0d, var(--replica-panel));
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-main small, .played-list small, .timeline-meta, .timeline-row p, .last-action p, .stat-tile span, .last-action span, .subheading span) {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .meter {
+  border: 1px solid rgba(118, 77, 22, 0.42);
+  background: #090603;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .meter span {
+  background: linear-gradient(90deg, #a86512, #e0a43a);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary:has(.meter span[style*="width: 0%"]):after {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-list, .played-list, .timeline) {
+  scrollbar-color: #6d491d transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.deck-card-row, .played-list li, .timeline-row article) {
+  border-color: var(--replica-border-soft);
+  background: linear-gradient(180deg, #20170d, #181109);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.deck-card-row, .played-list li, .timeline-row article):hover {
+  border-color: rgba(214, 154, 51, 0.46);
+  background: #291b0c;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-thumb {
+  border-color: rgba(202, 142, 48, 0.45);
+  background: var(--replica-bg);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .mana-cost {
+  border-color: rgba(244, 198, 104, 0.58);
+  color: #211306;
+  background: radial-gradient(circle at 35% 25%, #f1c765, #a96112 72%);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .event-count {
+  border-color: var(--replica-border-soft);
+  color: #e7c276;
+  background: rgba(112, 70, 15, 0.28);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .timeline-icon {
+  border: 1px solid var(--replica-border-soft);
+  color: var(--replica-gold);
+  background: #261a0d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .actor-me .timeline-icon {
+  color: #efbd56;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .actor-opponent .timeline-icon {
+  color: #ef8f7b;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .empty-state {
+  color: var(--replica-muted);
+  background: radial-gradient(circle at 50% 42%, rgba(151, 91, 17, 0.09), transparent 54%);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .empty-state svg {
+  color: var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .empty-state strong {
+  color: #dec99e;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .stat-tile {
+  border-color: var(--replica-border-soft);
+  background: linear-gradient(180deg, #21170d, #181109);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .stat-tile svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .stat-tile strong {
+  color: var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .fatigue-block {
+  border-color: rgba(214, 103, 83, 0.3);
+  background: rgba(116, 42, 29, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.last-action, .subheading, .hint-line) {
+  border-color: var(--replica-border-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-detail-disclosure {
+  border-color: var(--replica-border-soft);
+  background: #181109;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-detail-disclosure > summary:focus-visible,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-hover-target:focus-visible {
+  outline-color: rgba(224, 168, 65, 0.72);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-detail-body, .card-detail-empty, .card-related-list) {
+  border-color: var(--replica-border-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-detail-image {
+  border-color: rgba(198, 137, 43, 0.4);
+  background: #0e0a05;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-detail-image-empty, .card-detail-empty, .card-detail-heading span, .card-detail-meta, .card-related-list > span) {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-detail-text, .card-related-list p) {
+  color: #cbb995;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-related-card, .card-spell-history-empty) {
+  border-color: var(--replica-border-soft);
+  color: var(--replica-muted);
+  background: #181109;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-related-card > img {
+  border-color: rgba(198, 137, 43, 0.4);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-related-card strong {
+  color: var(--replica-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-related-card small {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-hover-preview {
+  border-color: var(--replica-border);
+  color: var(--replica-text);
+  background: var(--replica-bg);
+  scrollbar-color: #6d491d transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-hover-preview .card-detail-body-hover {
+  background: var(--replica-bg);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-hover-preview .card-preview-hint {
+  border-color: var(--replica-border-soft);
+  color: var(--replica-muted);
+  background: rgba(14, 10, 5, 0.96);
+}
+
+/* Match history inherits the shell instead of its old blue slate material. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-panel {
+  border-color: var(--replica-border);
+  color: var(--replica-text);
+  background: linear-gradient(180deg, var(--replica-panel-raised), var(--replica-panel));
+  box-shadow: inset 0 1px 0 rgba(245, 194, 94, 0.05), 0 10px 28px rgba(0, 0, 0, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-stat {
+  padding: 8px 10px;
+  border: 1px solid var(--replica-border-soft);
+  border-left: 3px solid var(--replica-gold);
+  border-radius: 5px;
+  color: var(--replica-muted);
+  background: #20170d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-stat strong {
+  color: #edc46f;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-list {
+  border-color: var(--replica-border-soft);
+  scrollbar-color: #6d491d transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-row {
+  border-color: var(--replica-border-soft);
+  color: #ddcba7;
+  background: #181109;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-row:nth-child(odd) {
+  background: #21170d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-row:hover {
+  background: #2a1c0d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-row time,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-state {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .match-history-state[role="alert"] {
+  color: #ef9a87;
+}
+
+/* Card database overrides its standalone blue variables inside the desktop shell. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-panel {
+  --card-library-bg: var(--replica-panel);
+  --card-library-surface: var(--replica-panel-raised);
+  --card-library-row: #20170d;
+  --card-library-row-hover: #2a1c0d;
+  --card-library-line: var(--replica-border);
+  --card-library-line-soft: var(--replica-border-soft);
+  --card-library-text: var(--replica-text);
+  --card-library-muted: var(--replica-muted);
+  --card-library-accent: var(--replica-gold);
+  --card-library-amber: #dfa63d;
+  border-color: var(--replica-border);
+  background: linear-gradient(180deg, var(--replica-panel-raised), var(--replica-panel));
+  box-shadow: inset 0 1px 0 rgba(245, 194, 94, 0.05), 0 10px 28px rgba(0, 0, 0, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-heading {
+  border-color: var(--replica-border-soft);
+  background: linear-gradient(180deg, #21170d, #181109);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-heading-copy > svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-total {
+  color: var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-controls,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-results-bar,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-pagination {
+  border-color: var(--replica-border-soft);
+  background: #171008;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-library-search, .card-library-select) {
+  border-color: var(--replica-border);
+  color: var(--replica-muted);
+  background: var(--replica-bg);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-search svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-select > span {
+  color: var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-library-search input, .card-library-select select) {
+  color: var(--replica-text);
+  caret-color: var(--replica-gold);
+  color-scheme: dark;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-search input::placeholder {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-library-search, .card-library-select):focus-within {
+  border-color: var(--replica-blue);
+  box-shadow: 0 0 0 2px rgba(200, 137, 34, 0.16);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-results-bar span:first-child,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-state strong {
+  color: #dec99e;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-results {
+  scrollbar-color: #6d491d transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-stale-warning {
+  border-color: rgba(218, 161, 62, 0.48);
+  color: #efd59c;
+  background: rgba(97, 60, 12, 0.36);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-card {
+  border-color: var(--replica-border-soft);
+  color: var(--replica-text);
+  background: var(--card-library-row);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-library-card:hover, .card-library-card:focus-visible, .card-library-card.is-selected) {
+  border-color: rgba(224, 168, 65, 0.72);
+  background: var(--card-library-row-hover);
+  box-shadow: inset 2px 0 0 var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-art {
+  border-color: rgba(198, 137, 43, 0.4);
+  color: #9d7f53;
+  background: #0e0a05;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-art.is-empty {
+  border-color: var(--replica-border-soft);
+  color: var(--replica-muted);
+  background: #181109;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-mana {
+  border-color: rgba(245, 211, 136, 0.55);
+  color: #211306;
+  background: radial-gradient(circle at 35% 25%, #f0c45d, #a65e10 74%);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-stats {
+  border-color: rgba(210, 151, 54, 0.42);
+  color: #f1dfba;
+  background: rgba(35, 23, 10, 0.92);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-card-copy strong {
+  color: var(--replica-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-state svg {
+  color: var(--replica-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-state.is-error svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-state.is-error strong {
+  color: #ef9a87;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-selected {
+  border-color: var(--replica-border-soft);
+  background: #181109;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-selected-heading {
+  border-color: var(--replica-border-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-selected-heading strong,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-selected :is(.card-detail-stats, .card-detail-heading strong) {
+  color: #e5ba60;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-selected :is(.card-detail-text, .card-detail-meta) {
+  color: #cbb995;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-library-pagination button {
+  border-color: var(--replica-border);
+  color: #e6d2a9;
+  background: var(--replica-panel-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-library-pagination button:hover:not(:disabled), .card-library-pagination button:focus-visible) {
+  border-color: var(--replica-blue-light);
+  color: #fff0c9;
+  background: #38250f;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-shell.view-deck-tools {
+  padding: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  overflow: auto;
+  color: var(--replica-text);
+  background:
+    radial-gradient(circle at 88% -8%, rgba(160, 93, 17, 0.2), transparent 42%),
+    linear-gradient(180deg, #0d0a07, #080706);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header {
+  display: flex;
+  min-height: 104px;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px;
+  border: 1px solid var(--replica-border);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 94% 0%, rgba(176, 103, 17, 0.2), transparent 34%),
+    linear-gradient(180deg, var(--replica-panel-raised), var(--replica-panel));
+  box-shadow: inset 0 1px 0 rgba(245, 194, 94, 0.07), 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  place-items: center;
+  border: 1px solid #9e681e;
+  border-radius: 8px;
+  color: var(--replica-blue-light);
+  background: linear-gradient(145deg, #3a240d, #171008);
+  box-shadow: inset 0 0 0 1px rgba(239, 183, 74, 0.08), 0 0 18px rgba(184, 105, 18, 0.14);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header > div > span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-card > header span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .collection-import-header > div > span {
+  color: var(--replica-gold);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header h1 {
+  margin: 0;
+  color: var(--replica-text);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header p,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-card > header p {
+  margin: 0;
+  color: var(--replica-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-workspace {
+  display: grid;
+  min-width: 0;
+  min-height: 460px;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(360px, 1.18fr);
+  gap: 16px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid var(--replica-border);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(144, 83, 14, 0.12), transparent 34%),
+    linear-gradient(180deg, var(--replica-panel-raised), var(--replica-panel));
+  box-shadow: inset 0 1px 0 rgba(245, 194, 94, 0.06), 0 10px 26px rgba(0, 0, 0, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-card > header {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--replica-border-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.deck-tools-card h2, .collection-import-header h2) {
+  margin: 3px 0;
+  color: var(--replica-text);
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-manual textarea {
+  width: 100%;
+  min-height: 240px;
+  flex: 1 1 auto;
+  padding: 14px;
+  border: 1px solid var(--replica-border);
+  border-radius: 6px;
+  outline: 0;
+  color: var(--replica-text);
+  background: var(--replica-bg);
+  resize: vertical;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-manual textarea::placeholder {
+  color: color-mix(in srgb, var(--replica-muted) 78%, transparent);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-manual textarea:focus {
+  border-color: var(--replica-blue);
+  box-shadow: 0 0 0 2px rgba(200, 137, 34, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-notice {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--replica-border-soft);
+  border-radius: 6px;
+  color: #e6c886;
+  background: rgba(119, 72, 14, 0.22);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .collection-import {
+  padding: 12px;
+  border: 1px solid var(--replica-border);
+  border-radius: 8px;
+  background: var(--replica-panel-raised);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .collection-import {
+  gap: 12px;
+  margin: 0;
+  padding: 18px;
+  overflow: hidden;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .collection-import-header {
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--replica-border-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .collection-import-header small {
+  display: block;
+  color: var(--replica-muted);
+  font-size: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .collection-help {
+  margin: -4px 0 0;
+  white-space: normal;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.collection-import-header strong, .collection-deck-main strong) {
+  color: var(--replica-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.collection-import-header span, .collection-help, .collection-deck-main span, .collection-deck-main small) {
+  color: var(--replica-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .collection-deck-list li {
+  border-color: var(--replica-border-soft);
+  background: var(--replica-bg);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .collection-deck-list {
+  max-height: none;
+  flex: 1 1 auto;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .collection-deck-main em {
+  color: #dda749;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .collection-empty {
+  border-color: var(--replica-border-soft);
+  color: var(--replica-muted);
+  background: var(--replica-panel-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid #5e431e;
+  border-radius: 6px;
+  color: var(--replica-text);
+  background: var(--replica-panel-soft);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page button:hover:not(:disabled) {
+  border-color: #a87329;
+  background: #38250f;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .primary-action {
+  border-color: var(--replica-blue);
+  color: #211306;
+  background: linear-gradient(180deg, #e1a73d, #a76612);
+  box-shadow: 0 5px 14px rgba(114, 65, 8, 0.34), inset 0 1px 0 rgba(255, 233, 174, 0.32);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .primary-action:hover:not(:disabled) {
+  border-color: var(--replica-blue-light);
+  background: linear-gradient(180deg, #edb94f, #bd7a1b);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) button:focus-visible {
+  outline: 2px solid #efb84d;
+  outline-offset: 2px;
+}
+
+html[data-tracker-animations="off"] body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame,
+html[data-tracker-animations="off"] body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame * {
+  scroll-behavior: auto !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+html[data-tracker-font-size="small"] body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+  font-size: 12px;
+}
+
+html[data-tracker-font-size="large"] body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+  font-size: 16px;
+}
+
+html[data-tracker-font-size="large"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .sidebar-item,
+  .home-dashboard-panel h2,
+  .settings-control-copy strong,
+  .settings-section-nav button,
+  .settings-window-titlebar h1
+) {
+  font-size: 12px;
+}
+
+html[data-tracker-font-size="small"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .sidebar-item,
+  .home-dashboard-panel h2,
+  .settings-control-copy strong,
+  .settings-section-nav button,
+  .settings-window-titlebar h1
+) {
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item.is-active,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item[aria-current="page"],
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button.is-active,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button[aria-current="page"] {
+  border-color: rgba(218, 151, 47, 0.48);
+  color: #fff0c9;
+  background: linear-gradient(90deg, #50300d, #271a0c);
+  box-shadow: inset 3px 0 0 #e2a73c, 0 5px 18px rgba(0, 0, 0, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item.is-active svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item[aria-current="page"] svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button.is-active svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button[aria-current="page"] svg {
+  color: #f0bd55;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) {
+  background: #d8c49d;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+  --replica-bg: #e9ddc4;
+  --replica-sidebar: #dfcba4;
+  --replica-sidebar-deep: #caae76;
+  --replica-panel: #f7eedb;
+  --replica-panel-raised: #fff9eb;
+  --replica-panel-soft: #ead8b4;
+  --replica-border: #a87832;
+  --replica-border-soft: rgba(126, 82, 27, 0.26);
+  --replica-text: #3d2b15;
+  --replica-muted: #796446;
+  color: #3d2b15;
+  background: #e9ddc4;
+  border-color: #956727;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.app-sidebar, .app-shell) {
+  color: #49341a;
+  background: linear-gradient(180deg, #f2e6ce, #d7bf93);
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-dashboard-panel,
+  .settings-page,
+  .settings-window,
+  .settings-control-group,
+  .settings-shortcut-card,
+  .settings-about-card,
+  .settings-note-list article
+) {
+  color: #49341a;
+  background: #fff8e9;
+  border-color: #b48641;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-content {
+  background: #eadcc0;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-all-sections > .settings-form-section {
+  border-color: #c49a59;
+  background: #fff9ed;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .home-dashboard-panel h2,
+  .home-activity-current strong,
+  .home-ladder-heading strong,
+  .home-deck-heading strong,
+  .settings-title-block h1,
+  .settings-window-titlebar h1,
+  .settings-section-header h2,
+  .settings-control-copy strong,
+  .settings-note-list strong,
+  .settings-about-card strong
+) {
+  color: #3d2b15;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block p {
+  color: #796446;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) .home-empty-state[role="alert"] {
+  color: #a83934;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(
+  .settings-header,
+  .settings-window-titlebar,
+  .settings-section-nav,
+  .home-dashboard-panel > header
+) {
+  background: #ead7b2;
+  border-color: #b88c48;
+}
+
+html[data-tracker-theme="light"] body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.settings-select-row select, .settings-theme-choices button, .settings-font-choices button) {
+  color: #49341a;
+  background: #fffaf0;
+  border-color: #bd9150;
+  color-scheme: light;
+}
+
+@media (max-width: 760px) {
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-sidebar {
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand {
+    justify-content: center;
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > span:last-child,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item > span,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer > span:last-child {
+    display: none;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-content {
+    width: 62%;
+    padding-right: 16px;
+    padding-left: 20px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header {
+    min-height: 78px;
+    padding: 13px 16px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-content {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-all-sections {
+    gap: 14px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-all-sections > .settings-form-section {
+    padding: 13px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page {
+    padding: 12px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-card {
+    padding: 14px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window {
+    border-radius: 6px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-window-body {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-nav button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-nav button span {
+    display: none;
+  }
+}
+
+@media (max-height: 680px) {
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero {
+    min-height: 150px;
+    flex-basis: 150px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero-content {
+    padding-top: 17px;
+    padding-bottom: 15px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .home-hero h1 {
+    font-size: 23px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand {
+    min-height: 64px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item {
+    min-height: 36px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-content {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header {
+    min-height: 84px;
+    padding: 12px 16px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-header-icon {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-workspace {
+    min-height: 410px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-card,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-page .collection-import {
+    padding: 14px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-tools-manual textarea {
+    min-height: 190px;
+  }
+}

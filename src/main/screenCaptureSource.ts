@@ -7,18 +7,16 @@ export interface ScreenCaptureSourceCandidate {
   };
 }
 
+export const HEARTHSTONE_CAPTURE_TYPES = ["window"] as const;
+
 export function selectHearthstoneCaptureSource<T extends ScreenCaptureSourceCandidate>(
   sources: readonly T[],
-  targetDisplayId: number
+  _targetDisplayId: number
 ): T | undefined {
   const hearthstoneWindows = sources
     .filter((candidate) => /hearthstone|炉石传说/i.test(candidate.name))
     .sort((left, right) => captureArea(right) - captureArea(left));
-  return (
-    hearthstoneWindows[0] ??
-    sources.find((candidate) => candidate.display_id === String(targetDisplayId)) ??
-    sources.find((candidate) => candidate.id.startsWith("screen:"))
-  );
+  return hearthstoneWindows[0];
 }
 
 function captureArea(candidate: ScreenCaptureSourceCandidate) {

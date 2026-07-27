@@ -10,7 +10,9 @@ export interface AutomaticOverlayHost {
   readonly isOverlayInteractionActive?: () => boolean;
   readonly createOverlayWindow: () => Promise<void>;
   readonly showOverlayWindow: () => void;
-  readonly hideOverlayWindow: () => void;
+  readonly hideOverlayWindow: () => void | Promise<void>;
+  readonly isEnabled?: (state: PublicTrackerState) => boolean;
+  readonly shouldHideWhenDisabled?: () => boolean;
 }
 
 export class AutomaticOverlayController {
@@ -18,6 +20,7 @@ export class AutomaticOverlayController {
   private refreshPromise: Promise<void> | undefined;
   private contextKey: string | undefined;
   private suppressedContextKey: string | undefined;
+  private lifecycleGeneration = 0;
 
   constructor(private readonly host: AutomaticOverlayHost) {}
 
@@ -34,6 +37,7 @@ export class AutomaticOverlayController {
   }
 
   stop() {
+    this.lifecycleGeneration += 1;
     if (this.monitor) {
       clearInterval(this.monitor);
       this.monitor = undefined;
@@ -45,7 +49,8 @@ export class AutomaticOverlayController {
       return this.refreshPromise;
     }
 
-    this.refreshPromise = this.refreshOnce().finally(() => {
+    const generation = this.lifecycleGeneration;
+    this.refreshPromise = this.refreshOnce(generation).finally(() => {
       this.refreshPromise = undefined;
     });
     return this.refreshPromise;
@@ -59,14 +64,24 @@ export class AutomaticOverlayController {
     this.suppressedContextKey = undefined;
   }
 
-  private async refreshOnce() {
+  private async refreshOnce(generation: number) {
     const frontmostAppName = await this.host.getFrontmostAppName();
-    const nextContextKey = resolveAutomaticOverlayContext(this.host.getState());
+    if (generation !== this.lifecycleGeneration) return;
+    const state = this.host.getState();
+    const enabled = this.host.isEnabled?.(state) !== false;
+    const nextContextKey = enabled ? resolveAutomaticOverlayContext(state) : undefined;
     if (nextContextKey !== this.contextKey) {
       this.contextKey = nextContextKey;
       if (!matchesSuppressedContext(this.suppressedContextKey, nextContextKey)) {
         this.suppressedContextKey = undefined;
       }
+    }
+
+    if (!enabled) {
+      if (this.host.shouldHideWhenDisabled?.() !== false && this.host.hasOverlayWindow()) {
+        await this.host.hideOverlayWindow();
+      }
+      return;
     }
 
     const shouldShow = Boolean(
@@ -80,22 +95,33 @@ export class AutomaticOverlayController {
     );
 
     if (!shouldShow) {
-      if (this.host.hasOverlayWindow() && this.host.isOverlayVisible()) {
-        this.host.hideOverlayWindow();
+      if (this.host.hasOverlayWindow()) {
+        await this.host.hideOverlayWindow();
       }
       return;
     }
 
     if (!this.host.hasOverlayWindow()) {
-      await this.host.createOverlayWindow();
+      try {
+        await this.host.createOverlayWindow();
+      } catch (error) {
+        if (generation !== this.lifecycleGeneration) return;
+        throw error;
+      }
     }
-    const latestContextKey = resolveAutomaticOverlayContext(this.host.getState());
+    if (generation !== this.lifecycleGeneration) {
+      return;
+    }
+    const latestState = this.host.getState();
+    const latestContextKey = this.host.isEnabled?.(latestState) === false
+      ? undefined
+      : resolveAutomaticOverlayContext(latestState);
     if (
       latestContextKey !== nextContextKey ||
       matchesSuppressedContext(this.suppressedContextKey, latestContextKey)
     ) {
-      if (this.host.hasOverlayWindow() && this.host.isOverlayVisible()) {
-        this.host.hideOverlayWindow();
+      if (this.host.hasOverlayWindow()) {
+        await this.host.hideOverlayWindow();
       }
       return;
     }
@@ -110,9 +136,15 @@ export function resolveAutomaticOverlayContext(state: PublicTrackerState): strin
     return undefined;
   }
 
-  if (state.arena?.status && state.arena.status !== "inactive") {
+  if (!state.trackerMode) {
+    return "watching:waiting-for-mode";
+  }
+
+  if (state.trackerMode === "arena" && state.arena?.status && state.arena.status !== "inactive") {
     return "arena";
   }
+
+  if (state.trackerMode !== "ladder") return undefined;
 
   if (state.autoMatchedDeckId) {
     return `constructed-deck:${state.constructedScreenMode ?? "unknown"}:${state.autoMatchedDeckId}`;
@@ -122,7 +154,7 @@ export function resolveAutomaticOverlayContext(state: PublicTrackerState): strin
     return `constructed-waiting:${state.constructedScreenMode}`;
   }
 
-  return state.gameActive ? "constructed-game:waiting" : undefined;
+  return state.gameActive ? "constructed-game:waiting" : "constructed:waiting-for-screen";
 }
 
 function matchesSuppressedContext(suppressedKey: string | undefined, nextKey: string | undefined) {

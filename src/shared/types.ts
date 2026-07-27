@@ -19,6 +19,9 @@ export interface DeckCard {
   cardId?: string;
   rawLine?: string;
   details?: CardDetails;
+  unresolved?: true;
+  pickRate?: number;
+  deckImpact?: number;
 }
 
 export interface DeckImport {
@@ -35,6 +38,7 @@ export interface CardTrackerRow {
   played: number;
   cardId?: string;
   details?: CardDetails;
+  unresolved?: true;
 }
 
 export interface TrackerZoneCard {
@@ -43,6 +47,89 @@ export interface TrackerZoneCard {
   cardId?: string;
   details?: CardDetails;
 }
+
+export type TrackerMode = "ladder" | "arena";
+
+export interface TrackerModeSettings {
+  readonly friendlyDeckTracker: boolean;
+  readonly opponentDeckTracker: boolean;
+}
+
+export const TRACKER_ACCENT_COLORS = [
+  "#3b82f6",
+  "#8b5cf6",
+  "#14b8a6",
+  "#b7791f",
+  "#f59e0b",
+  "#ef4444"
+] as const;
+
+export type TrackerAccentColor = typeof TRACKER_ACCENT_COLORS[number];
+
+export interface TrackerGeneralSettings {
+  readonly launchAtLogin: boolean;
+  readonly startMinimized: boolean;
+  readonly showGameStatusIcon: boolean;
+  readonly minimizeToMenuBar: boolean;
+  readonly focusOnOpen: boolean;
+  readonly gameDetection: "automatic" | "manual";
+  readonly gameLanguage: "zh-CN" | "zh-TW" | "en-US";
+  readonly windowMatching: "smart" | "title" | "process";
+}
+
+export interface TrackerOverlaySettings {
+  readonly enabled: boolean;
+  readonly arenaHeroWinRateRanking: boolean;
+  readonly showFriendlyAttack: boolean;
+  readonly showOpponentAttack: boolean;
+  readonly secretPrediction: boolean;
+  readonly position: "left" | "right";
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly opacity: number;
+  readonly hideInFullscreen: boolean;
+}
+
+export interface TrackerAppearanceSettings {
+  readonly theme: "dark" | "light" | "system";
+  readonly accentColor: TrackerAccentColor;
+  readonly fontSize: "small" | "medium" | "large";
+  readonly zoom: number;
+  readonly animations: boolean;
+  readonly cardImageQuality: "low" | "high";
+}
+
+export interface TrackerOtherSettings {
+  readonly autoUpdateCards: boolean;
+  readonly updateFrequency: "daily" | "weekly" | "manual";
+  readonly matchRetentionDays: 30 | 90 | 180;
+  readonly notifyUpdates: boolean;
+  readonly notifyAnnouncements: boolean;
+  readonly verboseLogs: boolean;
+}
+
+export interface TrackerSettings {
+  readonly ladder: TrackerModeSettings;
+  readonly arena: TrackerModeSettings;
+  readonly general: TrackerGeneralSettings;
+  readonly overlay: TrackerOverlaySettings;
+  readonly appearance: TrackerAppearanceSettings;
+  readonly other: TrackerOtherSettings;
+}
+
+export type CardDatabaseRefreshResult =
+  | {
+      readonly status: "updated" | "stale";
+      readonly cardCount: number;
+      readonly source?: string;
+      readonly version?: string;
+      readonly warnings: readonly string[];
+    }
+  | {
+      readonly status: "error";
+      readonly error: string;
+      readonly warnings: readonly string[];
+    };
 
 export interface TrackerEvent {
   id: string;
@@ -62,6 +149,48 @@ export interface TrackerSummary {
   drawnCards: number;
   opponentPlayedCount: number;
 }
+
+export interface PlayerMatchCounters {
+  readonly nextFatigueDamage?: number;
+  readonly corpses?: number;
+  readonly spellsPlayed?: number;
+}
+
+export interface MatchCounters {
+  readonly friendly: PlayerMatchCounters;
+  readonly opponent: PlayerMatchCounters;
+}
+
+export type MatchResult = "win" | "loss" | "tie";
+
+export type MatchMode = "standard" | "wild" | "arena" | "unknown";
+
+export interface MatchRecord {
+  readonly id: string;
+  readonly result: MatchResult;
+  readonly mode: MatchMode;
+  readonly deckName?: string;
+  readonly endedAt: string;
+}
+
+export interface MatchHistorySummary {
+  readonly total: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly ties: number;
+  readonly winRate: number;
+}
+
+export type MatchHistoryResult =
+  | {
+      readonly status: "ok";
+      readonly matches: readonly MatchRecord[];
+      readonly summary: MatchHistorySummary;
+    }
+  | {
+      readonly status: "error";
+      readonly error: string;
+    };
 
 export type ArenaStatus = "inactive" | "drafting" | "redrafting" | "complete" | "playing";
 
@@ -92,11 +221,15 @@ export interface ArenaPick {
 
 export interface ArenaState {
   readonly status: ArenaStatus;
+  readonly deckId?: string;
+  readonly redraftGenerationId?: string;
   readonly hero?: ArenaHero;
   readonly currentChoices: readonly ArenaCardChoice[];
   readonly picks: readonly ArenaPick[];
   readonly deck: readonly DeckCard[];
+  readonly redraftPool?: readonly DeckCard[];
   readonly draftCount: number;
+  readonly unresolvedCount: number;
   readonly scoreSource?: string;
   readonly ratingsVersion?: number;
   readonly lastUpdated?: string;
@@ -105,6 +238,7 @@ export interface ArenaState {
 
 export interface PublicTrackerState {
   status: "idle" | "watching" | "paused" | "missing-log" | "error";
+  trackerMode?: TrackerMode;
   gameActive?: boolean;
   logPath?: string;
   arenaLogPath?: string;
@@ -115,9 +249,17 @@ export interface PublicTrackerState {
   deck: CardTrackerRow[];
   friendlyHand?: TrackerZoneCard[];
   friendlyOther?: TrackerZoneCard[];
+  opponentDeck?: TrackerZoneCard[];
+  opponentHand?: TrackerZoneCard[];
+  opponentOther?: TrackerZoneCard[];
+  globalEffects?: TrackerZoneCard[];
+  opponentGlobalEffects?: TrackerZoneCard[];
+  opponentDeckCount?: number;
+  opponentHandCount?: number;
   opponentPlayed: CardTrackerRow[];
   opponentSecrets?: OpponentSecretSlot[];
   boardAttack?: BoardAttackSummary;
+  matchCounters?: MatchCounters;
   events: TrackerEvent[];
   summary: TrackerSummary;
   arena?: ArenaState;
@@ -241,6 +383,14 @@ export interface ControllerLogEvent {
 
 export interface GameStartLogEvent {
   type: "game-start";
+  timestamp?: string;
+  raw: string;
+}
+
+export interface GlobalEffectLogEvent {
+  type: "global-effect";
+  source: "start-of-game" | "played";
+  entity: EntitySnapshot;
   raw: string;
 }
 
@@ -249,7 +399,33 @@ export interface GameEndLogEvent {
   raw: string;
 }
 
-export type ParsedLogEvent = ZoneChangeLogEvent | EntityLogEvent | ControllerLogEvent | AttackLogEvent | ActionBoundaryLogEvent | GameStartLogEvent | GameEndLogEvent;
+export interface PlayerIdentityLogEvent {
+  type: "player-identity";
+  playerId: number;
+  playerName: string;
+  raw: string;
+}
+
+export interface PlayerCounterLogEvent {
+  type: "player-counter";
+  playerId?: number;
+  playerName?: string;
+  counter: "fatigue" | "corpses" | "spells-played";
+  value: number;
+  raw: string;
+}
+
+export type ParsedLogEvent =
+  | ZoneChangeLogEvent
+  | EntityLogEvent
+  | ControllerLogEvent
+  | AttackLogEvent
+  | ActionBoundaryLogEvent
+  | GameStartLogEvent
+  | GameEndLogEvent
+  | GlobalEffectLogEvent
+  | PlayerIdentityLogEvent
+  | PlayerCounterLogEvent;
 
 export interface LogCandidate {
   path: string;

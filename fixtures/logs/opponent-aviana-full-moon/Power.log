@@ -1,0 +1,3 @@
+D 07:10:00.0000000 GameState.DebugPrintPower() - CREATE_GAME
+D 07:10:30.5746240 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=哈缪尔·符文图腾 id=71 zone=DECK zonePos=0 cardId=EDR_845 player=2] EffectCardId=0 EffectIndex=1 Target=0 SubOption=-1 TriggerKeyword=START_OF_GAME_KEYWORD
+D 07:16:41.3050450 GameState.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=满月 id=195 zone=PLAY zonePos=0 cardId=EDR_895e player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=TRIGGER_VISUAL

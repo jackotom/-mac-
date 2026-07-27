@@ -38,7 +38,7 @@ describe("opponent overlay collapsed-state sync", () => {
 
     act(() => notifyCollapsedChange?.(false));
 
-    expect(screen.getByLabelText("对手最近出牌")).toBeInTheDocument();
+    expect(screen.getByLabelText("对手记牌器置顶小窗")).toBeInTheDocument();
 
     act(() => notifyCollapsedChange?.(true));
 
@@ -77,5 +77,39 @@ describe("opponent overlay collapsed-state sync", () => {
     await act(async () => resolveInitialState(false));
 
     expect(screen.getByRole("button", { name: "恢复对手小窗，2 个奥秘" })).toBeInTheDocument();
+  });
+
+  it("updates secret visibility without closing or recreating the opponent window", async () => {
+    let notifySecretPredictionChange: ((enabled: boolean) => void) | undefined;
+
+    Object.defineProperty(window, "hearthstoneTracker", {
+      configurable: true,
+      value: {
+        discoverLogs: () => Promise.resolve([]),
+        getState: () => new Promise<never>(() => undefined),
+        getOpponentOverlayCollapsed: () => Promise.resolve(false),
+        onOpponentOverlayCollapsedChange: () => () => undefined,
+        onOpponentSecretPredictionChange: (callback: (enabled: boolean) => void) => {
+          notifySecretPredictionChange = callback;
+          return () => undefined;
+        },
+        onUpdate: () => () => undefined
+      }
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/?opponent-overlay=1&qa-opponent-demo=1&show-secret-prediction=1"
+    );
+
+    render(<App />);
+    expect(await screen.findByLabelText("对手奥秘")).toBeInTheDocument();
+
+    act(() => notifySecretPredictionChange?.(false));
+    expect(screen.queryByLabelText("对手奥秘")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("对手记牌器置顶小窗")).toBeInTheDocument();
+
+    act(() => notifySecretPredictionChange?.(true));
+    expect(screen.getByLabelText("对手奥秘")).toBeInTheDocument();
   });
 });

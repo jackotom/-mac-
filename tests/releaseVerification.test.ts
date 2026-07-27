@@ -24,7 +24,22 @@ describe("release verification entrypoint", () => {
     expect(script).toContain("npm run build");
     expect(script).toContain("fixtures/logs/session-2026-07-10");
     expect(script).toContain("fixtures/logs/auto-match-session");
+    expect(script).toContain("fixtures/logs/constructed-duplicate-create");
+    expect(script).toContain("constructed-duplicate-replay");
+    expect(script).toContain("牌库中暂无卡牌");
+    expect(script).toContain("opponentGlobalEffects");
     expect(script).toContain("fixtures/logs/arena-session");
+    expect(script).toContain("arena-redraft-partial-replay");
+    expect(script).toContain("arena-redraft-exact-replay");
+    expect(script).toContain("arena-playing-replay");
+    expect(script).toContain("Decks.after-redraft.log");
+    expect(script).toContain("unresolvedCount");
+    expect(script).toContain('["选取率", "卡牌", "影响"]');
+    expect(script).toContain('arena?.status !== "playing"');
+    expect(script).toContain('body.includes("等待开局")');
+    expect(script).toContain('body.includes("影响全局")');
+    expect(script).toContain("日志缺失的竞技场牌");
+    expect(script).toContain("未解析竞技场牌");
     expect(script).toContain("QA_LOG_PATH");
     expect(script).toContain("QA_OPEN_OVERLAY");
     expect(script).toContain("QA_OPEN_OPPONENT_OVERLAY");
@@ -37,11 +52,99 @@ describe("release verification entrypoint", () => {
     expect(script).toContain("launched_pid=$!");
   });
 
+  it("keeps release evidence while packaging and supports the system Bash 3 empty array", () => {
+    const packageScript = read("scripts/package-mac-arm64.sh");
+    const releaseScript = read("scripts/verify-release.sh");
+
+    expect(packageScript).toContain('${electron_zip_args[@]+"${electron_zip_args[@]}"}');
+    expect(packageScript).toContain('"$output_dir/release-verification"');
+    expect(packageScript).toMatch(/release-verification[\s\S]{0,160}continue/);
+    expect(releaseScript).toContain("发布验证证据在打包时被清理");
+    expect(releaseScript).toContain("scenario\\tduration_ms\\tevidence");
+  });
+
+  it("rejects exact Arena QA output when the isolated card cache did not resolve every card", () => {
+    const script = read("scripts/verify-release.sh");
+
+    expect(script).toContain("Unknown card");
+    expect(script).toContain("TEST_ARENA_");
+    expect(script).toContain("trackerCards");
+    expect(script).toContain("knownExactCard");
+    expect(script).toContain("JSON.stringify");
+  });
+
+  it("captures the packaged Arena hero ranking and validates the three-window layout", () => {
+    const script = read("scripts/verify-release.sh");
+    const mainSource = read("src/main/main.ts");
+
+    expect(script).toContain("QA_OPEN_ARENA_HERO_RANKING_OVERLAY");
+    expect(script).toContain("QA_OPEN_THREE_WINDOW_LAYOUT");
+    expect(script).toContain("arena-hero-ranking-overlay");
+    expect(script).toContain("three-window-layout");
+    expect(script).toContain("qaWindowLayout");
+    expect(script).toContain("windowsOverlap");
+    expect(script).toContain("hero.bounds.width !== 100");
+    expect(script).toContain("opponent.bounds.width !== 250");
+    expect(script).toContain("friendly.bounds.width !== 100");
+    expect(mainSource).toContain('"qa-arena-hero-ranking": "1"');
+    expect(mainSource).toContain("qaMainWindowVisible");
+    expect(script).toContain("report.qaMainWindowVisible !== false");
+  });
+
+  it("rejects packaged QA output when isolated defaults drift", () => {
+    const script = read("scripts/verify-release.sh");
+    const mainSource = read("src/main/main.ts");
+
+    expect(script).toContain("report.trackerSettings?.general?.startMinimized !== false");
+    expect(script).toContain('report.trackerSettings?.overlay?.position !== "right"');
+    expect(script).toContain("report.trackerSettings?.overlay?.showFriendlyAttack !== false");
+    expect(script).toContain("report.trackerSettings?.overlay?.showOpponentAttack !== false");
+    expect(mainSource).toContain("trackerSettings: rendererInspection.trackerSettings ?? trackerSettings");
+  });
+
+  it("ties the manual, global-switch, fold, and bounds contracts to the release gate", () => {
+    const script = read("scripts/verify-release.sh");
+
+    expect(script).toContain("tests/mainWindowVisibility.test.ts");
+    expect(script).toContain("tests/automaticOverlayController.test.ts");
+    expect(script).toContain("tests/opponentOverlayWindowController.test.ts");
+    expect(script).toContain("tests/trackerSettingsStore.test.ts");
+    expect(script).toContain("tests/overlayWindowBounds.test.ts");
+  });
+
   it("documents generated evidence and manual-only screen recording acceptance", () => {
     const acceptance = read("docs/commercial-acceptance.md");
 
     expect(acceptance).toContain("npm run verify:release");
     expect(acceptance).toContain("outputs/release-verification");
     expect(acceptance).toContain("录屏权限仍需人工确认");
+  });
+
+  it("isolates QA user data before constructing persistent services", () => {
+    const releaseScript = read("scripts/verify-release.sh");
+    const mainSource = read("src/main/main.ts");
+    const qaPathSetup = mainSource.indexOf('app.setPath("userData", process.env.QA_USER_DATA_DIR)');
+    const firstPersistentService = Math.min(
+      mainSource.indexOf("new CollectionDeckService()"),
+      mainSource.indexOf("new TrackerService("),
+      mainSource.indexOf("new CardDataService()")
+    );
+
+    expect(qaPathSetup).toBeGreaterThan(-1);
+    expect(firstPersistentService).toBeGreaterThan(-1);
+    expect(qaPathSetup).toBeLessThan(firstPersistentService);
+    for (const constructor of ["new CollectionDeckService()", "new TrackerService(", "new CardDataService()"]) {
+      expect(qaPathSetup).toBeLessThan(mainSource.indexOf(constructor));
+    }
+    expect(releaseScript.match(/QA_SKIP_LOG_CONFIG_REPAIR=1/g)).toHaveLength(3);
+    expect(releaseScript.match(/QA_SKIP_ARENA_SCREEN_RECOGNITION=1/g)).toHaveLength(3);
+    expect(releaseScript).toContain('rm -rf "$qa_user_data"');
+    expect(releaseScript.indexOf('rm -rf "$qa_user_data"')).toBeLessThan(
+      releaseScript.indexOf('mkdir -p "$qa_user_data"')
+    );
+    expect(releaseScript).toContain('launch_user_data="$evidence_dir/user-data/launch-check"');
+    expect(releaseScript).toContain('rm -rf "$launch_user_data"');
+    expect(releaseScript).toContain('mkdir -p "$launch_user_data"');
+    expect(releaseScript).toContain('QA_USER_DATA_DIR="$launch_user_data"');
   });
 });

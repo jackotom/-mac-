@@ -26,10 +26,16 @@ export function findActiveCollectionDeck(
 ): CollectionDeck | undefined {
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
   let markerIndex = -1;
+  let markerMode: string | undefined;
 
   lines.forEach((line, index) => {
-    if (/^Finding Game With Deck:?$/i.test(stripLogPrefix(line).trim())) {
+    const normalizedLine = stripLogPrefix(line).trim();
+    if (/^Finding Game With Deck:?$/i.test(normalizedLine)) {
       markerIndex = index;
+      markerMode = undefined;
+    } else if (isArenaDeckStart(normalizedLine)) {
+      markerIndex = index;
+      markerMode = "arena";
     }
   });
 
@@ -37,9 +43,10 @@ export function findActiveCollectionDeck(
     return undefined;
   }
 
-  return parseCollectionDecksLog(lines.slice(markerIndex + 1).join("\n"), options).find(
+  const activeDeck = parseCollectionDecksLog(lines.slice(markerIndex + 1).join("\n"), options).find(
     (deck) => Boolean(deck.rawDeckString) || deck.cards.length > 0
   );
+  return activeDeck && markerMode ? { ...activeDeck, mode: markerMode } : activeDeck;
 }
 
 function parseCollectionDeckBlock(block: string, index: number, options: ParseCollectionDecksOptions): CollectionDeck {
@@ -90,6 +97,12 @@ function splitIntoDeckBlocks(content: string): string[] {
       if (current.length > 0) {
         current.push(line);
       }
+      continue;
+    }
+
+    if (isArenaDeckStart(normalizedLine)) {
+      pushBlock(blocks, current);
+      current = ["Mode: arena"];
       continue;
     }
 
@@ -222,6 +235,10 @@ function blockHasDeckSignal(block: string): boolean {
 
 function isDeckLogHeader(line: string): boolean {
   return /^(?:Deck Contents Received|Finished Editing Deck):?$/i.test(line);
+}
+
+function isArenaDeckStart(line: string): boolean {
+  return /^Starting Arena Game With Deck:?$/i.test(line);
 }
 
 function dedupeCollectionDecks(decks: readonly CollectionDeck[]): CollectionDeck[] {

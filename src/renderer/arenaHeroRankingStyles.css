@@ -1,0 +1,371 @@
+.arena-hero-ranking {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: #f6ead1;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(190, 126, 40, 0.2), transparent 40%),
+    linear-gradient(160deg, rgba(28, 25, 22, 0.98), rgba(12, 14, 17, 0.98));
+  border: 1px solid rgba(206, 153, 72, 0.5);
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255, 224, 165, 0.06), 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.arena-hero-ranking__header {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 9px;
+  border-bottom: 1px solid rgba(206, 153, 72, 0.25);
+  cursor: grab;
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.arena-hero-ranking__header:active {
+  cursor: grabbing;
+}
+
+.arena-hero-ranking__header > div {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.arena-hero-ranking__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #f5bd5c;
+  background: rgba(174, 113, 31, 0.2);
+  border: 1px solid rgba(226, 165, 75, 0.28);
+  border-radius: 8px;
+}
+
+.arena-hero-ranking__header h1,
+.arena-hero-ranking__header p {
+  margin: 0;
+}
+
+.arena-hero-ranking__header h1 {
+  font-size: 13px;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+}
+
+.arena-hero-ranking__header p {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #a99b87;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-hero-ranking__header button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: #b8ad9c;
+  font-size: 19px;
+  line-height: 1;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.arena-hero-ranking__header button:hover {
+  color: #fff5e2;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.arena-hero-ranking__header button:focus-visible {
+  outline: 2px solid #f5bd5c;
+  outline-offset: 1px;
+}
+
+.arena-hero-ranking__list {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 5px 7px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.arena-hero-ranking__list li {
+  display: grid;
+  grid-template-columns: 24px minmax(74px, 1fr) auto 48px;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  min-height: 39px;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.arena-hero-ranking__list li:nth-child(-n + 3) .arena-hero-ranking__rank {
+  color: #1c160d;
+  background: linear-gradient(#ffd77f, #bd7925);
+  box-shadow: 0 1px 8px rgba(215, 147, 49, 0.3);
+}
+
+.arena-hero-ranking__rank {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  color: #bdb09d;
+  font-size: 10px;
+  background: #292823;
+  border-radius: 50%;
+}
+
+.arena-hero-ranking__hero {
+  display: grid;
+  min-width: 0;
+}
+
+.arena-hero-ranking__hero b {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-hero-ranking__hero small,
+.arena-hero-ranking__sample {
+  color: #8f8678;
+  font-size: 9px;
+}
+
+.arena-hero-ranking__rate {
+  color: #f4c36f;
+  font-size: 12px;
+  text-align: right;
+}
+
+.arena-hero-ranking__message {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 18px;
+  overflow: auto;
+  color: #aaa092;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.arena-hero-ranking__message.is-error {
+  color: #efb2a7;
+}
+
+@media (max-width: 230px) {
+  .arena-hero-ranking__header {
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
+    gap: 5px;
+    min-height: 48px;
+    padding: 5px 6px;
+  }
+
+  .arena-hero-ranking__icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+  }
+
+  .arena-hero-ranking__header h1 {
+    font-size: 11px;
+  }
+
+  .arena-hero-ranking__header p {
+    font-size: 8px;
+  }
+
+  .arena-hero-ranking__header button {
+    width: 24px;
+    height: 24px;
+  }
+
+  .arena-hero-ranking__list {
+    padding: 4px 5px 6px;
+  }
+
+  .arena-hero-ranking__list li {
+    grid-template-columns: 22px minmax(0, 1fr) 42px;
+    gap: 4px;
+    min-height: 36px;
+    padding: 3px 4px;
+  }
+
+  .arena-hero-ranking__sample {
+    display: none;
+  }
+
+  .arena-hero-ranking__rank {
+    width: 20px;
+    height: 20px;
+  }
+
+  .arena-hero-ranking__hero b {
+    font-size: 10px;
+  }
+
+  .arena-hero-ranking__hero small {
+    font-size: 8px;
+  }
+
+  .arena-hero-ranking__rate {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 190px) {
+  .arena-hero-ranking {
+    border-radius: 8px;
+  }
+
+  .arena-hero-ranking__header {
+    grid-template-columns: minmax(0, 1fr) 22px;
+    gap: 4px;
+    min-height: 34px;
+    padding: 3px 4px;
+  }
+
+  .arena-hero-ranking__icon,
+  .arena-hero-ranking__hero small {
+    display: none;
+  }
+
+  .arena-hero-ranking__header h1 {
+    font-size: 10px;
+  }
+
+  .arena-hero-ranking__header button {
+    width: 22px;
+    height: 22px;
+    font-size: 17px;
+  }
+
+  .arena-hero-ranking__list {
+    padding: 2px 3px 4px;
+  }
+
+  .arena-hero-ranking__list li {
+    grid-template-columns: 18px minmax(0, 1fr) 40px;
+    gap: 4px;
+    min-height: 29px;
+    padding: 2px 3px;
+  }
+
+  .arena-hero-ranking__rank {
+    width: 17px;
+    height: 17px;
+    font-size: 8px;
+  }
+
+  .arena-hero-ranking__hero b {
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .arena-hero-ranking__rate {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 120px) {
+  .arena-hero-ranking__header {
+    grid-template-columns: minmax(0, 1fr) 22px;
+    gap: 2px;
+    min-height: 32px;
+    padding: 3px;
+  }
+
+  .arena-hero-ranking__header h1 {
+    overflow: hidden;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .arena-hero-ranking__header p {
+    display: none;
+  }
+
+  .arena-hero-ranking__header button {
+    width: 22px;
+    height: 22px;
+  }
+
+  .arena-hero-ranking__list {
+    padding: 2px 2px 3px;
+  }
+
+  .arena-hero-ranking__list li {
+    grid-template-columns: 15px minmax(0, 1fr) 34px;
+    gap: 3px;
+    min-height: 27px;
+    padding: 1px 2px;
+    overflow: hidden;
+  }
+
+  .arena-hero-ranking__rank {
+    width: 14px;
+    height: 14px;
+    font-size: 8px;
+  }
+
+  .arena-hero-ranking__hero b {
+    font-size: 9px;
+  }
+
+  .arena-hero-ranking__rate {
+    font-size: 10px;
+  }
+}
+
+@media (max-height: 320px) {
+  .arena-hero-ranking__header {
+    min-height: 40px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .arena-hero-ranking__header p {
+    display: none;
+  }
+}
+
+@media (max-height: 230px) {
+  .arena-hero-ranking__header {
+    min-height: 34px;
+    padding: 3px 4px;
+  }
+
+  .arena-hero-ranking__list {
+    padding-top: 2px;
+    padding-bottom: 3px;
+  }
+
+  .arena-hero-ranking__list li {
+    min-height: 29px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+}

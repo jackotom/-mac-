@@ -11,6 +11,17 @@ export function CardDetailBody({ details, className }: { details?: CardDetails; 
     !details.isSpell && details.attack !== undefined && details.attack > 0 ? `攻击 ${details.attack}` : undefined,
     !details.isSpell && details.health !== undefined && details.health > 0 ? `生命 ${details.health}` : undefined
   ].filter((value): value is string => value !== undefined);
+  const playedSpells = details.playedSpellsThisGame;
+  const gameContextSections = details.gameContextSections ?? (
+    playedSpells === undefined
+      ? []
+      : [{
+          key: "played-spells",
+          title: "本局已施放法术",
+          emptyText: "本局还没有施放过法术",
+          cards: playedSpells
+        }]
+  );
 
   return (
     <div className={`card-detail-body${className ? ` ${className}` : ""}`}>
@@ -63,6 +74,31 @@ export function CardDetailBody({ details, className }: { details?: CardDetails; 
           </div>
         ) : null}
       </div>
+      {gameContextSections.map((section) => (
+        <div className="card-related-list card-spell-history card-game-context" key={section.key}>
+          <span>{section.title}（{section.cards.length}）</span>
+          {section.cards.length > 0 ? (
+            <div className="card-related-cards">
+              {section.cards.map((card, index) => (
+                <div className="card-related-card" key={`${card.cardId ?? card.dbfId}-${index}`}>
+                  {card.cropImageUrl || card.imageUrl ? (
+                    <img src={card.cropImageUrl ?? card.imageUrl} alt="" loading="eager" />
+                  ) : null}
+                  <div>
+                    <strong title={card.name}>{card.name}</strong>
+                    <small>
+                      {card.manaCost === undefined ? "" : `${card.manaCost} 费`}
+                      {card.cardType ? `${card.manaCost === undefined ? "" : " · "}${card.cardType}` : ""}
+                    </small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="card-spell-history-empty">{section.emptyText}</div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

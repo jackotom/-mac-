@@ -4,7 +4,7 @@ export type LadderMode = "standard" | "wild";
 
 export interface LadderDeckCard { readonly name: string; readonly count: number; readonly cost?: number }
 export interface LadderDeckRecommendation {
-  readonly id: string; readonly mode: LadderMode; readonly region: "CN"; readonly patch: string;
+  readonly id: string; readonly mode: LadderMode; readonly region: "CN" | "GLOBAL"; readonly patch: string;
   readonly name: string; readonly className: string; readonly winRate: number; readonly games: number;
   readonly deckCode: string; readonly cards: readonly LadderDeckCard[];
   readonly source: { readonly name: string; readonly url: string }; readonly updatedAt: string;

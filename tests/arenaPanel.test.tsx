@@ -22,6 +22,7 @@ const state = {
   status: "drafting",
   hero: { name: "猎人", className: "Hunter" },
   draftCount: 7,
+  unresolvedCount: 23,
   scoreSource: "Arena Tracker / HearthArena + Firestone",
   currentChoices: [
     {
@@ -40,7 +41,7 @@ const state = {
     }
   ],
   picks: [],
-  deck: []
+  deck: [{ name: "已选测试牌", count: 7 }]
 } satisfies ArenaStateWithMetricRates;
 
 function metricsFor(cardName: string) {
@@ -102,5 +103,62 @@ describe("ArenaPanel", () => {
 
     const metrics = metricsFor("真实12胜候选");
     expectMetric(metrics, "12胜率", "12.4%");
+  });
+
+  it.each([
+    [29, 1],
+    [24, 6]
+  ])("shows %i confirmed cards and %i unresolved cards without rendering the placeholder", (confirmedCount, unresolvedCount) => {
+    render(<ArenaPanel state={{
+      ...state,
+      status: "complete",
+      draftCount: confirmedCount,
+      unresolvedCount,
+      currentChoices: [],
+      deck: [
+        { name: "已确认竞技场牌", count: confirmedCount },
+        { name: "未解析竞技场牌", count: unresolvedCount, unresolved: true }
+      ]
+    }} />);
+
+    const deck = screen.getByRole("region", { name: "当前竞技场牌库" });
+    expect(screen.getByText(`已确认 ${confirmedCount}/30`)).toBeInTheDocument();
+    expect(screen.getByText(`${unresolvedCount} 张待识别`)).toBeInTheDocument();
+    expect(within(deck).getByText(`${confirmedCount} 张`)).toBeInTheDocument();
+    expect(within(deck).queryByText("未解析竞技场牌")).not.toBeInTheDocument();
+    expect(screen.queryByText("30/30")).not.toBeInTheDocument();
+  });
+
+  it("shows a 31-candidate ambiguity as zero confirmed and thirty unresolved", () => {
+    render(<ArenaPanel state={{
+      ...state,
+      status: "redrafting",
+      draftCount: 30,
+      unresolvedCount: 30,
+      currentChoices: [],
+      deck: []
+    }} />);
+
+    expect(screen.getByText("已确认 0/30")).toBeInTheDocument();
+    expect(screen.getByText("30 张待识别")).toBeInTheDocument();
+    expect(screen.queryByText("尚未选择牌，完成选牌后会生成竞技场牌库。")).not.toBeInTheDocument();
+    expect(screen.queryByText("30/30")).not.toBeInTheDocument();
+  });
+
+  it("shows 30/30 without an unresolved warning only for an exact deck", () => {
+    render(<ArenaPanel state={{
+      ...state,
+      status: "complete",
+      draftCount: 30,
+      unresolvedCount: 0,
+      currentChoices: [],
+      deck: [{ name: "精确竞技场牌库", count: 30 }]
+    }} />);
+
+    const deck = screen.getByRole("region", { name: "当前竞技场牌库" });
+    expect(screen.getByText("30/30")).toBeInTheDocument();
+    expect(screen.queryByText(/张待识别/)).not.toBeInTheDocument();
+    expect(within(deck).getByText("30 张")).toBeInTheDocument();
+    expect(within(deck).getByText("精确竞技场牌库")).toBeInTheDocument();
   });
 });

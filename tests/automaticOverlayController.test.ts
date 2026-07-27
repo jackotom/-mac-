@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { AutomaticOverlayController, type AutomaticOverlayHost } from "../src/main/automaticOverlayController";
+import {
+  AutomaticOverlayController,
+  resolveAutomaticOverlayContext,
+  type AutomaticOverlayHost
+} from "../src/main/automaticOverlayController";
 import type { PublicTrackerState } from "../src/shared/types";
 
 function makeState(overrides: Partial<PublicTrackerState> = {}): PublicTrackerState {
   return {
     status: "watching",
+    trackerMode: "ladder",
     deck: [],
     opponentPlayed: [],
     events: [],
@@ -68,6 +73,137 @@ function makeHost(initialState: PublicTrackerState) {
 }
 
 describe("AutomaticOverlayController", () => {
+  it("does not create an overlay when its global setting is disabled", async () => {
+    const fixture = makeHost(makeState({ constructedScreenMode: "standard" }));
+    const controller = new AutomaticOverlayController({
+      ...fixture.host,
+      isEnabled: () => false
+    });
+
+    await controller.refresh();
+
+    expect(fixture.createOverlayWindow).not.toHaveBeenCalled();
+    expect(fixture.showOverlayWindow).not.toHaveBeenCalled();
+  });
+
+  it("hides an existing overlay as soon as its global switch is disabled", async () => {
+    const fixture = makeHost(makeState({ constructedScreenMode: "standard" }));
+    let enabled = true;
+    const controller = new AutomaticOverlayController({
+      ...fixture.host,
+      isEnabled: () => enabled
+    });
+    await controller.refresh();
+    enabled = false;
+
+    await controller.refresh();
+
+    expect(fixture.hideOverlayWindow).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a manually opened overlay alone while manual detection is enabled", async () => {
+    const fixture = makeHost(makeState({ constructedScreenMode: "standard" }));
+    let automaticDetection = true;
+    const controller = new AutomaticOverlayController({
+      ...fixture.host,
+      isEnabled: () => automaticDetection,
+      shouldHideWhenDisabled: () => false
+    });
+    await controller.refresh();
+    automaticDetection = false;
+
+    await controller.refresh();
+
+    expect(fixture.hideOverlayWindow).not.toHaveBeenCalled();
+  });
+
+  it("invalidates an in-flight refresh when stopped", async () => {
+    let resolveFrontmost!: (value: string) => void;
+    const frontmost = new Promise<string>((resolve) => {
+      resolveFrontmost = resolve;
+    });
+    const fixture = makeHost(makeState({ constructedScreenMode: "standard" }));
+    const controller = new AutomaticOverlayController({
+      ...fixture.host,
+      getFrontmostAppName: () => frontmost
+    });
+
+    const refresh = controller.refresh();
+    controller.stop();
+    resolveFrontmost("Hearthstone");
+    await refresh;
+
+    expect(fixture.createOverlayWindow).not.toHaveBeenCalled();
+    expect(fixture.showOverlayWindow).not.toHaveBeenCalled();
+  });
+
+  it("ignores a window-creation rejection caused by stopping the refresh", async () => {
+    let rejectCreation!: (error: Error) => void;
+    const creation = new Promise<void>((_resolve, reject) => {
+      rejectCreation = reject;
+    });
+    const fixture = makeHost(makeState({ constructedScreenMode: "standard" }));
+    const createOverlayWindow = vi.fn(() => creation);
+    const controller = new AutomaticOverlayController({
+      ...fixture.host,
+      createOverlayWindow
+    });
+
+    const refresh = controller.refresh();
+    await vi.waitFor(() => expect(createOverlayWindow).toHaveBeenCalledOnce());
+    controller.stop();
+    rejectCreation(new Error("window destroyed during load"));
+
+    await expect(refresh).resolves.toBeUndefined();
+  });
+
+  it("does not let a stopped creation close a replacement window", async () => {
+    let finishCreation!: () => void;
+    let windowIdentity: "none" | "old" | "replacement" = "none";
+    const creation = new Promise<void>((resolve) => {
+      finishCreation = () => {
+        windowIdentity = "old";
+        resolve();
+      };
+    });
+    const hideOverlayWindow = vi.fn(() => {
+      windowIdentity = "none";
+    });
+    const createOverlayWindow = vi.fn(() => creation);
+    const controller = new AutomaticOverlayController({
+      getState: () => makeState({ constructedScreenMode: "standard" }),
+      getFrontmostAppName: async () => "Hearthstone",
+      hasOverlayWindow: () => windowIdentity !== "none",
+      isOverlayVisible: () => windowIdentity !== "none",
+      isOverlayFocused: () => false,
+      createOverlayWindow,
+      showOverlayWindow: vi.fn(),
+      hideOverlayWindow
+    });
+
+    const refresh = controller.refresh();
+    await vi.waitFor(() => expect(createOverlayWindow).toHaveBeenCalledOnce());
+    controller.stop();
+    windowIdentity = "replacement";
+    finishCreation();
+    windowIdentity = "replacement";
+    await refresh;
+
+    expect(windowIdentity).toBe("replacement");
+    expect(hideOverlayWindow).not.toHaveBeenCalled();
+  });
+
+  it("shows a waiting tracker while Hearthstone is open before the mode is recognized", async () => {
+    const fixture = makeHost(makeState({ trackerMode: undefined, gameActive: false }));
+    const controller = new AutomaticOverlayController(fixture.host);
+
+    await controller.refresh();
+
+    expect(resolveAutomaticOverlayContext(makeState({ trackerMode: undefined }))).toBe("watching:waiting-for-mode");
+    expect(fixture.createOverlayWindow).toHaveBeenCalledTimes(1);
+    expect(fixture.showOverlayWindow).toHaveBeenCalledTimes(1);
+  });
+
   it("creates and shows the overlay as soon as a constructed deck is selected", async () => {
     const fixture = makeHost(makeState({
       constructedScreenMode: "standard",
@@ -241,7 +377,8 @@ describe("AutomaticOverlayController", () => {
     controller.suppressCurrentContext();
     fixture.closeOverlayWindow();
     fixture.setState(makeState({
-      arena: { status: "drafting", draftCount: 0, currentChoices: [], picks: [], deck: [] }
+      trackerMode: "arena",
+      arena: { status: "drafting", draftCount: 0, unresolvedCount: 30, currentChoices: [], picks: [], deck: [] }
     }));
     await controller.refresh();
 

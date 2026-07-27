@@ -1,16 +1,88 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   ArenaScreenRecognizer,
   ScreenCaptureError,
+  cleanupStaleScreenCaptures,
   parseArenaOcrPayload,
   resolveArenaOcrHelperPath,
   selectArenaChoiceTexts
 } from "../src/main/arenaScreenRecognition";
 
 describe("arena screen recognition", () => {
+  it("does not invoke screen capture while another application is frontmost", async () => {
+    const captureScreenImage = vi.fn(async () => Buffer.from("private image"));
+    const getFrontmostApp = vi.fn(async () => "Finder");
+    const recognizer = new ArenaScreenRecognizer("/missing/helper", captureScreenImage, getFrontmostApp);
+
+    await expect(recognizer.recognize()).resolves.toMatchObject({ status: "window-not-found", texts: [] });
+    expect(getFrontmostApp).toHaveBeenCalledOnce();
+    expect(captureScreenImage).not.toHaveBeenCalled();
+  });
+
+  it("keeps recognition alive and retries after stale capture cleanup fails", async () => {
+    const captureScreenImage = vi.fn(async () => Buffer.from("private image"));
+    const getFrontmostApp = vi.fn(async () => "Finder");
+    const cleanup = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("temporary cleanup failure"))
+      .mockResolvedValue(undefined);
+    const recognizer = Reflect.construct(ArenaScreenRecognizer, [
+      "/missing/helper",
+      captureScreenImage,
+      getFrontmostApp,
+      cleanup
+    ]) as ArenaScreenRecognizer;
+
+    await expect(recognizer.recognize()).resolves.toMatchObject({ status: "window-not-found", texts: [] });
+    await expect(recognizer.recognize()).resolves.toMatchObject({ status: "window-not-found", texts: [] });
+    await expect(recognizer.recognize()).resolves.toMatchObject({ status: "window-not-found", texts: [] });
+    expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports stale capture directory scan failures so recognition can retry later", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "arena-screen-cleanup-missing-root-test-"));
+    await rm(directory, { recursive: true, force: true });
+
+    await expect(cleanupStaleScreenCaptures(directory, Date.now())).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("removes stale screen captures without touching unrelated temporary files", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "arena-screen-cleanup-test-"));
+    const staleCapture = path.join(directory, "hearthstone-screen-abandoned");
+    const unrelated = path.join(directory, "keep-me");
+    await mkdir(staleCapture);
+    await writeFile(path.join(staleCapture, "screen.png"), "private image", "utf8");
+    await mkdir(unrelated);
+    await utimes(staleCapture, new Date(0), new Date(0));
+
+    try {
+      await cleanupStaleScreenCaptures(directory, Date.now() - 1_000);
+      expect(await readdir(directory)).toEqual(["keep-me"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("can clear a recent abandoned capture during single-instance startup", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "arena-screen-startup-cleanup-test-"));
+    const abandonedCapture = path.join(directory, "hearthstone-screen-recent");
+    const unrelated = path.join(directory, "keep-me");
+    await mkdir(abandonedCapture);
+    await writeFile(path.join(abandonedCapture, "screen.png"), "private image", "utf8");
+    await mkdir(unrelated);
+
+    try {
+      await cleanupStaleScreenCaptures(directory, Number.POSITIVE_INFINITY);
+      expect(await readdir(directory)).toEqual(["keep-me"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("uses the project native helper during development even when Electron has a resources path", () => {
     const moduleUrl = "file:///project/dist-electron/main/arenaScreenRecognition.js";
     expect(resolveArenaOcrHelperPath("/Electron.app/Contents/Resources", moduleUrl, false))

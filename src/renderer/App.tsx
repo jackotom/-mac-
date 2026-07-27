@@ -1,32 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Activity, BookOpen, History, Layers3, LayoutDashboard, Settings, Swords, Upload } from "lucide-react";
 import { DeckPanel } from "./components/DeckPanel";
 import { EventFeed } from "./components/EventFeed";
 import { ArenaPanel } from "./components/ArenaPanel";
 import { ArenaChoiceOverlayPanel } from "./components/ArenaChoiceOverlayPanel";
+import { ArenaHeroWinRateRankingPanel } from "./components/ArenaHeroWinRateRankingPanel";
 import { CardDetailBody } from "./components/CardDetailBody";
 import { CardLibraryPanel } from "./components/CardLibraryPanel";
+import { MatchHistoryPanel } from "./components/MatchHistoryPanel";
+import { HomeDashboard } from "./components/HomeDashboard";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { OpponentPanel } from "./components/OpponentPanel";
 import { OpponentOverlayPanel } from "./components/OpponentOverlayPanel";
 import { BoardAttackOverlay } from "./components/BoardAttackOverlay";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { LadderDeckRecommendationPanel } from "./components/LadderDeckRecommendationPanel";
-import { TopBar } from "./components/TopBar";
+import { TopBar, trackerStatusLabels } from "./components/TopBar";
 import type { MainView } from "./components/TopBar";
 import { toOverlayPanelViewModel } from "./overlayView";
 import { shouldApplyInitialTrackerState } from "./stateInitialization";
 import { createSynchronousActionLock, selectVisibleNotice, shouldRequestCardLibrary } from "./frontendStability";
-import { parsePublicTrackerState } from "./runtimeValidation";
+import { preserveArenaChoiceStatistics } from "./arenaChoiceStability";
+import { parseMatchHistoryResult, parsePublicTrackerState, parseTrackerSettings } from "./runtimeValidation";
 import type {
   CardTrackerRow,
   ArenaState,
   CollectionDeckScanResult,
   CollectionDeckSummary,
   LogCandidate,
+  MatchHistoryResult,
   PublicTrackerState,
+  TrackerSettings,
   TrackerEvent
 } from "../shared/types";
 import type { CardDetails } from "../shared/cardDatabase";
 import type { LadderDeckRecommendation, LadderDeckRecommendationResult, LadderMode } from "../shared/ladderDeckRecommendation";
+import type { ArenaHeroWinRateRankingResult } from "../shared/arenaHeroStats";
 import type {
   CardLibraryQuery,
   CardLibraryResult,
@@ -44,7 +53,7 @@ const demoState: PublicTrackerState = {
   opponentPlayed: [],
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
-  error: "缺少 Power.log。先点“修复日志”，然后重启炉石/开始一局。"
+  error: "缺少 Power.log。先点“修复日志”，完全退出并重新打开炉石，然后进入一局。"
 };
 
 const defaultDeckText = "";
@@ -53,13 +62,14 @@ const qaArenaChoiceOverlayState: ArenaState = {
   status: "drafting",
   hero: { name: "德鲁伊", className: "Druid" },
   draftCount: 7,
+  unresolvedCount: 23,
   currentChoices: [
     { name: "小蜘蛛", count: 1, score: 94, rating: { hearthArena: 94, pickRate: 36.4, highWinPickRate: 40.2, highWinThreshold: 6 } },
     { name: "癫醉歌迷", count: 1, score: 121, rating: { hearthArena: 121, pickRate: 44.8, highWinPickRate: 51.1, highWinThreshold: 6 } },
     { name: "致命配方", count: 1, score: 108, rating: { hearthArena: 108, pickRate: 39.6, highWinPickRate: 43.8, highWinThreshold: 6 } }
   ],
   picks: [],
-  deck: []
+  deck: [{ name: "QA 已选牌", count: 7 }]
 };
 
 const qaOpponentOverlayState: PublicTrackerState = {
@@ -87,6 +97,10 @@ const qaOpponentOverlayState: PublicTrackerState = {
     }
   ],
   boardAttack: { friendly: 7, opponent: 12 },
+  matchCounters: {
+    friendly: { nextFatigueDamage: 2, corpses: 6, spellsPlayed: 8 },
+    opponent: { nextFatigueDamage: 3, corpses: 4, spellsPlayed: 5 }
+  },
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 1 },
   lastUpdated: "2026-07-12T12:00:00.000Z"
@@ -107,7 +121,7 @@ const qaCardPreviewDetails: CardDetails = {
   ]
 };
 
-const logRepairActions = ["点“修复日志”", "重启炉石", "开始一局"] as const;
+const logRepairActions = ["点“修复日志”", "完全退出并重新打开炉石", "进入一局"] as const;
 
 interface LogIssueViewModel {
   title: string;
@@ -117,6 +131,7 @@ interface LogIssueViewModel {
 }
 
 type PendingAction = "select-log" | "repair-log" | "toggle-overlay" | "tracking" | "import-deck" | "scan-collection" | "import-collection";
+type LogRepairNotice = { message: string; role: "status" | "alert" };
 
 const cardLibraryPageSize = 48;
 
@@ -132,6 +147,17 @@ const emptyDeckSummary: DeckSummary = {
   remainingCards: 0
 };
 
+type AppView = MainView;
+
+const sidebarItems = [
+  { view: "home", label: "首页", ariaLabel: "首页", icon: LayoutDashboard },
+  { view: "tracker", label: "实时对局", ariaLabel: "实时对局", icon: Swords },
+  { view: "card-library", label: "卡牌资料", ariaLabel: "打开卡牌数据库", icon: BookOpen },
+  { view: "deck-tools", label: "卡组工具", ariaLabel: "卡组工具", icon: Upload },
+  { view: "match-history", label: "对局记录", ariaLabel: "对局历史", icon: History },
+  { view: "settings", label: "设置", ariaLabel: "软件设置", icon: Settings }
+] as const;
+
 function App() {
   const api = window.hearthstoneTracker;
   const overlaySearchParams = new URLSearchParams(window.location.search);
@@ -139,6 +165,10 @@ function App() {
 
   if (overlaySearchParams.get("ladder-deck-overlay") === "1") {
     return <LadderDeckRecommendationWindow searchParams={overlaySearchParams} />;
+  }
+
+  if (overlaySearchParams.get("arena-hero-ranking-overlay") === "1") {
+    return <ArenaHeroWinRateRankingWindow searchParams={overlaySearchParams} />;
   }
 
   if (isCardPreview) {
@@ -157,28 +187,44 @@ function App() {
   const isQaArenaChoiceOverlay = overlaySearchParams.get("qa-arena-demo") === "1";
   const isQaOpponentOverlay = isOpponentOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
   const isQaBoardAttackOverlay = isBoardAttackOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
+  const isQaFriendlyOverlay = isOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
   const [state, setState] = useState<PublicTrackerState>(demoState);
   const [candidates, setCandidates] = useState<LogCandidate[]>([]);
   const [selectedLogPath, setSelectedLogPath] = useState<string | undefined>();
   const [deckText, setDeckText] = useState(defaultDeckText);
-  const [isImportOpen, setIsImportOpen] = useState(false);
   const [isInitializing, setIsInitializing] = useState(Boolean(api));
   const [pendingAction, setPendingAction] = useState<PendingAction>();
   const [initializationError, setInitializationError] = useState<string>();
   const [deckImported, setDeckImported] = useState(false);
   const [notice, setNotice] = useState<string | undefined>();
+  const [logRepairNotice, setLogRepairNotice] = useState<LogRepairNotice>();
   const [collectionScan, setCollectionScan] = useState<CollectionDeckScanResult | undefined>();
   const [collectionError, setCollectionError] = useState<string | undefined>();
   const [isScanningCollection, setIsScanningCollection] = useState(false);
   const [importingCollectionDeckId, setImportingCollectionDeckId] = useState<string | undefined>();
-  const [activeView, setActiveView] = useState<MainView>("tracker");
+  const [activeView, setActiveView] = useState<AppView>("home");
   const [cardLibraryQuery, setCardLibraryQuery] = useState<CardLibraryQuery>(initialCardLibraryQuery);
   const [debouncedCardSearch, setDebouncedCardSearch] = useState(initialCardLibraryQuery.query);
   const [cardLibraryResult, setCardLibraryResult] = useState<CardLibraryResult | undefined>();
   const [cardLibraryError, setCardLibraryError] = useState<string | undefined>();
   const [isCardLibraryLoading, setIsCardLibraryLoading] = useState(false);
+  const [matchHistoryResult, setMatchHistoryResult] = useState<MatchHistoryResult | undefined>();
+  const [matchHistoryError, setMatchHistoryError] = useState<string | undefined>();
+  const [isMatchHistoryLoading, setIsMatchHistoryLoading] = useState(false);
+  const [homeLadderRecommendation, setHomeLadderRecommendation] = useState<LadderDeckRecommendationResult>();
+  const [trackerSettings, setTrackerSettings] = useState<TrackerSettings>();
+  const [settingsError, setSettingsError] = useState<string>();
+  const [settingsNotice, setSettingsNotice] = useState<string>();
+  const [isSettingsLoading, setIsSettingsLoading] = useState(false);
+  const [isSettingsSaving, setIsSettingsSaving] = useState(false);
   const [isOpponentOverlayCollapsed, setIsOpponentOverlayCollapsed] = useState(false);
+  const [showOpponentSecrets, setShowOpponentSecrets] = useState(
+    overlaySearchParams.get("show-secret-prediction") !== "0"
+  );
   const actionLock = useRef(createSynchronousActionLock());
+  const confirmedTrackerSettings = useRef<TrackerSettings>();
+  const pendingTrackerSettingsSave = useRef<TrackerSettings>();
+  const settingsSaveInFlight = useRef(false);
   const lastCardLibraryRequest = useRef<CardLibraryQuery>();
   const isBusy = isInitializing || pendingAction !== undefined;
 
@@ -196,7 +242,9 @@ function App() {
       if (!disposed) {
         hasReceivedLiveState = true;
         try {
-          setState(parsePublicTrackerState(nextState));
+          const parsedState = parsePublicTrackerState(nextState);
+          setState((current) => preserveArenaChoiceStatistics(current, parsedState));
+          setInitializationError(undefined);
         } catch (error) {
           setInitializationError(toUserErrorMessage(error, "收到的记牌状态无效。"));
         }
@@ -212,7 +260,8 @@ function App() {
 
         if (stateResult.status === "fulfilled" && shouldApplyInitialTrackerState(hasReceivedLiveState)) {
           try {
-            setState(parsePublicTrackerState(stateResult.value));
+            const parsedState = parsePublicTrackerState(stateResult.value);
+            setState((current) => preserveArenaChoiceStatistics(current, parsedState));
           } catch (error) {
             setInitializationError(toUserErrorMessage(error, "读取到的记牌状态无效。"));
           }
@@ -241,6 +290,56 @@ function App() {
     };
   }, [api]);
 
+  useEffect(() => api?.onOpenSettings?.(() => { void loadTrackerSettings(); }), [api]);
+
+  useEffect(() => api?.onTrackerSettingsUpdate?.((value) => {
+    try {
+      const nextSettings = parseTrackerSettings(value);
+      confirmedTrackerSettings.current = nextSettings;
+      if (!settingsSaveInFlight.current) setTrackerSettings(nextSettings);
+    } catch (error) {
+      setSettingsError(toUserErrorMessage(error, "收到的设置数据无效。"));
+    }
+  }), [api]);
+
+  useEffect(() => {
+    if (!api?.getTrackerSettings) return;
+    let disposed = false;
+    void api.getTrackerSettings()
+      .then((value) => {
+        if (!disposed) {
+          const nextSettings = parseTrackerSettings(value);
+          confirmedTrackerSettings.current = nextSettings;
+          if (!settingsSaveInFlight.current) setTrackerSettings(nextSettings);
+        }
+      })
+      .catch(() => {
+        // The settings page reports read failures when the user opens it.
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (!trackerSettings) return;
+    const root = document.documentElement;
+    const appearance = trackerSettings.appearance;
+    const media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: light)") : undefined;
+    const applyTheme = () => {
+      root.dataset.trackerTheme = appearance.theme === "system"
+        ? media?.matches ? "light" : "dark"
+        : appearance.theme;
+    };
+    applyTheme();
+    media?.addEventListener?.("change", applyTheme);
+    root.dataset.trackerFontSize = appearance.fontSize;
+    root.dataset.trackerAnimations = appearance.animations ? "on" : "off";
+    root.dataset.trackerCardQuality = appearance.cardImageQuality;
+    root.style.setProperty("--tracker-accent", appearance.accentColor);
+    return () => media?.removeEventListener?.("change", applyTheme);
+  }, [trackerSettings]);
+
   useEffect(() => {
     if (!isOpponentOverlay || !api) {
       return;
@@ -267,6 +366,11 @@ function App() {
       disposed = true;
       unsubscribe?.();
     };
+  }, [api, isOpponentOverlay]);
+
+  useEffect(() => {
+    if (!isOpponentOverlay) return;
+    return api?.onOpponentSecretPredictionChange?.(setShowOpponentSecrets);
   }, [api, isOpponentOverlay]);
 
   useEffect(() => {
@@ -306,15 +410,15 @@ function App() {
     void api.listCardLibrary(query)
       .then((result) => {
         if (!disposed) {
-          setCardLibraryResult(result);
           if (result.status === "error") {
             setCardLibraryError(result.error ?? result.warnings[0] ?? "读取本地卡牌数据库失败，请稍后重试。");
+          } else {
+            setCardLibraryResult(result);
           }
         }
       })
       .catch((error: unknown) => {
         if (!disposed) {
-          setCardLibraryResult(undefined);
           setCardLibraryError(toUserErrorMessage(error, "读取本地卡牌数据库失败，请稍后重试。"));
         }
       })
@@ -329,11 +433,88 @@ function App() {
     };
   }, [activeView, api, cardLibraryQuery.heroClass, cardLibraryQuery.cardType, cardLibraryQuery.page, cardLibraryQuery.pageSize, debouncedCardSearch]);
 
+  useEffect(() => {
+    if (activeView !== "home" && activeView !== "match-history") {
+      return;
+    }
+
+    if (!api?.getMatchHistory) {
+      setMatchHistoryResult(undefined);
+      setMatchHistoryError("当前版本无法读取真实对局历史，请在桌面版更新后重试。");
+      return;
+    }
+
+    let disposed = false;
+    setIsMatchHistoryLoading(true);
+    setMatchHistoryError(undefined);
+    void api.getMatchHistory()
+      .then((value) => {
+        if (disposed) {
+          return;
+        }
+        const result = parseMatchHistoryResult(value);
+        if (result.status === "error") {
+          setMatchHistoryResult(undefined);
+          setMatchHistoryError(result.error ?? "读取对局历史失败，请稍后重试。");
+          return;
+        }
+        setMatchHistoryResult(result);
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setMatchHistoryResult(undefined);
+          setMatchHistoryError(toUserErrorMessage(error, "读取对局历史失败，请稍后重试。"));
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setIsMatchHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeView, api, state.gameActive]);
+
+  useEffect(() => {
+    if (activeView !== "home") return;
+    if (!api?.getLadderDeckRecommendation) {
+      setHomeLadderRecommendation({ status: "unavailable", message: "当前版本未接入天梯推荐数据。" });
+      return;
+    }
+
+    let disposed = false;
+    const mode: LadderMode = state.constructedScreenMode === "wild" ? "wild" : "standard";
+    setHomeLadderRecommendation(undefined);
+    void api.getLadderDeckRecommendation(mode)
+      .then((result) => {
+        if (!disposed) setHomeLadderRecommendation(result);
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setHomeLadderRecommendation({
+            status: "unavailable",
+            message: toUserErrorMessage(error, "天梯推荐读取失败，请稍后重试。")
+          });
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeView, api, state.constructedScreenMode]);
+
   const trackerStatus = useMemo(
     () => toTrackerStatus(state, candidates, selectedLogPath, isInitializing),
     [candidates, isInitializing, selectedLogPath, state]
   );
   const logIssue = useMemo(() => toLogIssueViewModel(state), [state]);
+  useEffect(() => {
+    if (!logIssue) {
+      setLogRepairNotice(undefined);
+    }
+  }, [logIssue]);
   const deckCards = useMemo(() => (logIssue ? [] : toDeckCards(state.deck)), [logIssue, state.deck]);
   const deckSummary = useMemo(
     () => (logIssue ? emptyDeckSummary : toDeckSummary(state, deckImported)),
@@ -351,7 +532,8 @@ function App() {
 
   function applyTrackerState(value: unknown): boolean {
     try {
-      setState(parsePublicTrackerState(value));
+      const parsedState = parsePublicTrackerState(value);
+      setState((current) => preserveArenaChoiceStatistics(current, parsedState));
       return true;
     } catch (error) {
       setNotice(toUserErrorMessage(error, "收到的记牌状态无效。"));
@@ -402,16 +584,25 @@ function App() {
       return;
     }
 
-    const status = await runAction("repair-log", () => api.ensureLogConfig(), "修复日志失败，请重试。");
+    setLogRepairNotice(undefined);
+    const status = await runAction(
+      "repair-log",
+      () => api.ensureLogConfig(),
+      "修复日志失败，请重试。",
+      (message) => setLogRepairNotice({ message, role: "alert" })
+    );
     if (!status) {
       return;
     }
     const backupText = status.backupPath ? "，旧配置已备份" : "";
-    setNotice(`日志配置已就绪：${status.path}${backupText}。重启炉石后生效。`);
+    setLogRepairNotice({
+      message: `日志配置已就绪：${status.path}${backupText}。完全退出并重新打开炉石，然后进入一局。`,
+      role: "status"
+    });
   }
 
   async function toggleOverlay() {
-    if (!api) {
+    if (!api?.toggleOverlay) {
       setNotice("浏览器预览不能打开桌面小窗，请在桌面版里操作。");
       return;
     }
@@ -421,6 +612,15 @@ function App() {
       return;
     }
     setNotice(visible ? "置顶小窗已打开。" : "置顶小窗已关闭。");
+  }
+
+  async function closeFriendlyOverlay() {
+    if (!api?.closeFriendlyOverlay) return;
+    try {
+      await api.closeFriendlyOverlay();
+    } catch (error) {
+      setInitializationError(toUserErrorMessage(error, "关闭置顶小窗失败，请重试。"));
+    }
   }
 
   async function toggleOpponentOverlay() {
@@ -440,6 +640,127 @@ function App() {
     setNotice(visible ? "对手出牌小窗已打开。" : "对手出牌小窗已关闭。");
   }
 
+  async function openSettingsInMainWindow() {
+    if (!api?.openSettings) {
+      setInitializationError("当前版本无法打开软件设置，请更新后重试。");
+      return;
+    }
+    try {
+      await api.openSettings();
+    } catch (error) {
+      setInitializationError(toUserErrorMessage(error, "打开软件设置失败，请重试。"));
+    }
+  }
+
+  async function loadTrackerSettings() {
+    setActiveView("settings");
+    setSettingsError(undefined);
+    setSettingsNotice(undefined);
+    if (!api?.getTrackerSettings) {
+      setTrackerSettings(undefined);
+      setSettingsError("当前版本无法读取软件设置，请更新后重试。");
+      return;
+    }
+    setIsSettingsLoading(true);
+    try {
+      const nextSettings = parseTrackerSettings(await api.getTrackerSettings());
+      confirmedTrackerSettings.current = nextSettings;
+      if (!settingsSaveInFlight.current) setTrackerSettings(nextSettings);
+    } catch (error) {
+      setTrackerSettings(undefined);
+      setSettingsError(toUserErrorMessage(error, "读取软件设置失败，请重试。"));
+    } finally {
+      setIsSettingsLoading(false);
+    }
+  }
+
+  async function saveTrackerSettings(nextSettings: TrackerSettings) {
+    if (!api?.setTrackerSettings) {
+      setSettingsError("当前版本无法保存软件设置，请更新后重试。");
+      return;
+    }
+
+    const optimisticSettings = parseTrackerSettings(nextSettings);
+    setTrackerSettings(optimisticSettings);
+    pendingTrackerSettingsSave.current = optimisticSettings;
+    if (settingsSaveInFlight.current) return;
+
+    settingsSaveInFlight.current = true;
+    setIsSettingsSaving(true);
+    setSettingsError(undefined);
+    setSettingsNotice(undefined);
+    try {
+      while (pendingTrackerSettingsSave.current) {
+        const settingsToSave = pendingTrackerSettingsSave.current;
+        pendingTrackerSettingsSave.current = undefined;
+        try {
+          const savedSettings = parseTrackerSettings(await api.setTrackerSettings(settingsToSave));
+          confirmedTrackerSettings.current = savedSettings;
+          setSettingsError(undefined);
+          if (!pendingTrackerSettingsSave.current) setTrackerSettings(savedSettings);
+        } catch (error) {
+          setSettingsError(toUserErrorMessage(error, "保存软件设置失败，请重试。"));
+          if (!pendingTrackerSettingsSave.current && confirmedTrackerSettings.current) {
+            setTrackerSettings(confirmedTrackerSettings.current);
+          }
+        }
+      }
+    } finally {
+      settingsSaveInFlight.current = false;
+      setIsSettingsSaving(false);
+    }
+  }
+
+  async function openSettingsLogFolder() {
+    if (!api?.openLogFolder) return;
+    setSettingsError(undefined);
+    setSettingsNotice(undefined);
+    try {
+      await api.openLogFolder();
+      setSettingsNotice("已打开日志目录。");
+    } catch (error) {
+      setSettingsError(toUserErrorMessage(error, "打开日志目录失败。"));
+    }
+  }
+
+  async function refreshSettingsCardDatabase() {
+    if (!api?.refreshCardDatabase || isSettingsSaving) return;
+    setIsSettingsSaving(true);
+    setSettingsError(undefined);
+    setSettingsNotice(undefined);
+    try {
+      const result = await api.refreshCardDatabase();
+      if (result.status === "error") {
+        setSettingsError(result.error);
+      } else if (result.status === "stale") {
+        setSettingsNotice(`更新未完成，继续使用本地卡牌库（${result.cardCount.toLocaleString("zh-CN")} 张）。`);
+      } else {
+        setSettingsNotice(`卡牌库已更新，共 ${result.cardCount.toLocaleString("zh-CN")} 张。`);
+      }
+    } catch (error) {
+      setSettingsError(toUserErrorMessage(error, "更新卡牌库失败。"));
+    } finally {
+      setIsSettingsSaving(false);
+    }
+  }
+
+  async function restoreSettingsDefaults() {
+    if (!api?.restoreDefaultSettings || isSettingsSaving) return;
+    setIsSettingsSaving(true);
+    setSettingsError(undefined);
+    setSettingsNotice(undefined);
+    try {
+      const defaultSettings = parseTrackerSettings(await api.restoreDefaultSettings());
+      confirmedTrackerSettings.current = defaultSettings;
+      setTrackerSettings(defaultSettings);
+      setSettingsNotice("已恢复默认设置。");
+    } catch (error) {
+      setSettingsError(toUserErrorMessage(error, "恢复默认设置失败。"));
+    } finally {
+      setIsSettingsSaving(false);
+    }
+  }
+
   async function minimizeMain() {
     if (!api?.minimizeMain) {
       setNotice("浏览器预览不能最小化主程序，请在桌面版里操作。");
@@ -452,12 +773,19 @@ function App() {
     }
   }
 
-  function showCardLibrary() {
-    setActiveView("card-library");
+  async function copyHomeLadderDeckCode(deckCode: string) {
+    if (!api?.copyLadderDeckCode) {
+      throw new Error("当前版本无法复制卡组代码。");
+    }
+    await api.copyLadderDeckCode(deckCode);
   }
 
-  function showTracker() {
-    setActiveView("tracker");
+  function navigateTo(view: AppView) {
+    if (view === "settings") {
+      void loadTrackerSettings();
+      return;
+    }
+    setActiveView(view);
   }
 
   function updateCardLibraryQuery(update: Partial<CardLibraryQuery>) {
@@ -526,7 +854,7 @@ function App() {
 
     if (!applyTrackerState(nextState)) return;
     setDeckImported(true);
-    setIsImportOpen(false);
+    setNotice("卡组已导入，实时对局会使用这套牌。");
   }
 
   async function scanCollectionDecks() {
@@ -578,7 +906,7 @@ function App() {
     if (nextState) {
       if (!applyTrackerState(nextState)) return;
       setDeckImported(true);
-      setIsImportOpen(false);
+      setNotice("收藏套牌已导入，实时对局会使用这套牌。");
     }
   }
 
@@ -588,6 +916,7 @@ function App() {
         <style>{rendererStyles}</style>
         <OpponentOverlayWindow
           state={isQaOpponentOverlay ? qaOpponentOverlayState : state}
+          showSecrets={showOpponentSecrets}
           isCollapsed={isOpponentOverlayCollapsed}
           onCollapsedChange={api?.setOpponentOverlayCollapsed
             ? (collapsed) => { void api.setOpponentOverlayCollapsed!(collapsed); }
@@ -601,7 +930,13 @@ function App() {
 
   if (isBoardAttackOverlay) {
     const boardState = isQaBoardAttackOverlay ? qaOpponentOverlayState : state;
-    return <BoardAttackOverlay attack={boardState.boardAttack} />;
+    return (
+      <BoardAttackOverlay
+        attack={boardState.boardAttack}
+        showFriendly={overlaySearchParams.get("show-friendly-attack") !== "0"}
+        showOpponent={overlaySearchParams.get("show-opponent-attack") !== "0"}
+      />
+    );
   }
 
   if (isArenaChoiceOverlay) {
@@ -612,7 +947,13 @@ function App() {
     return (
       <>
         <style>{rendererStyles}</style>
-        <OverlayWindow state={state} onClose={api ? toggleOverlay : undefined} isLoading={isInitializing} loadError={initializationError} />
+        <OverlayWindow
+          state={isQaFriendlyOverlay ? qaOpponentOverlayState : state}
+          onClose={api?.closeFriendlyOverlay ? closeFriendlyOverlay : undefined}
+          onOpenSettings={api ? openSettingsInMainWindow : undefined}
+          isLoading={isQaFriendlyOverlay ? false : isInitializing}
+          loadError={isQaFriendlyOverlay ? undefined : initializationError}
+        />
       </>
     );
   }
@@ -620,33 +961,43 @@ function App() {
   return (
     <>
       <style>{rendererStyles}</style>
-      <main className="app-shell">
-          <TopBar
-          status={trackerStatus}
-          isTracking={state.status === "watching" && !logIssue}
-          isBusy={isBusy}
-          onToggleTracking={toggleTracking}
-          onChooseLogDirectory={selectPath}
-          onEnsureLogConfig={ensureLogConfig}
-          onToggleOverlay={toggleOverlay}
-          onToggleOpponentOverlay={toggleOpponentOverlay}
-          onMinimize={minimizeMain}
+      <div className="desktop-frame">
+        <DesktopSidebar
           activeView={activeView}
-          onShowCardLibrary={showCardLibrary}
-          onShowTracker={showTracker}
-          onImportDeck={() => setIsImportOpen(true)}
+          status={trackerStatus}
+          onNavigate={navigateTo}
         />
+        <main className={`app-shell view-${activeView}`}>
+          {activeView === "home" || activeView === "settings" || activeView === "deck-tools" ? null : <TopBar
+            status={trackerStatus}
+            isTracking={state.status === "watching" && !logIssue}
+            isBusy={isBusy}
+            onToggleTracking={toggleTracking}
+            onChooseLogDirectory={selectPath}
+            onEnsureLogConfig={ensureLogConfig}
+            onToggleOverlay={toggleOverlay}
+            onToggleOpponentOverlay={toggleOpponentOverlay}
+            onMinimize={minimizeMain}
+            onImportDeck={() => setActiveView("deck-tools")}
+          />}
 
-        {isInitializing ? (
+        {activeView === "home" || activeView === "settings" || activeView === "deck-tools" ? null : isInitializing ? (
           <div className="notice action-notice" role="status" aria-live="polite">
             <strong>正在读取记牌器状态</strong>
             <span>正在扫描炉石日志，请稍候。</span>
           </div>
-        ) : logIssue ? (
-          <div className="notice action-notice" role="status">
-            <strong>{logIssue.title}</strong>
-            <span>{logIssue.message}</span>
+        ) : logRepairNotice ? (
+          <div className="notice action-notice" role={logRepairNotice.role} aria-live="polite">
+            <strong>{logRepairNotice.role === "alert" ? "修复日志失败" : "日志配置已修复"}</strong>
+            <span>{logRepairNotice.message}</span>
           </div>
+        ) : logIssue ? (
+          activeView === "tracker" ? null : (
+            <div className="notice action-notice" role="status">
+              <strong>{logIssue.title}</strong>
+              <span>{logIssue.message}</span>
+            </div>
+          )
         ) : autoMatchNotice ? (
           <div className="notice action-notice" role="status" aria-live="polite">
             <strong>自动匹配成功</strong>
@@ -658,7 +1009,33 @@ function App() {
           </div>
         ) : null}
 
-        {activeView === "card-library" ? (
+        {activeView === "settings" ? (
+          <SettingsPanel
+            settings={trackerSettings}
+            isLoading={isSettingsLoading}
+            isSaving={isSettingsSaving}
+            error={settingsError}
+            notice={settingsNotice}
+            onChange={(next) => { void saveTrackerSettings(next); }}
+            onOpenLogFolder={api?.openLogFolder ? openSettingsLogFolder : undefined}
+            onRefreshCardDatabase={api?.refreshCardDatabase ? refreshSettingsCardDatabase : undefined}
+            onRestoreDefaults={api?.restoreDefaultSettings ? restoreSettingsDefaults : undefined}
+          />
+        ) : activeView === "deck-tools" ? (
+          <DeckToolsPage
+            deckText={deckText}
+            collectionScan={collectionScan}
+            collectionError={collectionError}
+            notice={notice}
+            isBusy={isBusy}
+            isScanningCollection={isScanningCollection}
+            importingCollectionDeckId={importingCollectionDeckId}
+            onDeckTextChange={setDeckText}
+            onImportDeck={() => { void importDeck(); }}
+            onScanCollection={() => { void scanCollectionDecks(); }}
+            onImportCollectionDeck={(deckId) => { void importCollectionDeck(deckId); }}
+          />
+        ) : activeView === "card-library" ? (
           <CardLibraryRoute
             result={cardLibraryResult}
             query={cardLibraryQuery}
@@ -666,86 +1043,216 @@ function App() {
             error={cardLibraryError}
             onQueryChange={updateCardLibraryQuery}
           />
+        ) : activeView === "match-history" ? (
+          <MatchHistoryPanel result={matchHistoryResult} loading={isMatchHistoryLoading} error={matchHistoryError} />
+        ) : activeView === "home" ? (
+          <HomeDashboard
+            state={state}
+            matchHistory={matchHistoryResult}
+            matchHistoryLoading={isMatchHistoryLoading}
+            matchHistoryError={matchHistoryError}
+            ladderRecommendation={homeLadderRecommendation}
+            onCopyLadderDeckCode={api?.copyLadderDeckCode ? copyHomeLadderDeckCode : undefined}
+            onOpenTracker={() => setActiveView("tracker")}
+          />
         ) : (
-          <section className="dashboard-grid" aria-label="记牌器工作区">
-            <DeckPanel cards={deckCards} summary={deckSummary} logIssue={logIssue} />
-            <EventFeed events={events} />
-            {state.arena && state.arena.status !== "inactive" ? (
-              <ArenaPanel state={state.arena} />
-            ) : (
-              <OpponentPanel overview={opponentOverview} playedCards={opponentPlayedCards} />
-            )}
-          </section>
+          <>
+            <DashboardOverview state={state} status={trackerStatus} />
+            <section className="dashboard-grid" aria-label="记牌器工作区">
+              <DeckPanel cards={deckCards} summary={deckSummary} logIssue={logRepairNotice ? undefined : logIssue} />
+              <EventFeed events={events} />
+              {state.arena && state.arena.status !== "inactive" ? (
+                <ArenaPanel state={state.arena} />
+              ) : (
+                <OpponentPanel overview={opponentOverview} playedCards={opponentPlayedCards} />
+              )}
+            </section>
+          </>
         )}
 
-        {isImportOpen ? (
-          <div className="modal-backdrop" role="presentation" onMouseDown={() => { if (!isBusy) setIsImportOpen(false); }}>
-            <section className="modal" role="dialog" aria-modal="true" aria-labelledby="deck-import-title" aria-describedby="deck-import-description" onMouseDown={(event) => event.stopPropagation()}>
-              <h2 id="deck-import-title">导入卡组</h2>
-              <p id="deck-import-description">粘贴卡组，或从炉石收藏读取本机套牌。</p>
-              <section className="collection-import" aria-label="从收藏读取套牌">
-                <div className="collection-import-header">
-                  <div>
-                    <strong>我的收藏 / 套牌</strong>
-                    <span>{toCollectionScanMeta(collectionScan)}</span>
-                  </div>
-                  <button type="button" onClick={scanCollectionDecks} disabled={isScanningCollection || isBusy}>
-                    {isScanningCollection ? "读取中" : "从收藏读取"}
-                  </button>
-                </div>
-                <p className="collection-help">没读到？先打开炉石，进“我的收藏 → 套牌”，再回这里点读取。</p>
-                {collectionScan?.warning || collectionScan?.message || collectionError ? (
-                  <div className="collection-warning" role="status">
-                    {collectionError ?? collectionScan?.warning ?? collectionScan?.message}
-                  </div>
-                ) : null}
-                {collectionScan?.decks.length ? (
-                  <ul className="collection-deck-list">
-                    {collectionScan.decks.map((deck) => (
-                      <li key={deck.id}>
-                        <div className="collection-deck-main">
-                          <strong title={deck.name?.trim() || "未命名套牌"}>{deck.name?.trim() || "未命名套牌"}</strong>
-                          <span>
-                            {formatCollectionDeckCardCount(deck)} · {deck.heroClass ?? deck.format ?? deck.mode ?? "收藏套牌"}
-                          </span>
-                          <small>{formatCollectionDeckSource(deck, collectionScan)}</small>
-                          {deck.warnings?.length ? <em>{deck.warnings.join("；")}</em> : null}
-                        </div>
-                        <button
-                          type="button"
-                          className="primary-action"
-                          onClick={() => importCollectionDeck(deck.id)}
-                          disabled={Boolean(importingCollectionDeckId) || isBusy}
-                        >
-                          {importingCollectionDeckId === deck.id ? "导入中" : "导入"}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : collectionScan && collectionScan.status === "ok" ? (
-                  <div className="collection-empty">没有读到可导入套牌。</div>
-                ) : null}
-              </section>
-              <textarea
-                aria-label="卡组代码或卡牌列表"
-                value={deckText}
-                onChange={(event) => setDeckText(event.target.value)}
-                placeholder="粘贴炉石卡组代码，或每行写 2x 卡名"
-                spellCheck={false}
-              />
-              <div className="modal-actions">
-                <button type="button" onClick={() => setIsImportOpen(false)} disabled={isBusy}>
-                  取消
-                </button>
-                <button type="button" className="primary-action" onClick={importDeck} disabled={!deckText.trim() || isBusy}>
-                  导入
-                </button>
-              </div>
-            </section>
-          </div>
-        ) : null}
-      </main>
+        </main>
+      </div>
     </>
+  );
+}
+
+function DeckToolsPage({
+  deckText,
+  collectionScan,
+  collectionError,
+  notice,
+  isBusy,
+  isScanningCollection,
+  importingCollectionDeckId,
+  onDeckTextChange,
+  onImportDeck,
+  onScanCollection,
+  onImportCollectionDeck
+}: {
+  deckText: string;
+  collectionScan: CollectionDeckScanResult | undefined;
+  collectionError: string | undefined;
+  notice: string | undefined;
+  isBusy: boolean;
+  isScanningCollection: boolean;
+  importingCollectionDeckId: string | undefined;
+  onDeckTextChange: (value: string) => void;
+  onImportDeck: () => void;
+  onScanCollection: () => void;
+  onImportCollectionDeck: (deckId: string) => void;
+}) {
+  return (
+    <section className="deck-tools-page" aria-labelledby="deck-tools-title">
+      <header className="deck-tools-header">
+        <span className="deck-tools-header-icon" aria-hidden="true"><Upload size={25} /></span>
+        <div>
+          <span>卡组管理</span>
+          <h1 id="deck-tools-title">卡组工具</h1>
+          <p>粘贴卡组代码，或从炉石收藏读取本机套牌。</p>
+        </div>
+      </header>
+
+      <div className="deck-tools-workspace">
+        <section className="deck-tools-card deck-tools-manual" aria-labelledby="deck-tools-manual-title">
+          <header>
+            <div>
+              <span>手动导入</span>
+              <h2 id="deck-tools-manual-title">粘贴卡组代码</h2>
+              <p>支持炉石卡组代码，也可以每行填写“2x 卡名”。</p>
+            </div>
+          </header>
+          <textarea
+            aria-label="卡组代码或卡牌列表"
+            value={deckText}
+            onChange={(event) => onDeckTextChange(event.target.value)}
+            placeholder="粘贴炉石卡组代码，或每行写 2x 卡名"
+            spellCheck={false}
+          />
+          <div className="deck-tools-actions">
+            <button type="button" className="primary-action" onClick={onImportDeck} disabled={!deckText.trim() || isBusy}>
+              导入当前内容
+            </button>
+          </div>
+          {notice ? <div className="deck-tools-notice" role="status">{notice}</div> : null}
+        </section>
+
+        <section className="deck-tools-card collection-import" aria-labelledby="deck-tools-collection-title">
+          <div className="collection-import-header">
+            <div>
+              <span>本机收藏</span>
+              <h2 id="deck-tools-collection-title">我的收藏 / 套牌</h2>
+              <small>{toCollectionScanMeta(collectionScan)}</small>
+            </div>
+            <button type="button" onClick={onScanCollection} disabled={isScanningCollection || isBusy}>
+              {isScanningCollection ? "读取中" : "从收藏读取"}
+            </button>
+          </div>
+          <p className="collection-help">先打开炉石，进入“我的收藏 → 套牌”，再点读取。</p>
+          {collectionScan?.warning || collectionScan?.message || collectionError ? (
+            <div className="collection-warning" role="status">
+              {collectionError ?? collectionScan?.warning ?? collectionScan?.message}
+            </div>
+          ) : null}
+          {collectionScan?.decks.length ? (
+            <ul className="collection-deck-list">
+              {collectionScan.decks.map((deck) => (
+                <li key={deck.id}>
+                  <div className="collection-deck-main">
+                    <strong title={deck.name?.trim() || "未命名套牌"}>{deck.name?.trim() || "未命名套牌"}</strong>
+                    <span>
+                      {formatCollectionDeckCardCount(deck)} · {deck.heroClass ?? deck.format ?? deck.mode ?? "收藏套牌"}
+                    </span>
+                    <small>{formatCollectionDeckSource(deck, collectionScan)}</small>
+                    {deck.warnings?.length ? <em>{deck.warnings.join("；")}</em> : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="primary-action"
+                    onClick={() => onImportCollectionDeck(deck.id)}
+                    disabled={Boolean(importingCollectionDeckId) || isBusy}
+                  >
+                    {importingCollectionDeckId === deck.id ? "导入中" : "导入"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : collectionScan && collectionScan.status === "ok" ? (
+            <div className="collection-empty">没有读到可导入套牌。</div>
+          ) : (
+            <div className="collection-empty">尚未读取收藏套牌。</div>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function DesktopSidebar({
+  activeView,
+  status,
+  onNavigate
+}: {
+  activeView: AppView;
+  status: TrackerStatus;
+  onNavigate: (view: AppView) => void;
+}) {
+  return (
+    <aside className="app-sidebar" aria-label="主导航">
+      <section className="sidebar-brand" aria-label="炉石助手品牌">
+        <span className="sidebar-brand-mark" aria-hidden="true"><Layers3 size={27} /></span>
+        <span>
+          <strong>炉石助手</strong>
+          <small>v0.2.0</small>
+        </span>
+      </section>
+      <nav className="sidebar-nav" aria-label="工作区">
+        {sidebarItems.map(({ view, label, ariaLabel, icon: Icon }) => (
+          <button
+            key={view}
+            type="button"
+            className={`sidebar-item${activeView === view ? " is-active" : ""}`}
+            aria-current={activeView === view ? "page" : undefined}
+            aria-label={ariaLabel}
+            onClick={() => onNavigate(view)}
+          >
+            <Icon aria-hidden="true" size={18} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+      <footer className="sidebar-footer">
+        <span className={`sidebar-status-dot status-${status.state}`} aria-hidden="true" />
+        <span>
+          <strong>本机记录</strong>
+          <small>{trackerStatusLabels[status.state]} · 数据不上传</small>
+        </span>
+      </footer>
+    </aside>
+  );
+}
+
+function DashboardOverview({ state, status }: { state: PublicTrackerState; status: TrackerStatus }) {
+  const items = [
+    {
+      label: "牌库剩余",
+      value: `${state.summary.remainingCards.toLocaleString("zh-CN")} / ${state.summary.totalCards.toLocaleString("zh-CN")}`,
+      icon: Layers3
+    },
+    { label: "已抽", value: state.summary.drawnCards.toLocaleString("zh-CN"), icon: Activity },
+    { label: "对手已出", value: state.summary.opponentPlayedCount.toLocaleString("zh-CN"), icon: Swords },
+    { label: "当前状态", value: status.isLoading ? "正在读取" : trackerStatusLabels[status.state], icon: Activity }
+  ];
+
+  return (
+    <section className="dashboard-overview summary-strip" aria-label="当前对局概览">
+      {items.map(({ label, value, icon: Icon }) => (
+        <article className="overview-stat metric" key={label}>
+          <Icon aria-hidden="true" size={17} />
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </article>
+      ))}
+    </section>
   );
 }
 
@@ -911,33 +1418,96 @@ function CardLibraryRoute({
 function OverlayWindow({
   state,
   onClose,
+  onOpenSettings,
   isLoading,
   loadError
 }: {
   state: PublicTrackerState;
   onClose?: () => void;
+  onOpenSettings?: () => void;
   isLoading: boolean;
   loadError?: string;
 }) {
   const overlayView = toOverlayPanelViewModel(state, { maxDeckRows: 40, maxRecentRows: 3 });
 
-  return <OverlayPanel view={overlayView} onClose={onClose} isLoading={isLoading} loadError={loadError} />;
+  return (
+    <OverlayPanel
+      view={overlayView}
+      onClose={onClose}
+      onOpenSettings={onOpenSettings}
+      isLoading={isLoading}
+      loadError={loadError}
+    />
+  );
+}
+
+const qaArenaHeroRanking: ArenaHeroWinRateRankingResult = {
+  status: "ok",
+  source: "竞技场公开统计",
+  updatedAt: "2026-07-23T08:00:00.000Z",
+  entries: [
+    { rank: 1, heroName: "死亡骑士", heroClass: "Death Knight", winRate: 55.8, games: 42860 },
+    { rank: 2, heroName: "恶魔猎手", heroClass: "Demon Hunter", winRate: 54.6, games: 39120 },
+    { rank: 3, heroName: "萨满祭司", heroClass: "Shaman", winRate: 53.9, games: 36740 },
+    { rank: 4, heroName: "猎人", heroClass: "Hunter", winRate: 52.7, games: 35210 },
+    { rank: 5, heroName: "法师", heroClass: "Mage", winRate: 51.8, games: 44980 }
+  ]
+};
+
+function ArenaHeroWinRateRankingWindow({ searchParams }: { searchParams: URLSearchParams }) {
+  const api = window.hearthstoneTracker;
+  const isQaDemo = searchParams.get("qa-arena-hero-ranking") === "1";
+  const [result, setResult] = useState<ArenaHeroWinRateRankingResult | undefined>(isQaDemo ? qaArenaHeroRanking : undefined);
+  const [isLoading, setIsLoading] = useState(Boolean(api?.onArenaHeroWinRateRankingUpdate) && !isQaDemo);
+
+  useEffect(() => {
+    if (isQaDemo) return;
+    let disposed = false;
+    const unsubscribe = api?.onArenaHeroWinRateRankingUpdate?.((nextResult) => {
+      if (!disposed) {
+        setResult(nextResult);
+        setIsLoading(false);
+      }
+    });
+
+    if (!api?.onArenaHeroWinRateRankingUpdate) {
+      setResult({ status: "unavailable", message: "当前桌面版尚未提供竞技场英雄排行数据。" });
+      setIsLoading(false);
+      return unsubscribe;
+    }
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [api, isQaDemo]);
+
+  return (
+    <ArenaHeroWinRateRankingPanel
+      result={result}
+      isLoading={isLoading}
+      onClose={api?.closeArenaHeroWinRateRanking ? () => { void api.closeArenaHeroWinRateRanking!(); } : undefined}
+    />
+  );
 }
 
 function OpponentOverlayWindow({
   state,
+  showSecrets,
   isCollapsed,
   onCollapsedChange,
   isLoading,
   loadError
 }: {
   state: PublicTrackerState;
+  showSecrets: boolean;
   isCollapsed: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   isLoading: boolean;
   loadError?: string;
 }) {
-  const overlayView = toOverlayPanelViewModel(state, { maxDeckRows: 40, maxRecentRows: 40 });
+  const mappedView = toOverlayPanelViewModel(state, { maxDeckRows: 40, maxRecentRows: 40 });
+  const overlayView = showSecrets ? mappedView : { ...mappedView, opponentSecrets: [] };
 
   return (
     <OpponentOverlayPanel
@@ -1009,16 +1579,16 @@ function toLogIssueViewModel(state: PublicTrackerState): LogIssueViewModel | und
   if (state.status === "missing-log") {
     return {
       title: "缺少 Power.log",
-      message: "先点“修复日志”，然后重启炉石/开始一局。",
+      message: "先点“修复日志”，完全退出并重新打开炉石，然后进入一局。",
       detail: state.error ?? "还没有找到可用的 Power.log。",
       actions: logRepairActions
     };
   }
 
-  if (logPath && isPlayerOnlyLogPath(logPath)) {
+  if (state.status !== "watching" && logPath && isPlayerOnlyLogPath(logPath)) {
     return {
       title: "只有 Player.log",
-      message: "当前日志不能读取抽牌和出牌。先点“修复日志”，然后重启炉石/开始一局。",
+      message: "当前日志不能读取抽牌和出牌。先点“修复日志”，完全退出并重新打开炉石，然后进入一局。",
       detail: `当前只看到 ${compactPath(logPath)}`,
       actions: logRepairActions
     };
@@ -1040,7 +1610,7 @@ function toDeckSummary(state: PublicTrackerState, deckImported: boolean): DeckSu
 }
 
 function toDeckCards(rows: CardTrackerRow[]): DeckCard[] {
-  return rows.map((row, index) => ({
+  return rows.filter((row) => !row.unresolved).map((row, index) => ({
     id: `deck-${row.name}-${index}`,
     name: row.name,
     cost: row.details?.manaCost,

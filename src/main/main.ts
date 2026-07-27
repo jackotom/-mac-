@@ -1,19 +1,32 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, screen, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, systemPreferences, Tray } from "electron";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureLogConfig, inspectLogConfig } from "./logConfig.js";
+import { autoRepairLogConfigOnStartup, ensureLogConfig, inspectLogConfig } from "./logConfig.js";
 import { discoverLogCandidates } from "./logDiscovery.js";
 import { TrackerService } from "./trackerService.js";
-import { ArenaScreenRecognizer, ScreenCaptureError } from "./arenaScreenRecognition.js";
+import { ArenaScreenRecognizer, ScreenCaptureError, cleanupStaleScreenCaptures } from "./arenaScreenRecognition.js";
 import { CollectionDeckService } from "./collectionDeckService.js";
 import { CardDataService } from "./cardDataService.js";
 import { shouldShowArenaChoiceOverlay } from "./arenaChoiceOverlayVisibility.js";
 import { AutomaticOverlayController } from "./automaticOverlayController.js";
-import { getFrontmostAppName } from "./frontmostApp.js";
+import { getFrontmostAppName, isHearthstoneOrTrackerFrontmost } from "./frontmostApp.js";
 import { CardPreviewVisibilityGate } from "./cardPreviewVisibility.js";
-import { shouldHandleAppActivate, shouldShowMainWindowOnLaunch } from "./mainWindowVisibility.js";
-import { normalizeOverlayWindowBounds } from "./overlayWindowBounds.js";
+import {
+  isQaOverlayCapture,
+  presentMainWindow,
+  shouldHandleAppActivate,
+  shouldShowMainWindowOnLaunch
+} from "./mainWindowVisibility.js";
+import { requestQaQuit, waitForQaRendererSettled } from "./qaCaptureTiming.js";
+import {
+  getAnchoredOverlayWindowBounds,
+  getDefaultArenaHeroRankingWindowBounds,
+  getDefaultOpponentOverlayWindowBounds,
+  getDefaultOverlayWindowBounds,
+  normalizeOpponentOverlayWindowBounds,
+  normalizeOverlayWindowBounds
+} from "./overlayWindowBounds.js";
 import { OpponentSecretOverlayVisibility } from "./opponentSecretOverlayVisibility.js";
 import {
   configureBoardAttackOverlayWindow,
@@ -21,58 +34,130 @@ import {
   getBoardAttackOverlayWindowOptions,
   shouldShowBoardAttackOverlay
 } from "./boardAttackOverlay.js";
+import { registerFriendlyOverlayIpc } from "./friendlyOverlayIpc.js";
 import { registerOpponentOverlayIpc } from "./opponentOverlayIpc.js";
 import { OpponentOverlayWindowState } from "./opponentOverlayWindowState.js";
 import { OpponentOverlayWindowController } from "./opponentOverlayWindowController.js";
-import { selectHearthstoneCaptureSource } from "./screenCaptureSource.js";
+import { HEARTHSTONE_CAPTURE_TYPES, selectHearthstoneCaptureSource } from "./screenCaptureSource.js";
 import { LadderDeckRecommendationService } from "./ladderDeckRecommendationService.js";
 import { LadderDeckOverlayController, resolveLadderDeckMode } from "./ladderDeckOverlayController.js";
 import { getLadderDeckOverlayBounds } from "./ladderDeckOverlayBounds.js";
 import { assertTrustedIpcEvent, configureSecureNavigation, createSecureWebPreferences } from "./electronSecurity.js";
+import { AppQuitController } from "./appQuitController.js";
+import { DEFAULT_TRACKER_SETTINGS, parseTrackerSettings, TrackerSettingsStore } from "./trackerSettingsStore.js";
 import { createCardLibraryErrorResult, listCardLibrary } from "../shared/cardDatabase.js";
-import type { CardLibraryResult, CardPreviewRequest, CollectionDeck, CollectionDeckScanResult } from "../shared/types.js";
+import { DiagnosticLogger } from "./diagnosticLogger.js";
+import { ArenaHeroStatsService } from "./arenaHeroStatsService.js";
+import { WindowBoundsPersistence } from "./windowBoundsPersistence.js";
+import { applyLaunchAtLoginSetting } from "./launchAtLogin.js";
+import type { CardLibraryResult, CardPreviewRequest, CollectionDeck, CollectionDeckScanResult, PublicTrackerState, TrackerSettings } from "../shared/types.js";
 import type { LadderMode } from "../shared/ladderDeckRecommendation.js";
 
+if (process.env.QA_USER_DATA_DIR) {
+  app.setPath("userData", process.env.QA_USER_DATA_DIR);
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const diagnosticLogger = new DiagnosticLogger(app.getPath("logs"));
+process.on("uncaughtExceptionMonitor", (error) => {
+  diagnosticLogger.error("主进程未捕获异常", error);
+});
+process.on("unhandledRejection", (reason) => {
+  diagnosticLogger.error("主进程未处理的异步失败", reason);
+});
 const collectionDecks = new CollectionDeckService();
-const tracker = new TrackerService(collectionDecks, new ArenaScreenRecognizer(undefined, captureHearthstoneDisplay));
+const arenaScreenRecognizer = process.env.QA_SKIP_ARENA_SCREEN_RECOGNITION === "1"
+  ? { recognize: async () => ({ status: "ok" as const, texts: [] }) }
+  : new ArenaScreenRecognizer(undefined, captureHearthstoneDisplay);
+const tracker = new TrackerService(collectionDecks, arenaScreenRecognizer);
+const trackerSettingsStore = new TrackerSettingsStore(app.getPath("userData"));
+let trackerSettings: TrackerSettings = DEFAULT_TRACKER_SETTINGS;
 const cardLibraryData = new CardDataService();
 let cardLibraryMetadata: { source?: string; version?: string } = {};
 let mainWindow: BrowserWindow | undefined;
 let overlayWindow: BrowserWindow | undefined;
+let overlayWindowCreationPromise: Promise<BrowserWindow> | undefined;
 let opponentOverlayWindow: BrowserWindow | undefined;
+let opponentOverlayWindowCreationPromise: Promise<BrowserWindow> | undefined;
 let boardAttackOverlayWindow: BrowserWindow | undefined;
 let ladderDeckOverlayWindow: BrowserWindow | undefined;
 let arenaChoiceOverlayWindow: BrowserWindow | undefined;
+let arenaHeroRankingWindow: BrowserWindow | undefined;
 let cardPreviewWindow: BrowserWindow | undefined;
 let cardPreviewSourceWindow: BrowserWindow | undefined;
+let statusTray: Tray | undefined;
 let cardPreviewPinned = false;
 let arenaChoiceOverlayMonitor: NodeJS.Timeout | undefined;
 let arenaChoiceOverlayRefreshInFlight = false;
+let arenaChoiceOverlayGeneration = 0;
+let arenaHeroRankingMonitor: NodeJS.Timeout | undefined;
+let arenaHeroRankingRefreshInFlight = false;
+let arenaHeroRankingGeneration = 0;
+let arenaHeroRankingDataWindow: BrowserWindow | undefined;
+let arenaHeroRankingSuppressed = false;
+let arenaHeroRankingInteractionActiveUntil = 0;
+let arenaHeroRankingBoundsSaveTimer: NodeJS.Timeout | undefined;
+let arenaHeroRankingBoundsWriteQueue: Promise<void> = Promise.resolve();
 let cardPreviewAutoHideTimer: NodeJS.Timeout | undefined;
 let cardPreviewVisibilityMonitor: NodeJS.Timeout | undefined;
 let cardPreviewVisibilityRefreshInFlight = false;
 let lastCardPreviewRequestKey: string | undefined;
 let cardPreviewRequestSerial = 0;
-let overlayBoundsSaveTimer: NodeJS.Timeout | undefined;
 let overlayInteractionActiveUntil = 0;
+let opponentOverlayInteractionActiveUntil = 0;
 let ladderDeckOverlayInteractionActiveUntil = 0;
 let initialBackgroundWindowReady = false;
 let initialLaunchActivateObserved = false;
 let mainWindowUserActivationAllowedAfterMs = Number.POSITIVE_INFINITY;
 let screenRecordingSettingsOpened = false;
+let lastCaptureDiagnostic: string | undefined;
 let opponentSecretOverlayMonitor: NodeJS.Timeout | undefined;
+let opponentSecretOverlayGeneration = 0;
 let boardAttackOverlayMonitor: NodeJS.Timeout | undefined;
 let boardAttackOverlayRefreshInFlight = false;
-let opponentOverlayBoundsSaveTimer: NodeJS.Timeout | undefined;
 let opponentOverlayWindowState: OpponentOverlayWindowState | undefined;
+let opponentOverlayRestoreCollapsed = false;
+const overlayBoundsPersistence = new WindowBoundsPersistence(
+  saveOverlayWindowBounds,
+  250,
+  (error) => reportDiagnosticError("保存我方窗口位置失败", error)
+);
+const opponentOverlayBoundsPersistence = new WindowBoundsPersistence(
+  saveOpponentOverlayBounds,
+  180,
+  (error) => reportDiagnosticError("保存对手窗口位置失败", error)
+);
 const opponentOverlayWindowController = new OpponentOverlayWindowController({
   getWindow: () => opponentOverlayWindow,
   getState: () => opponentOverlayWindowState,
-  saveExpandedBounds: saveOpponentOverlayBounds
+  saveExpandedBounds: (bounds) => opponentOverlayBoundsPersistence.flush(bounds)
 });
 const ladderDeckRecommendations = new LadderDeckRecommendationService();
+const arenaHeroStats = new ArenaHeroStatsService(app.getPath("userData"));
 let currentLadderDeckCode: string | undefined;
+const appQuitController = new AppQuitController({
+  cleanup: async () => {
+    diagnosticLogger.info("开始退出清理");
+    automaticOverlayController.stop();
+    automaticOpponentOverlayController.stop();
+    stopOpponentSecretOverlayMonitor();
+    stopBoardAttackOverlayMonitor();
+    await releaseOverlayWindow();
+    stopArenaChoiceOverlayMonitor();
+    stopArenaHeroRankingMonitor();
+    await releaseOpponentOverlayWindow();
+    await arenaHeroRankingBoundsWriteQueue;
+    stopCardPreviewVisibilityMonitor();
+    ladderDeckOverlayController.stop();
+    hideCardPreviewWindow();
+    statusTray?.destroy();
+    statusTray = undefined;
+    await tracker.dispose();
+    diagnosticLogger.info("退出清理完成");
+  },
+  quit: () => app.quit(),
+  onError: (error) => reportDiagnosticError("退出清理失败，将继续退出。", error)
+});
 
 const cardPreviewWidth = 280;
 const cardPreviewHeight = 520;
@@ -81,6 +166,7 @@ const cardPreviewGap = 10;
 const cardPreviewAutoHideMs = 10000;
 const mainWindowActivateGraceMs = 1_500;
 const cardPreviewVisibilityIntervalMs = 150;
+const arenaHeroRankingInteractionGraceMs = 1_200;
 const cardPreviewVisibilityGate = new CardPreviewVisibilityGate();
 const cardPreviewPinAccelerator = "Alt+Q";
 const opponentSecretOverlayVisibility = new OpponentSecretOverlayVisibility();
@@ -101,7 +187,7 @@ const ladderDeckOverlayController = new LadderDeckOverlayController({
     ladderDeckOverlayWindow.setBounds(bounds);
     ladderDeckOverlayWindow.showInactive();
   },
-  hide: () => ladderDeckOverlayWindow?.hide()
+  hide: () => releaseTransientWindow(ladderDeckOverlayWindow)
 });
 
 async function captureHearthstoneDisplay() {
@@ -115,13 +201,19 @@ async function captureHearthstoneDisplay() {
       }),
       { width: 1, height: 1 }
     );
-    const sources = await desktopCapturer.getSources({ types: ["window", "screen"], thumbnailSize });
+    const sources = await desktopCapturer.getSources({ types: [...HEARTHSTONE_CAPTURE_TYPES], thumbnailSize });
     const source = selectHearthstoneCaptureSource(sources, targetDisplay.id);
     if (!source || source.thumbnail.isEmpty()) {
       throw new Error("无法读取炉石所在屏幕。");
     }
+    lastCaptureDiagnostic = undefined;
     return source.thumbnail.toPNG();
   } catch (error) {
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    if (diagnostic !== lastCaptureDiagnostic) {
+      lastCaptureDiagnostic = diagnostic;
+      diagnosticLogger.warn("炉石窗口截图失败", error);
+    }
     const accessStatus = systemPreferences.getMediaAccessStatus("screen");
     if (accessStatus !== "granted" && !screenRecordingSettingsOpened) {
       screenRecordingSettingsOpened = true;
@@ -157,13 +249,42 @@ const automaticOverlayController = new AutomaticOverlayController({
       overlayWindow.showInactive();
     }
   },
-  hideOverlayWindow: () => {
+  hideOverlayWindow: async () => {
     hideCardPreviewWindow();
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.hide();
-    }
-  }
+    await releaseOverlayWindow(overlayWindow);
+  },
+  isEnabled: () => isAutomaticTrackerEnabled("friendlyDeckTracker"),
+  shouldHideWhenDisabled: () =>
+    trackerSettings.general.gameDetection === "automatic" || !isDeckTrackerEnabled("friendlyDeckTracker")
 });
+
+const automaticOpponentOverlayController = new AutomaticOverlayController({
+  getState: () => tracker.getState(),
+  getFrontmostAppName,
+  hasOverlayWindow: () => Boolean(opponentOverlayWindow && !opponentOverlayWindow.isDestroyed()),
+  isOverlayVisible: () => Boolean(opponentOverlayWindow && !opponentOverlayWindow.isDestroyed() && opponentOverlayWindow.isVisible()),
+  isOverlayFocused: () => isAnyInteractiveOverlayFocused(),
+  isOverlayInteractionActive: () => isAnyOverlayInteractionActive(),
+  createOverlayWindow: async () => { await createOpponentOverlayWindow({ showWhenReady: false }); },
+  showOverlayWindow: () => opponentOverlayWindowController.showInactive(),
+  hideOverlayWindow: async () => {
+    opponentOverlayRestoreCollapsed = opponentOverlayWindowState?.isCollapsed() ?? false;
+    await releaseOpponentOverlayWindow();
+  },
+  isEnabled: () => isAutomaticTrackerEnabled("opponentDeckTracker"),
+  shouldHideWhenDisabled: () =>
+    trackerSettings.general.gameDetection === "automatic" || !isDeckTrackerEnabled("opponentDeckTracker")
+});
+
+function isDeckTrackerEnabled(
+  setting: "friendlyDeckTracker" | "opponentDeckTracker"
+) {
+  return trackerSettings.overlay.enabled && trackerSettings.ladder[setting];
+}
+
+function isAutomaticTrackerEnabled(setting: "friendlyDeckTracker" | "opponentDeckTracker") {
+  return trackerSettings.general.gameDetection === "automatic" && isDeckTrackerEnabled(setting);
+}
 
 function isAnyInteractiveOverlayFocused() {
   return [overlayWindow, opponentOverlayWindow, ladderDeckOverlayWindow].some(
@@ -173,11 +294,9 @@ function isAnyInteractiveOverlayFocused() {
 
 function isAnyOverlayInteractionActive() {
   const now = Date.now();
-  return now < overlayInteractionActiveUntil || now < ladderDeckOverlayInteractionActiveUntil;
-}
-
-if (process.env.QA_USER_DATA_DIR) {
-  app.setPath("userData", process.env.QA_USER_DATA_DIR);
+  return now < overlayInteractionActiveUntil ||
+    now < opponentOverlayInteractionActiveUntil ||
+    now < ladderDeckOverlayInteractionActiveUntil;
 }
 
 const hasSingleInstanceLock = process.env.QA_ALLOW_MULTIPLE_INSTANCES === "1" || app.requestSingleInstanceLock();
@@ -186,23 +305,17 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on("second-instance", () => {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
-
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
-  }
-  mainWindow.show();
-  mainWindow.focus();
+  showMainWindow();
 });
 
-async function createWindow(options: { showWhenReady?: boolean } = {}) {
-  const showWhenReady = options.showWhenReady ?? shouldShowMainWindowOnLaunch(process.env);
+async function createWindow(options: { showWhenReady?: boolean; focusWhenReady?: boolean } = {}) {
+  const showWhenReady = options.showWhenReady ??
+    shouldShowMainWindowOnLaunch(process.env, trackerSettings.general.startMinimized);
+  const focusWhenReady = options.focusWhenReady ?? trackerSettings.general.focusOnOpen;
   const window = new BrowserWindow({
     width: 1180,
     height: 760,
-    minWidth: 900,
+    minWidth: 640,
     minHeight: 620,
     show: false,
     title: "炉石 Mac 记牌器",
@@ -227,9 +340,10 @@ async function createWindow(options: { showWhenReady?: boolean } = {}) {
   } else {
     await window.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
+  window.webContents.setZoomFactor(trackerSettings.appearance.zoom / 100);
 
   if (showWhenReady) {
-    window.show();
+    presentMainWindow(window, focusWhenReady, () => app.focus({ steal: true }));
   }
 
   await startTrackingAutomatically(process.env.QA_LOG_PATH ? { logPath: process.env.QA_LOG_PATH } : undefined);
@@ -240,6 +354,8 @@ async function createWindow(options: { showWhenReady?: boolean } = {}) {
     process.env.QA_OPEN_ARENA_CHOICE_OVERLAY !== "1"
     && process.env.QA_OPEN_LADDER_DECK_OVERLAY !== "1"
     && process.env.QA_OPEN_BOARD_ATTACK_OVERLAY !== "1"
+    && process.env.QA_OPEN_ARENA_HERO_RANKING_OVERLAY !== "1"
+    && process.env.QA_OPEN_THREE_WINDOW_LAYOUT !== "1"
   ) {
     await captureQaScreenshotIfRequested(window);
   }
@@ -247,9 +363,36 @@ async function createWindow(options: { showWhenReady?: boolean } = {}) {
 
 if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
+    diagnosticLogger.info("应用启动");
+    if (process.env.QA_ALLOW_MULTIPLE_INSTANCES !== "1") {
+      try {
+        await cleanupStaleScreenCaptures(undefined, Number.POSITIVE_INFINITY);
+      } catch (error) {
+        diagnosticLogger.warn("清理上次运行残留截图失败", error);
+      }
+    }
+    await autoRepairLogConfigOnStartup({
+      environment: process.env,
+      onError: (error) => reportDiagnosticError("启动时修复 Hearthstone log.config 失败", error)
+    });
+    try {
+      trackerSettings = await trackerSettingsStore.read();
+    } catch (error) {
+      reportDiagnosticError("读取记牌器设置失败，将使用默认设置。", error);
+      trackerSettings = DEFAULT_TRACKER_SETTINGS;
+    }
     registerIpc();
     registerAppActivateHandler();
     await createWindow();
+    const isQaScreenshotRun = process.env.QA_EXIT_AFTER_SCREENSHOT === "1" && Boolean(
+      process.env.QA_SCREENSHOT_PATH || process.env.QA_INSPECT_PATH
+    );
+    if (!isQaScreenshotRun) {
+      await applyTrackerSettingsEffects().catch(async (error) => {
+        reportDiagnosticError("应用开机启动设置失败，将继续启动。", error);
+        await applyTrackerSettingsEffects(undefined, { loginItemVerified: true });
+      });
+    }
     initialBackgroundWindowReady = true;
     mainWindowUserActivationAllowedAfterMs = Date.now() + mainWindowActivateGraceMs;
     if (process.env.QA_OPEN_OPPONENT_OVERLAY === "1") {
@@ -272,15 +415,34 @@ if (hasSingleInstanceLock) {
       }
       window.showInactive();
       await captureQaScreenshotIfRequested(window);
+    } else if (process.env.QA_OPEN_ARENA_HERO_RANKING_OVERLAY === "1") {
+      const window = await createArenaHeroRankingWindow({ qaDemo: true });
+      window.showInactive();
+      await captureQaScreenshotIfRequested(window);
+    } else if (process.env.QA_OPEN_THREE_WINDOW_LAYOUT === "1") {
+      const heroWindow = await createArenaHeroRankingWindow({ qaDemo: true });
+      const opponentWindow = await createOpponentOverlayWindow({ showWhenReady: false, qaDemo: true });
+      const friendlyWindow = await createOverlayWindow({ showWhenReady: false });
+      heroWindow.showInactive();
+      opponentWindow.showInactive();
+      friendlyWindow.showInactive();
+      await captureQaScreenshotIfRequested(heroWindow);
     } else if (process.env.QA_EXIT_AFTER_SCREENSHOT !== "1") {
-      await createArenaChoiceOverlayWindow();
-      automaticOverlayController.start();
-      startOpponentSecretOverlayMonitor();
-      startBoardAttackOverlayMonitor();
+      if (trackerSettings.overlay.enabled) startArenaChoiceOverlayMonitor();
+      if (trackerSettings.general.gameDetection === "automatic") {
+        automaticOverlayController.start();
+        automaticOpponentOverlayController.start();
+      }
       startCardPreviewVisibilityMonitor();
-      ladderDeckOverlayController.start();
+      if (trackerSettings.overlay.enabled) ladderDeckOverlayController.start();
+      if (trackerSettings.overlay.enabled && trackerSettings.overlay.arenaHeroWinRateRanking) startArenaHeroRankingMonitor();
     }
   });
+}
+
+function reportDiagnosticError(message: string, error: unknown) {
+  diagnosticLogger.error(message, error);
+  console.error(message, error);
 }
 
 function registerAppActivateHandler() {
@@ -290,22 +452,22 @@ function registerAppActivateHandler() {
         initialBackgroundWindowReady,
         initialLaunchActivateObserved,
         Date.now(),
-        mainWindowUserActivationAllowedAfterMs
+        mainWindowUserActivationAllowedAfterMs,
+        isQaOverlayCapture(process.env)
       )
     ) {
       initialLaunchActivateObserved = true;
       return;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show();
-      mainWindow.focus();
+      showMainWindow();
       return;
     }
 
-    void createWindow({ showWhenReady: true });
+    void createWindow({
+      showWhenReady: true,
+      focusWhenReady: trackerSettings.general.focusOnOpen
+    });
   });
 }
 
@@ -315,17 +477,8 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
-  automaticOverlayController.stop();
-  stopOpponentSecretOverlayMonitor();
-  stopBoardAttackOverlayMonitor();
-  clearOpponentOverlayBoundsSaveTimer();
-  clearOverlayBoundsSaveTimer();
-  stopArenaChoiceOverlayMonitor();
-  stopCardPreviewVisibilityMonitor();
-  ladderDeckOverlayController.stop();
-  hideCardPreviewWindow();
-  void tracker.dispose();
+app.on("before-quit", (event) => {
+  appQuitController.handleBeforeQuit(event);
 });
 
 function registerIpc() {
@@ -337,21 +490,102 @@ function registerIpc() {
       });
     }
   };
+  registerFriendlyOverlayIpc(trustedIpcMain, {
+    isFriendlyOverlaySender: (sender) => sender === overlayWindow?.webContents,
+    suppressCurrentContext: () => automaticOverlayController.suppressCurrentContext(),
+    closeFriendlyOverlay: () => releaseOverlayWindow(overlayWindow)
+  });
   registerOpponentOverlayIpc(trustedIpcMain, opponentOverlayWindowController);
   const secureHandle = trustedIpcMain.handle.bind(trustedIpcMain);
   secureHandle("tracker:discover-logs", () => discoverLogCandidates());
   secureHandle("tracker:get-state", () => tracker.getState());
+  secureHandle("tracker:get-settings", () => trackerSettings);
+  secureHandle("tracker:close-arena-hero-win-rate-ranking", (event) => {
+    if (event.sender !== arenaHeroRankingWindow?.webContents) return;
+    arenaHeroRankingSuppressed = true;
+    releaseTransientWindow(arenaHeroRankingWindow);
+  });
+  secureHandle("tracker:replace-settings", async (_event, value: unknown) => {
+    const candidate = parseTrackerSettings(value);
+    if (!candidate) throw new Error("设置数据无效");
+    const previous = trackerSettings;
+    applyLaunchAtLoginSetting(app, candidate.general.launchAtLogin);
+    try {
+      trackerSettings = await trackerSettingsStore.replace(value);
+    } catch (error) {
+      try {
+        applyLaunchAtLoginSetting(app, previous.general.launchAtLogin);
+      } catch (rollbackError) {
+        reportDiagnosticError("恢复开机启动设置失败", rollbackError);
+      }
+      throw error;
+    }
+    await applyTrackerSettingsEffects(previous, { loginItemVerified: true });
+    return trackerSettings;
+  });
+  secureHandle("tracker:restore-default-settings", async () => {
+    const previous = trackerSettings;
+    applyLaunchAtLoginSetting(app, DEFAULT_TRACKER_SETTINGS.general.launchAtLogin);
+    try {
+      trackerSettings = await trackerSettingsStore.replace(DEFAULT_TRACKER_SETTINGS);
+    } catch (error) {
+      try {
+        applyLaunchAtLoginSetting(app, previous.general.launchAtLogin);
+      } catch (rollbackError) {
+        reportDiagnosticError("恢复开机启动设置失败", rollbackError);
+      }
+      throw error;
+    }
+    await applyTrackerSettingsEffects(previous, { loginItemVerified: true });
+    return trackerSettings;
+  });
+  secureHandle("tracker:open-log-folder", async () => {
+    const logDirectory = app.getPath("logs");
+    await fs.mkdir(logDirectory, { recursive: true });
+    const error = await shell.openPath(logDirectory);
+    if (error) throw new Error(`打开日志目录失败：${error}`);
+  });
+  secureHandle("tracker:refresh-card-database", async () => {
+    try {
+      const result = await cardLibraryData.loadCardDatabase({ forceRefresh: true });
+      if (!result.database) {
+        return { status: "error" as const, error: result.warnings[0] ?? "卡牌数据库不可用", warnings: result.warnings };
+      }
+      cardLibraryMetadata = { source: result.source, version: result.version };
+      return {
+        status: result.warnings.length > 0 ? "stale" as const : "updated" as const,
+        cardCount: result.cardCount ?? Object.keys(result.database).length,
+        source: result.source,
+        version: result.version,
+        warnings: result.warnings
+      };
+    } catch (error) {
+      return { status: "error" as const, error: formatLibraryError(error), warnings: [] };
+    }
+  });
+  secureHandle("tracker:open-settings", async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      await createWindow();
+    }
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    showMainWindow();
+    mainWindow.webContents.send("tracker:open-settings");
+    return true;
+  });
+  secureHandle("tracker:get-match-history", () => tracker.getMatchHistory());
   secureHandle("tracker:get-ladder-deck-recommendation", async (event, mode: unknown) => {
     if (mode !== "standard" && mode !== "wild") throw new Error("天梯模式无效");
     const result = await ladderDeckRecommendations.get(mode);
-    if (event.sender === ladderDeckOverlayWindow?.webContents && resolveLadderDeckMode(tracker.getState()) === mode) {
+    if ((event.sender === mainWindow?.webContents || event.sender === ladderDeckOverlayWindow?.webContents) &&
+        (event.sender === mainWindow?.webContents || resolveLadderDeckMode(tracker.getState()) === mode)) {
       currentLadderDeckCode = result.status === "ready" ? result.recommendation.deckCode : undefined;
     }
     return result;
   });
   secureHandle("tracker:copy-ladder-deck-code", (event, deckCode: unknown) => {
     const isQaDeckCode = process.env.QA_OPEN_LADDER_DECK_OVERLAY === "1" && typeof deckCode === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(deckCode);
-    if (event.sender !== ladderDeckOverlayWindow?.webContents || typeof deckCode !== "string" || (!isQaDeckCode && deckCode !== currentLadderDeckCode)) {
+    const trustedSource = event.sender === ladderDeckOverlayWindow?.webContents || event.sender === mainWindow?.webContents;
+    if (!trustedSource || typeof deckCode !== "string" || (!isQaDeckCode && deckCode !== currentLadderDeckCode)) {
       throw new Error("只能复制当前已加载的推荐卡组代码");
     }
     clipboard.writeText(deckCode);
@@ -364,7 +598,7 @@ function registerIpc() {
   });
   secureHandle("tracker:list-card-library", async (_event, query: unknown): Promise<CardLibraryResult> => {
     try {
-      const loaded = await cardLibraryData.loadCardDatabase();
+      const loaded = await cardLibraryData.loadCardDatabase(getConfiguredCardDatabaseLoadOptions());
       cardLibraryMetadata = {
         source: loaded.source ?? cardLibraryMetadata.source,
         version: loaded.version ?? cardLibraryMetadata.version
@@ -400,6 +634,7 @@ function registerIpc() {
   secureHandle("tracker:ensure-log-config", () => ensureLogConfig());
   secureHandle("tracker:inspect-log-config", () => inspectLogConfig());
   secureHandle("tracker:toggle-overlay", async () => {
+    if (!isDeckTrackerEnabled("friendlyDeckTracker")) return false;
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       if (!overlayWindow.isVisible()) {
         automaticOverlayController.clearSuppression();
@@ -407,8 +642,7 @@ function registerIpc() {
         return true;
       }
       automaticOverlayController.suppressCurrentContext();
-      overlayWindow.close();
-      overlayWindow = undefined;
+      await releaseOverlayWindow(overlayWindow);
       return false;
     }
 
@@ -417,6 +651,7 @@ function registerIpc() {
     return true;
   });
   secureHandle("tracker:toggle-opponent-overlay", async () => {
+    if (!isDeckTrackerEnabled("opponentDeckTracker")) return false;
     if (opponentOverlayWindow && !opponentOverlayWindow.isDestroyed()) {
       if (opponentOverlayWindowState?.isCollapsed()) {
         await expandOpponentOverlayWindow(true);
@@ -440,7 +675,12 @@ function registerIpc() {
       return false;
     }
 
-    mainWindow.minimize();
+    if (trackerSettings.general.minimizeToMenuBar) {
+      ensureStatusTray();
+      mainWindow.hide();
+    } else {
+      mainWindow.minimize();
+    }
     return true;
   });
   secureHandle("tracker:start", (_event, options?: { logPath?: string; deckText?: string }) => startTrackingAutomatically(options));
@@ -457,7 +697,7 @@ function registerIpc() {
 
 function getTrustedWebContents(): ReadonlySet<Electron.WebContents> {
   return new Set(
-    [mainWindow, overlayWindow, opponentOverlayWindow, boardAttackOverlayWindow, ladderDeckOverlayWindow, arenaChoiceOverlayWindow, cardPreviewWindow]
+    [mainWindow, overlayWindow, opponentOverlayWindow, boardAttackOverlayWindow, ladderDeckOverlayWindow, arenaChoiceOverlayWindow, arenaHeroRankingWindow, cardPreviewWindow]
       .filter((window): window is BrowserWindow => Boolean(window && !window.isDestroyed()))
       .map((window) => window.webContents)
   );
@@ -465,6 +705,186 @@ function getTrustedWebContents(): ReadonlySet<Electron.WebContents> {
 
 function formatLibraryError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function applyTrackerSettingsEffects(
+  previous?: TrackerSettings,
+  options: { loginItemVerified?: boolean } = {}
+): Promise<void> {
+  if (!options.loginItemVerified) {
+    applyLaunchAtLoginSetting(app, trackerSettings.general.launchAtLogin);
+  }
+  tracker.setMatchHistoryRetentionDays(trackerSettings.other.matchRetentionDays);
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setZoomFactor(trackerSettings.appearance.zoom / 100);
+    mainWindow.webContents.send("tracker:settings:update", trackerSettings);
+  }
+
+  syncStatusTray();
+  applyOverlayWindowAppearance();
+  if (trackerSettings.other.autoUpdateCards && trackerSettings.other.updateFrequency !== "manual") {
+    void cardLibraryData.loadCardDatabase(getConfiguredCardDatabaseLoadOptions()).catch((error) => {
+      if (trackerSettings.other.verboseLogs) console.error("卡牌数据库自动更新失败", error);
+    });
+  }
+
+  if (previous && (
+      previous.overlay.position !== trackerSettings.overlay.position ||
+      previous.overlay.offsetX !== trackerSettings.overlay.offsetX ||
+      previous.overlay.offsetY !== trackerSettings.overlay.offsetY)) {
+    applyConfiguredOverlayPositions();
+  }
+
+  const showBoardAttack = trackerSettings.overlay.enabled &&
+    (trackerSettings.overlay.showFriendlyAttack || trackerSettings.overlay.showOpponentAttack);
+  const boardConfigurationChanged = previous && (
+    previous.overlay.showFriendlyAttack !== trackerSettings.overlay.showFriendlyAttack ||
+    previous.overlay.showOpponentAttack !== trackerSettings.overlay.showOpponentAttack
+  );
+  if (boardConfigurationChanged) stopBoardAttackOverlayMonitor();
+  if (showBoardAttack) startBoardAttackOverlayMonitor();
+  else stopBoardAttackOverlayMonitor();
+
+  if (isDeckTrackerEnabled("opponentDeckTracker") && trackerSettings.overlay.secretPrediction) {
+    startOpponentSecretOverlayMonitor();
+  } else {
+    stopOpponentSecretOverlayMonitor();
+  }
+
+  if (!isDeckTrackerEnabled("friendlyDeckTracker")) {
+    automaticOverlayController.stop();
+    hideCardPreviewWindow();
+    await releaseOverlayWindow(overlayWindow);
+  }
+  if (!isDeckTrackerEnabled("opponentDeckTracker")) {
+    automaticOpponentOverlayController.stop();
+    await releaseOpponentOverlayWindow();
+  }
+
+  if (trackerSettings.overlay.enabled) {
+    ladderDeckOverlayController.start();
+    startArenaChoiceOverlayMonitor();
+    if (initialBackgroundWindowReady) void refreshArenaChoiceOverlayWindow();
+  } else {
+    ladderDeckOverlayController.stop();
+    releaseTransientWindow(ladderDeckOverlayWindow);
+    stopArenaChoiceOverlayMonitor();
+    releaseTransientWindow(arenaChoiceOverlayWindow);
+    hideCardPreviewWindow();
+  }
+  if (trackerSettings.overlay.enabled && trackerSettings.overlay.arenaHeroWinRateRanking) {
+    startArenaHeroRankingMonitor();
+    if (initialBackgroundWindowReady) void refreshArenaHeroRankingWindow();
+  } else {
+    stopArenaHeroRankingMonitor();
+  }
+  if (previous && previous.overlay.secretPrediction !== trackerSettings.overlay.secretPrediction &&
+      opponentOverlayWindow && !opponentOverlayWindow.isDestroyed()) {
+    opponentOverlayWindow.webContents.send(
+      "tracker:secret-prediction:update",
+      trackerSettings.overlay.secretPrediction
+    );
+  }
+
+  if (trackerSettings.general.gameDetection === "automatic") {
+    automaticOverlayController.start();
+    automaticOpponentOverlayController.start();
+    await Promise.all([
+      automaticOverlayController.refresh(),
+      automaticOpponentOverlayController.refresh()
+    ]);
+  } else {
+    automaticOverlayController.stop();
+    automaticOpponentOverlayController.stop();
+  }
+}
+
+function getConfiguredCardDatabaseLoadOptions() {
+  const { autoUpdateCards, updateFrequency } = trackerSettings.other;
+  if (!autoUpdateCards || updateFrequency === "manual") return { preferCache: true } as const;
+  return {
+    cacheMaxAgeMs: updateFrequency === "weekly" ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+  } as const;
+}
+
+function overlayWindows(): BrowserWindow[] {
+  return [
+    overlayWindow,
+    opponentOverlayWindow,
+    boardAttackOverlayWindow,
+    ladderDeckOverlayWindow,
+    arenaChoiceOverlayWindow,
+    arenaHeroRankingWindow,
+    cardPreviewWindow
+  ].filter((window): window is BrowserWindow => Boolean(window && !window.isDestroyed()));
+}
+
+function releaseTransientWindow(window: BrowserWindow | undefined): void {
+  if (window && !window.isDestroyed()) window.close();
+}
+
+function applyOverlayWindowAppearance(): void {
+  for (const window of overlayWindows()) {
+    window.setOpacity(trackerSettings.overlay.opacity / 100);
+    window.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: !trackerSettings.overlay.hideInFullscreen
+    });
+  }
+}
+
+function applyConfiguredOverlayPositions(): void {
+  const window = overlayWindow;
+  if (!window || window.isDestroyed()) return;
+  const bounds = window.getBounds();
+  const workArea = screen.getDisplayMatching(bounds).workArea;
+  window.setBounds(getAnchoredOverlayWindowBounds(bounds, workArea, trackerSettings.overlay), false);
+}
+
+function syncStatusTray(): void {
+  const shouldShow = trackerSettings.general.showGameStatusIcon || trackerSettings.general.minimizeToMenuBar;
+  if (!shouldShow) {
+    statusTray?.destroy();
+    statusTray = undefined;
+    return;
+  }
+  ensureStatusTray();
+}
+
+function ensureStatusTray(): void {
+  if (statusTray && !statusTray.isDestroyed()) return;
+  const image = nativeImage.createFromNamedImage("NSStatusAvailable").resize({ width: 16, height: 16 });
+  image.setTemplateImage(true);
+  statusTray = new Tray(image);
+  statusTray.setToolTip("炉石盒子 · 桌面伴侣");
+  statusTray.setContextMenu(Menu.buildFromTemplate([
+    { label: "打开主界面", click: showMainWindow },
+    {
+      label: "打开设置",
+      click: () => {
+        showMainWindow();
+        mainWindow?.webContents.send("tracker:open-settings");
+      }
+    },
+    { type: "separator" },
+    { label: "退出", click: () => app.quit() }
+  ]));
+  statusTray.on("click", showMainWindow);
+}
+
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    void createWindow({
+      showWhenReady: true,
+      focusWhenReady: trackerSettings.general.focusOnOpen
+    });
+    return;
+  }
+  presentMainWindow(
+    mainWindow,
+    trackerSettings.general.focusOnOpen,
+    () => app.focus({ steal: true })
+  );
 }
 
 async function syncCollectionDecksForTracker(options?: { logPath?: string }): Promise<CollectionDeckScanResult> {
@@ -480,11 +900,44 @@ async function startTrackingAutomatically(options?: { logPath?: string; deckText
 }
 
 async function createOverlayWindow(options: { showWhenReady?: boolean } = {}) {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    if (options.showWhenReady !== false) {
+      overlayWindow.showInactive();
+    }
+    return overlayWindow;
+  }
+
+  if (overlayWindowCreationPromise) {
+    const window = await overlayWindowCreationPromise;
+    if (options.showWhenReady !== false && !window.isDestroyed() && overlayWindow === window) {
+      window.showInactive();
+    }
+    return window;
+  }
+
+  const creationPromise = createOverlayWindowInstance();
+  overlayWindowCreationPromise = creationPromise;
+  try {
+    const window = await creationPromise;
+    if (options.showWhenReady !== false && !window.isDestroyed() && overlayWindow === window) {
+      window.showInactive();
+    }
+    return window;
+  } finally {
+    if (overlayWindowCreationPromise === creationPromise) {
+      overlayWindowCreationPromise = undefined;
+    }
+  }
+}
+
+async function createOverlayWindowInstance(): Promise<BrowserWindow> {
   const savedBounds = await loadOverlayWindowBounds();
-  overlayWindow = new BrowserWindow({
+  if (overlayWindow && !overlayWindow.isDestroyed()) return overlayWindow;
+
+  const createdWindow = new BrowserWindow({
     ...savedBounds,
-    minWidth: 300,
-    minHeight: 400,
+    minWidth: Math.min(100, savedBounds.width),
+    minHeight: Math.min(900, savedBounds.height),
     title: "炉石记牌小窗",
     frame: false,
     transparent: true,
@@ -495,11 +948,12 @@ async function createOverlayWindow(options: { showWhenReady?: boolean } = {}) {
     backgroundColor: "#00000000",
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
-  configureSecureNavigation(overlayWindow);
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  overlayWindow.setAlwaysOnTop(true, "screen-saver");
-  tracker.attachWindow(overlayWindow);
-  const createdWindow = overlayWindow;
+  overlayWindow = createdWindow;
+  configureSecureNavigation(createdWindow);
+  createdWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  createdWindow.setAlwaysOnTop(true, "screen-saver");
+  applyOverlayWindowAppearance();
+  tracker.attachWindow(createdWindow);
 
   createdWindow.on("move", () => {
     overlayInteractionActiveUntil = Date.now() + 1_200;
@@ -509,14 +963,9 @@ async function createOverlayWindow(options: { showWhenReady?: boolean } = {}) {
     overlayInteractionActiveUntil = Date.now() + 1_200;
     scheduleOverlayWindowBoundsSave(createdWindow);
   });
-  createdWindow.on("close", () => {
-    clearOverlayBoundsSaveTimer();
-    void saveOverlayWindowBounds(createdWindow.getBounds());
-  });
-
-  overlayWindow.on("closed", () => {
+  createdWindow.on("closed", () => {
     hideCardPreviewWindow();
-    overlayWindow = undefined;
+    if (overlayWindow === createdWindow) overlayWindow = undefined;
     if (mainWindow && !mainWindow.isDestroyed()) {
       tracker.attachWindow(mainWindow);
     }
@@ -524,16 +973,12 @@ async function createOverlayWindow(options: { showWhenReady?: boolean } = {}) {
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
-    await overlayWindow.loadURL(`${devUrl}?overlay=1`);
+    await createdWindow.loadURL(`${devUrl}?overlay=1`);
   } else {
-    await overlayWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query: { overlay: "1" } });
+    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query: { overlay: "1" } });
   }
 
-  if (options.showWhenReady !== false) {
-    overlayWindow.showInactive();
-  }
-
-  return overlayWindow;
+  return createdWindow;
 }
 
 async function loadOverlayWindowBounds() {
@@ -547,24 +992,36 @@ async function loadOverlayWindowBounds() {
       saved = undefined;
     }
   }
-  return normalizeOverlayWindowBounds(saved, screen.getAllDisplays().map((display) => display.workArea));
+  const normalized = normalizeOverlayWindowBounds(saved, screen.getAllDisplays().map((display) => display.workArea));
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  return normalized.x === undefined ? getDefaultOverlayWindowBounds(display) : normalized;
 }
 
 function scheduleOverlayWindowBoundsSave(window: BrowserWindow) {
-  clearOverlayBoundsSaveTimer();
-  overlayBoundsSaveTimer = setTimeout(() => {
-    overlayBoundsSaveTimer = undefined;
-    if (!window.isDestroyed()) {
-      void saveOverlayWindowBounds(window.getBounds());
-    }
-  }, 250);
-  overlayBoundsSaveTimer.unref();
+  if (!window.isDestroyed()) {
+    overlayBoundsPersistence.schedule(window.getBounds());
+  }
 }
 
-function clearOverlayBoundsSaveTimer() {
-  if (overlayBoundsSaveTimer) {
-    clearTimeout(overlayBoundsSaveTimer);
-    overlayBoundsSaveTimer = undefined;
+async function releaseOverlayWindow(expectedWindow?: BrowserWindow): Promise<void> {
+  let window = expectedWindow ?? overlayWindow;
+  if (!window && !expectedWindow && overlayWindowCreationPromise) {
+    await overlayWindowCreationPromise.catch((error) => {
+      reportDiagnosticError("等待我方窗口创建完成失败", error);
+    });
+    window = overlayWindow;
+  }
+
+  if (!window || window.isDestroyed() || overlayWindow !== window) {
+    await overlayBoundsPersistence.flush();
+    return;
+  }
+
+  const finalBounds = window.getBounds();
+  try {
+    await overlayBoundsPersistence.flush(finalBounds);
+  } finally {
+    if (overlayWindow === window && !window.isDestroyed()) window.close();
   }
 }
 
@@ -600,15 +1057,17 @@ async function createLadderDeckOverlayWindow(options: { showWhenReady?: boolean;
   configureSecureNavigation(ladderDeckOverlayWindow);
   ladderDeckOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   ladderDeckOverlayWindow.setAlwaysOnTop(true, "screen-saver");
-  ladderDeckOverlayWindow.on("move", () => {
+  applyOverlayWindowAppearance();
+  const createdWindow = ladderDeckOverlayWindow;
+  createdWindow.on("move", () => {
     ladderDeckOverlayInteractionActiveUntil = Date.now() + 1_200;
   });
-  ladderDeckOverlayWindow.on("resize", () => {
+  createdWindow.on("resize", () => {
     ladderDeckOverlayInteractionActiveUntil = Date.now() + 1_200;
   });
-  ladderDeckOverlayWindow.on("closed", () => {
+  createdWindow.on("closed", () => {
     currentLadderDeckCode = undefined;
-    ladderDeckOverlayWindow = undefined;
+    if (ladderDeckOverlayWindow === createdWindow) ladderDeckOverlayWindow = undefined;
   });
 
   const mode = options.mode ?? resolveLadderDeckMode(tracker.getState()) ?? "standard";
@@ -618,12 +1077,12 @@ async function createLadderDeckOverlayWindow(options: { showWhenReady?: boolean;
   if (devUrl) {
     const url = new URL(devUrl);
     params.forEach((value, key) => url.searchParams.set(key, value));
-    await ladderDeckOverlayWindow.loadURL(url.toString());
+    await createdWindow.loadURL(url.toString());
   } else {
-    await ladderDeckOverlayWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query: Object.fromEntries(params) });
+    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query: Object.fromEntries(params) });
   }
-  if (options.showWhenReady !== false) ladderDeckOverlayWindow.showInactive();
-  return ladderDeckOverlayWindow;
+  if (options.showWhenReady !== false && !createdWindow.isDestroyed()) createdWindow.showInactive();
+  return createdWindow;
 }
 
 async function updateLadderDeckOverlayMode(mode: LadderMode) {
@@ -647,10 +1106,41 @@ async function createOpponentOverlayWindow(options: { showWhenReady?: boolean; q
     return opponentOverlayWindow;
   }
 
+  let window: BrowserWindow;
+  if (opponentOverlayWindowCreationPromise) {
+    window = await opponentOverlayWindowCreationPromise;
+  } else {
+    const creationPromise = createOpponentOverlayWindowInstance(options.qaDemo === true);
+    opponentOverlayWindowCreationPromise = creationPromise;
+    try {
+      window = await creationPromise;
+    } finally {
+      if (opponentOverlayWindowCreationPromise === creationPromise) {
+        opponentOverlayWindowCreationPromise = undefined;
+      }
+    }
+  }
+
+  if (window.isDestroyed() || opponentOverlayWindow !== window) return window;
+  if (showWhenReady) {
+    if (opponentOverlayRestoreCollapsed && !options.qaDemo) {
+      await collapseOpponentOverlayWindow();
+    } else {
+      window.show();
+      window.focus();
+    }
+  } else if (opponentOverlayRestoreCollapsed && !options.qaDemo) {
+    await collapseOpponentOverlayWindow();
+  }
+  return window;
+}
+
+async function createOpponentOverlayWindowInstance(qaDemo: boolean): Promise<BrowserWindow> {
   const expandedBounds = await loadOpponentOverlayBounds();
+  if (opponentOverlayWindow && !opponentOverlayWindow.isDestroyed()) return opponentOverlayWindow;
   opponentOverlayWindowState = new OpponentOverlayWindowState(expandedBounds);
 
-  opponentOverlayWindow = new BrowserWindow({
+  const createdWindow = new BrowserWindow({
     ...expandedBounds,
     minWidth: 52,
     minHeight: 38,
@@ -664,101 +1154,113 @@ async function createOpponentOverlayWindow(options: { showWhenReady?: boolean; q
     backgroundColor: "#00000000",
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
-  configureSecureNavigation(opponentOverlayWindow);
-  opponentOverlayWindow.setMinimumSize(220, 150);
-  opponentOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  opponentOverlayWindow.setAlwaysOnTop(true, "screen-saver");
-  tracker.attachWindow(opponentOverlayWindow);
+  opponentOverlayWindow = createdWindow;
+  configureSecureNavigation(createdWindow);
+  createdWindow.setMinimumSize(100, 150);
+  createdWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  createdWindow.setAlwaysOnTop(true, "screen-saver");
+  applyOverlayWindowAppearance();
+  tracker.attachWindow(createdWindow);
 
-  opponentOverlayWindow.on("closed", () => {
-    hideCardPreviewWindow();
-    opponentOverlayWindow = undefined;
-    opponentOverlayWindowState = undefined;
+  createdWindow.on("will-move", markOpponentOverlayInteraction);
+  createdWindow.on("will-resize", markOpponentOverlayInteraction);
+  createdWindow.on("move", () => {
+    markOpponentOverlayInteraction();
+    scheduleOpponentOverlayBoundsSave(createdWindow);
   });
-  opponentOverlayWindow.on("move", scheduleOpponentOverlayBoundsSave);
-  opponentOverlayWindow.on("resize", scheduleOpponentOverlayBoundsSave);
+  createdWindow.on("resize", () => {
+    markOpponentOverlayInteraction();
+    scheduleOpponentOverlayBoundsSave(createdWindow);
+  });
+  createdWindow.on("closed", () => {
+    hideCardPreviewWindow();
+    if (opponentOverlayWindow === createdWindow) {
+      opponentOverlayWindow = undefined;
+      opponentOverlayWindowState = undefined;
+    }
+    opponentOverlayInteractionActiveUntil = 0;
+  });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     const url = new URL(devUrl);
     url.searchParams.set("opponent-overlay", "1");
-    if (options.qaDemo) {
+    url.searchParams.set("show-secret-prediction", trackerSettings.overlay.secretPrediction ? "1" : "0");
+    if (qaDemo) {
       url.searchParams.set("qa-opponent-demo", "1");
     }
-    await opponentOverlayWindow.loadURL(url.toString());
+    await createdWindow.loadURL(url.toString());
   } else {
-    await opponentOverlayWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
+    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
       query: {
         "opponent-overlay": "1",
-        ...(options.qaDemo ? { "qa-opponent-demo": "1" } : {})
+        "show-secret-prediction": trackerSettings.overlay.secretPrediction ? "1" : "0",
+        ...(qaDemo ? { "qa-opponent-demo": "1" } : {})
       }
     });
   }
 
-  if (showWhenReady) {
-    opponentOverlayWindow.show();
-    opponentOverlayWindow.focus();
-  }
-
-  return opponentOverlayWindow;
+  return createdWindow;
 }
 
 async function collapseOpponentOverlayWindow() {
-  return opponentOverlayWindowController.collapse();
+  const collapsed = await opponentOverlayWindowController.collapse();
+  if (collapsed) opponentOverlayRestoreCollapsed = true;
+  return collapsed;
 }
 
 async function expandOpponentOverlayWindow(focus: boolean) {
-  return opponentOverlayWindowController.expand(focus);
+  const collapsed = await opponentOverlayWindowController.expand(focus);
+  if (!collapsed) opponentOverlayRestoreCollapsed = false;
+  return collapsed;
 }
 
-function scheduleOpponentOverlayBoundsSave() {
-  if (!opponentOverlayWindow || opponentOverlayWindow.isDestroyed() || opponentOverlayWindowState?.isCollapsed()) {
+function markOpponentOverlayInteraction(): void {
+  opponentOverlayInteractionActiveUntil = Date.now() + 1_200;
+}
+
+function scheduleOpponentOverlayBoundsSave(window: BrowserWindow) {
+  if (window.isDestroyed() || opponentOverlayWindowState?.isCollapsed()) {
     return;
   }
-  clearOpponentOverlayBoundsSaveTimer();
-  opponentOverlayBoundsSaveTimer = setTimeout(() => {
-    opponentOverlayBoundsSaveTimer = undefined;
-    if (!opponentOverlayWindow || opponentOverlayWindow.isDestroyed() || opponentOverlayWindowState?.isCollapsed()) {
-      return;
-    }
-    const bounds = opponentOverlayWindow.getBounds();
-    opponentOverlayWindowState?.updateExpandedBounds(bounds);
-    void saveOpponentOverlayBounds(bounds);
-  }, 180);
-  opponentOverlayBoundsSaveTimer.unref();
+  const bounds = window.getBounds();
+  opponentOverlayWindowState?.updateExpandedBounds(bounds);
+  opponentOverlayBoundsPersistence.schedule(bounds);
 }
 
-function clearOpponentOverlayBoundsSaveTimer() {
-  if (opponentOverlayBoundsSaveTimer) {
-    clearTimeout(opponentOverlayBoundsSaveTimer);
-    opponentOverlayBoundsSaveTimer = undefined;
+async function releaseOpponentOverlayWindow(expectedWindow?: BrowserWindow): Promise<void> {
+  let window = expectedWindow ?? opponentOverlayWindow;
+  if (!window && !expectedWindow && opponentOverlayWindowCreationPromise) {
+    await opponentOverlayWindowCreationPromise.catch((error) => {
+      reportDiagnosticError("等待对手窗口创建完成失败", error);
+    });
+    window = opponentOverlayWindow;
+  }
+
+  if (!window || window.isDestroyed() || opponentOverlayWindow !== window) {
+    await opponentOverlayBoundsPersistence.flush();
+    return;
+  }
+  const finalBounds = !opponentOverlayWindowState?.isCollapsed()
+    ? window.getBounds()
+    : undefined;
+  try {
+    await opponentOverlayBoundsPersistence.flush(finalBounds);
+  } finally {
+    if (opponentOverlayWindow === window && !window.isDestroyed()) window.close();
   }
 }
 
 async function loadOpponentOverlayBounds() {
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const fallback = {
-    x: display.x + Math.max(0, display.width - 250 - 24),
-    y: display.y + Math.max(0, Math.round((display.height - 170) / 2)),
-    width: 250,
-    height: 170
-  };
+  const fallbackWorkArea = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const workAreas = screen.getAllDisplays().map((display) => display.workArea);
   try {
-    const value = JSON.parse(await fs.readFile(getOpponentOverlayBoundsPath(), "utf8")) as Partial<typeof fallback>;
-    if ([value.x, value.y, value.width, value.height].every((part) => typeof part === "number" && Number.isFinite(part))) {
-      const width = Math.min(display.width, Math.max(220, value.width!));
-      const height = Math.min(display.height, Math.max(150, value.height!));
-      return {
-        x: Math.min(Math.max(display.x, value.x!), display.x + display.width - width),
-        y: Math.min(Math.max(display.y, value.y!), display.y + display.height - height),
-        width,
-        height
-      };
-    }
+    const value = JSON.parse(await fs.readFile(getOpponentOverlayBoundsPath(), "utf8")) as unknown;
+    return normalizeOpponentOverlayWindowBounds(value, workAreas, fallbackWorkArea);
   } catch {
     // The default bounds are used until the user moves or resizes the window.
   }
-  return fallback;
+  return normalizeOpponentOverlayWindowBounds(undefined, workAreas, fallbackWorkArea);
 }
 
 async function saveOpponentOverlayBounds(bounds: { x: number; y: number; width: number; height: number }) {
@@ -774,16 +1276,18 @@ function startOpponentSecretOverlayMonitor() {
   if (opponentSecretOverlayMonitor) {
     return;
   }
+  const generation = opponentSecretOverlayGeneration;
   opponentSecretOverlayMonitor = setInterval(() => {
-    const count = tracker.getState().opponentSecrets?.length ?? 0;
-    if (opponentSecretOverlayVisibility.update(count)) {
-      void showOpponentOverlayInactive();
+    const secrets = tracker.getState().opponentSecrets ?? [];
+    if (opponentSecretOverlayVisibility.update(secrets)) {
+      void showOpponentOverlayInactive(generation);
     }
   }, 250);
   opponentSecretOverlayMonitor.unref();
 }
 
 function stopOpponentSecretOverlayMonitor() {
+  opponentSecretOverlayGeneration += 1;
   if (!opponentSecretOverlayMonitor) {
     return;
   }
@@ -791,11 +1295,22 @@ function stopOpponentSecretOverlayMonitor() {
   opponentSecretOverlayMonitor = undefined;
 }
 
-async function showOpponentOverlayInactive() {
+async function showOpponentOverlayInactive(generation: number) {
+  if (generation !== opponentSecretOverlayGeneration) return;
+  if (!isDeckTrackerEnabled("opponentDeckTracker")) return;
   const window = await createOpponentOverlayWindow({ showWhenReady: false });
-  if (!window.isDestroyed()) {
-    window.showInactive();
+  if (
+    generation !== opponentSecretOverlayGeneration ||
+    !isDeckTrackerEnabled("opponentDeckTracker") ||
+    opponentOverlayWindow !== window ||
+    window.isDestroyed()
+  ) {
+    if (opponentOverlayWindow === window && !isDeckTrackerEnabled("opponentDeckTracker")) {
+      await releaseOpponentOverlayWindow(window);
+    }
+    return;
   }
+  opponentOverlayWindowController.showInactive();
 }
 
 function startBoardAttackOverlayMonitor() {
@@ -826,7 +1341,7 @@ async function refreshBoardAttackOverlayWindow() {
   try {
     const frontmostAppName = await getFrontmostAppName();
     if (!shouldShowBoardAttackOverlay(Boolean(tracker.getState().gameActive), frontmostAppName)) {
-      boardAttackOverlayWindow?.hide();
+      releaseTransientWindow(boardAttackOverlayWindow);
       return;
     }
 
@@ -853,6 +1368,7 @@ async function createBoardAttackOverlayWindow(
   );
   configureSecureNavigation(boardAttackOverlayWindow);
   configureBoardAttackOverlayWindow(boardAttackOverlayWindow);
+  applyOverlayWindowAppearance();
   tracker.attachWindow(boardAttackOverlayWindow);
   boardAttackOverlayWindow.on("closed", () => {
     boardAttackOverlayWindow = undefined;
@@ -862,13 +1378,19 @@ async function createBoardAttackOverlayWindow(
     const devUrl = process.env.VITE_DEV_SERVER_URL;
     if (devUrl) {
       const url = new URL(devUrl);
-      for (const [key, value] of Object.entries(getBoardAttackOverlayQuery(Boolean(options.qaDemo)))) {
+      for (const [key, value] of Object.entries(getBoardAttackOverlayQuery(Boolean(options.qaDemo), {
+        showFriendly: trackerSettings.overlay.showFriendlyAttack,
+        showOpponent: trackerSettings.overlay.showOpponentAttack
+      }))) {
         url.searchParams.set(key, value);
       }
       await boardAttackOverlayWindow.loadURL(url.toString());
     } else {
       await boardAttackOverlayWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
-        query: getBoardAttackOverlayQuery(Boolean(options.qaDemo))
+        query: getBoardAttackOverlayQuery(Boolean(options.qaDemo), {
+          showFriendly: trackerSettings.overlay.showFriendlyAttack,
+          showOpponent: trackerSettings.overlay.showOpponentAttack
+        })
       });
     }
     const rendererStatus = await boardAttackOverlayWindow.webContents.executeJavaScript(`
@@ -881,9 +1403,12 @@ async function createBoardAttackOverlayWindow(
         return { ready, hasCanvas: Boolean(canvas), iconCount: icons.length, htmlBackground, bodyBackground };
       })()
     `);
+    const expectedIconCount = options.qaDemo
+      ? 2
+      : Number(trackerSettings.overlay.showFriendlyAttack) + Number(trackerSettings.overlay.showOpponentAttack);
     const rendererReady = rendererStatus.ready
       && rendererStatus.hasCanvas
-      && rendererStatus.iconCount === 2
+      && rendererStatus.iconCount === expectedIconCount
       && rendererStatus.htmlBackground === "rgba(0, 0, 0, 0)"
       && rendererStatus.bodyBackground === "rgba(0, 0, 0, 0)";
     if (rendererReady) {
@@ -923,12 +1448,13 @@ async function createArenaChoiceOverlayWindow(options: { qaDemo?: boolean } = {}
   configureSecureNavigation(arenaChoiceOverlayWindow);
   arenaChoiceOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   arenaChoiceOverlayWindow.setAlwaysOnTop(true, "screen-saver");
+  applyOverlayWindowAppearance();
   arenaChoiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
   tracker.attachWindow(arenaChoiceOverlayWindow);
+  const createdWindow = arenaChoiceOverlayWindow;
 
-  arenaChoiceOverlayWindow.on("closed", () => {
-    arenaChoiceOverlayWindow = undefined;
-    stopArenaChoiceOverlayMonitor();
+  createdWindow.on("closed", () => {
+    if (arenaChoiceOverlayWindow === createdWindow) arenaChoiceOverlayWindow = undefined;
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -938,9 +1464,9 @@ async function createArenaChoiceOverlayWindow(options: { qaDemo?: boolean } = {}
     if (options.qaDemo) {
       url.searchParams.set("qa-arena-demo", "1");
     }
-    await arenaChoiceOverlayWindow.loadURL(url.toString());
+    await createdWindow.loadURL(url.toString());
   } else {
-    await arenaChoiceOverlayWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
+    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
       query: {
         "arena-choice-overlay": "1",
         ...(options.qaDemo ? { "qa-arena-demo": "1" } : {})
@@ -949,13 +1475,10 @@ async function createArenaChoiceOverlayWindow(options: { qaDemo?: boolean } = {}
   }
 
   if (options.qaDemo) {
-    arenaChoiceOverlayWindow.showInactive();
-  } else {
-    startArenaChoiceOverlayMonitor();
-    void refreshArenaChoiceOverlayWindow();
+    if (!createdWindow.isDestroyed()) createdWindow.showInactive();
   }
 
-  return arenaChoiceOverlayWindow;
+  return createdWindow;
 }
 
 async function createCardPreviewWindow() {
@@ -981,6 +1504,7 @@ async function createCardPreviewWindow() {
   configureSecureNavigation(cardPreviewWindow);
   cardPreviewWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   cardPreviewWindow.setAlwaysOnTop(true, "screen-saver");
+  applyOverlayWindowAppearance();
   cardPreviewWindow.setIgnoreMouseEvents(false);
 
   cardPreviewWindow.on("closed", () => {
@@ -1008,13 +1532,14 @@ async function createCardPreviewWindow() {
 }
 
 async function showCardPreviewWindow(sourceWindow: BrowserWindow | null, request: CardPreviewRequest) {
-  if (!sourceWindow || sourceWindow.isDestroyed() || !isCardPreviewRequest(request)) {
+  if (!trackerSettings.overlay.enabled || !sourceWindow || sourceWindow.isDestroyed() || !isCardPreviewRequest(request)) {
     return;
   }
 
   const hover = cardPreviewVisibilityGate.beginHover();
   const frontmostAppName = await getFrontmostAppName();
-  if (!cardPreviewVisibilityGate.canShow(hover, frontmostAppName)) {
+  const qaPreview = process.env.QA_SHOW_CARD_PREVIEW === "1";
+  if (!qaPreview && !cardPreviewVisibilityGate.canShow(hover, frontmostAppName)) {
     hideCardPreviewWindow();
     return;
   }
@@ -1039,7 +1564,7 @@ async function showCardPreviewWindow(sourceWindow: BrowserWindow | null, request
   if (
     requestSerial !== cardPreviewRequestSerial ||
     previewWindow.isDestroyed() ||
-    !cardPreviewVisibilityGate.canShow(hover, latestFrontmostAppName)
+    (!qaPreview && !cardPreviewVisibilityGate.canShow(hover, latestFrontmostAppName))
   ) {
     return;
   }
@@ -1064,7 +1589,7 @@ function hideCardPreviewWindow() {
     return;
   }
 
-  cardPreviewWindow.hide();
+  releaseTransientWindow(cardPreviewWindow);
 }
 
 function startCardPreviewVisibilityMonitor() {
@@ -1250,7 +1775,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function startArenaChoiceOverlayMonitor() {
-  stopArenaChoiceOverlayMonitor();
+  if (arenaChoiceOverlayMonitor) return;
   arenaChoiceOverlayMonitor = setInterval(() => {
     void refreshArenaChoiceOverlayWindow();
   }, 350);
@@ -1258,41 +1783,55 @@ function startArenaChoiceOverlayMonitor() {
 }
 
 function stopArenaChoiceOverlayMonitor() {
+  arenaChoiceOverlayGeneration += 1;
   if (arenaChoiceOverlayMonitor) {
     clearInterval(arenaChoiceOverlayMonitor);
     arenaChoiceOverlayMonitor = undefined;
   }
+  releaseTransientWindow(arenaChoiceOverlayWindow);
 }
 
 async function refreshArenaChoiceOverlayWindow() {
-  if (!arenaChoiceOverlayWindow || arenaChoiceOverlayWindow.isDestroyed()) {
-    return;
-  }
-
   if (arenaChoiceOverlayRefreshInFlight) {
     return;
   }
 
+  const generation = arenaChoiceOverlayGeneration;
   arenaChoiceOverlayRefreshInFlight = true;
-  let frontmostAppName: string | undefined;
   try {
-    frontmostAppName = await getFrontmostAppName();
+    const frontmostAppName = await getFrontmostAppName();
+    if (
+      generation !== arenaChoiceOverlayGeneration ||
+      !trackerSettings.overlay.enabled
+    ) return;
+    const arena = tracker.getState().arena;
+    const shouldShow = shouldShowArenaChoiceOverlay(arena, frontmostAppName);
+    if (!shouldShow) {
+      releaseTransientWindow(arenaChoiceOverlayWindow);
+      return;
+    }
+
+    let window: BrowserWindow;
+    try {
+      window = await createArenaChoiceOverlayWindow();
+    } catch (error) {
+      if (generation !== arenaChoiceOverlayGeneration) return;
+      throw error;
+    }
+    if (
+      generation !== arenaChoiceOverlayGeneration ||
+      !trackerSettings.overlay.enabled
+    ) {
+      if (!window.isDestroyed()) window.close();
+      return;
+    }
+    if (!window.isDestroyed()) {
+      window.setBounds(getArenaChoiceOverlayBounds());
+      window.showInactive();
+    }
   } finally {
     arenaChoiceOverlayRefreshInFlight = false;
   }
-  if (!arenaChoiceOverlayWindow || arenaChoiceOverlayWindow.isDestroyed()) {
-    return;
-  }
-
-  const arena = tracker.getState().arena;
-  const shouldShow = shouldShowArenaChoiceOverlay(arena, frontmostAppName);
-  if (!shouldShow) {
-    arenaChoiceOverlayWindow.hide();
-    return;
-  }
-
-  arenaChoiceOverlayWindow.setBounds(getArenaChoiceOverlayBounds());
-  arenaChoiceOverlayWindow.showInactive();
 }
 
 function getArenaChoiceOverlayBounds() {
@@ -1305,6 +1844,274 @@ function getArenaChoiceOverlayBounds() {
     y: y + Math.round(height * 0.58),
     width: overlayWidth,
     height: 62
+  };
+}
+
+function startArenaHeroRankingMonitor() {
+  if (arenaHeroRankingMonitor) return;
+  arenaHeroRankingMonitor = setInterval(() => {
+    void refreshArenaHeroRankingWindow();
+  }, 250);
+  arenaHeroRankingMonitor.unref();
+  void refreshArenaHeroRankingWindow();
+}
+
+function stopArenaHeroRankingMonitor() {
+  arenaHeroRankingGeneration += 1;
+  if (arenaHeroRankingMonitor) {
+    clearInterval(arenaHeroRankingMonitor);
+    arenaHeroRankingMonitor = undefined;
+  }
+  releaseTransientWindow(arenaHeroRankingWindow);
+}
+
+async function refreshArenaHeroRankingWindow() {
+  if (arenaHeroRankingRefreshInFlight ||
+      !trackerSettings.overlay.enabled ||
+      !trackerSettings.overlay.arenaHeroWinRateRanking) return;
+  arenaHeroRankingRefreshInFlight = true;
+  const generation = arenaHeroRankingGeneration;
+  try {
+    const arena = tracker.getState().arena;
+    const frontmostAppName = await getFrontmostAppName();
+    if (
+      generation !== arenaHeroRankingGeneration ||
+      !trackerSettings.overlay.enabled ||
+      !trackerSettings.overlay.arenaHeroWinRateRanking
+    ) return;
+    if (!arena || arena.status === "inactive") arenaHeroRankingSuppressed = false;
+    const rankingWindowFocused = Boolean(
+      arenaHeroRankingWindow &&
+      !arenaHeroRankingWindow.isDestroyed() &&
+      arenaHeroRankingWindow.isFocused()
+    );
+    const shouldShow =
+      tracker.getState().status === "watching" &&
+      Boolean(arena && arena.status !== "inactive") &&
+      !arenaHeroRankingSuppressed &&
+      (
+        isHearthstoneOrTrackerFrontmost(frontmostAppName) ||
+        rankingWindowFocused ||
+        isArenaHeroRankingInteractionActive()
+      );
+    if (!shouldShow) {
+      releaseTransientWindow(arenaHeroRankingWindow);
+      return;
+    }
+    let window: BrowserWindow;
+    try {
+      window = await createArenaHeroRankingWindow();
+    } catch (error) {
+      if (generation !== arenaHeroRankingGeneration) return;
+      throw error;
+    }
+    if (
+      generation !== arenaHeroRankingGeneration ||
+      !trackerSettings.overlay.enabled ||
+      !trackerSettings.overlay.arenaHeroWinRateRanking
+    ) {
+      if (!window.isDestroyed()) window.close();
+      return;
+    }
+    if (window.isDestroyed()) return;
+    ensureArenaHeroRankingWindowVisible(window);
+    window.showInactive();
+    if (arenaHeroRankingDataWindow !== window) {
+      arenaHeroRankingDataWindow = window;
+      void refreshArenaHeroRankingData(window, generation);
+    }
+  } finally {
+    arenaHeroRankingRefreshInFlight = false;
+  }
+}
+
+async function createArenaHeroRankingWindow(options: { qaDemo?: boolean } = {}) {
+  if (arenaHeroRankingWindow && !arenaHeroRankingWindow.isDestroyed()) return arenaHeroRankingWindow;
+  const bounds = await loadArenaHeroRankingWindowBounds();
+  const { width, height } = bounds;
+  arenaHeroRankingWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: Math.min(100, width),
+    minHeight: Math.min(200, height),
+    title: "竞技场英雄胜率",
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    show: false,
+    backgroundColor: "#00000000",
+    webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
+  });
+  configureSecureNavigation(arenaHeroRankingWindow);
+  arenaHeroRankingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: !trackerSettings.overlay.hideInFullscreen });
+  arenaHeroRankingWindow.setAlwaysOnTop(true, "screen-saver");
+  applyOverlayWindowAppearance();
+  const createdWindow = arenaHeroRankingWindow;
+  createdWindow.on("focus", markArenaHeroRankingInteraction);
+  createdWindow.on("will-move", markArenaHeroRankingInteraction);
+  createdWindow.on("will-resize", markArenaHeroRankingInteraction);
+  createdWindow.on("move", () => {
+    markArenaHeroRankingInteraction();
+    scheduleArenaHeroRankingWindowBoundsSave(createdWindow);
+  });
+  createdWindow.on("resize", () => {
+    markArenaHeroRankingInteraction();
+    scheduleArenaHeroRankingWindowBoundsSave(createdWindow);
+  });
+  createdWindow.on("close", () => {
+    clearArenaHeroRankingWindowBoundsSaveTimer();
+    void saveArenaHeroRankingWindowBounds(createdWindow.getBounds());
+  });
+  createdWindow.on("closed", () => {
+    if (arenaHeroRankingWindow === createdWindow) arenaHeroRankingWindow = undefined;
+    if (arenaHeroRankingDataWindow === createdWindow) arenaHeroRankingDataWindow = undefined;
+    arenaHeroRankingInteractionActiveUntil = 0;
+  });
+
+  const query = {
+    "arena-hero-ranking-overlay": "1",
+    ...(options.qaDemo ? { "qa-arena-hero-ranking": "1" } : {})
+  };
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devUrl) {
+    const url = new URL(devUrl);
+    url.searchParams.set("arena-hero-ranking-overlay", "1");
+    if (options.qaDemo) url.searchParams.set("qa-arena-hero-ranking", "1");
+    await createdWindow.loadURL(url.toString());
+  } else {
+    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query });
+  }
+  return createdWindow;
+}
+
+async function refreshArenaHeroRankingData(window: BrowserWindow, generation: number): Promise<void> {
+  try {
+    const result = await arenaHeroStats.load();
+    if (
+      generation !== arenaHeroRankingGeneration ||
+      !trackerSettings.overlay.enabled ||
+      !trackerSettings.overlay.arenaHeroWinRateRanking ||
+      arenaHeroRankingWindow !== window ||
+      window.isDestroyed()
+    ) return;
+    window.webContents.send("tracker:arena-hero-win-rate-ranking:update", result);
+  } catch (error) {
+    if (generation === arenaHeroRankingGeneration) {
+      reportDiagnosticError("刷新竞技场英雄胜率失败", error);
+    }
+  }
+}
+
+function markArenaHeroRankingInteraction(): void {
+  arenaHeroRankingInteractionActiveUntil = Date.now() + arenaHeroRankingInteractionGraceMs;
+}
+
+function isArenaHeroRankingInteractionActive(): boolean {
+  return Date.now() < arenaHeroRankingInteractionActiveUntil;
+}
+
+function normalizeArenaHeroRankingWindowBounds(value: unknown) {
+  const fallback = getDefaultArenaHeroRankingWindowBounds(
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  );
+  const normalized = normalizeOverlayWindowBounds(
+    value,
+    screen.getAllDisplays().map((display) => display.workArea),
+    {
+      defaultBounds: fallback,
+      minWidth: 100,
+      minHeight: 200
+    }
+  );
+  if (normalized.x === undefined || normalized.y === undefined) return fallback;
+  return {
+    x: normalized.x,
+    y: normalized.y,
+    width: normalized.width,
+    height: normalized.height
+  };
+}
+
+async function loadArenaHeroRankingWindowBounds() {
+  const raw = await fs.readFile(getArenaHeroRankingWindowBoundsPath(), "utf8").catch(() => undefined);
+  if (!raw) return normalizeArenaHeroRankingWindowBounds(undefined);
+  try {
+    return normalizeArenaHeroRankingWindowBounds(JSON.parse(raw));
+  } catch {
+    return normalizeArenaHeroRankingWindowBounds(undefined);
+  }
+}
+
+function ensureArenaHeroRankingWindowVisible(window: BrowserWindow): void {
+  const current = window.getBounds();
+  const normalized = normalizeArenaHeroRankingWindowBounds(current);
+  if (current.x !== normalized.x || current.y !== normalized.y ||
+      current.width !== normalized.width || current.height !== normalized.height) {
+    window.setBounds(normalized, false);
+  }
+}
+
+function scheduleArenaHeroRankingWindowBoundsSave(window: BrowserWindow): void {
+  clearArenaHeroRankingWindowBoundsSaveTimer();
+  arenaHeroRankingBoundsSaveTimer = setTimeout(() => {
+    arenaHeroRankingBoundsSaveTimer = undefined;
+    if (!window.isDestroyed()) void saveArenaHeroRankingWindowBounds(window.getBounds());
+  }, 250);
+  arenaHeroRankingBoundsSaveTimer.unref();
+}
+
+function clearArenaHeroRankingWindowBoundsSaveTimer(): void {
+  if (!arenaHeroRankingBoundsSaveTimer) return;
+  clearTimeout(arenaHeroRankingBoundsSaveTimer);
+  arenaHeroRankingBoundsSaveTimer = undefined;
+}
+
+function saveArenaHeroRankingWindowBounds(bounds: {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}): Promise<void> {
+  arenaHeroRankingBoundsWriteQueue = arenaHeroRankingBoundsWriteQueue.then(async () => {
+    const filePath = getArenaHeroRankingWindowBoundsPath();
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, `${JSON.stringify(bounds)}\n`, "utf8");
+  }).catch((error) => {
+    reportDiagnosticError("保存竞技场英雄胜率窗口位置失败", error);
+  });
+  return arenaHeroRankingBoundsWriteQueue;
+}
+
+function getArenaHeroRankingWindowBoundsPath(): string {
+  return path.join(app.getPath("userData"), "arena-hero-ranking-window-bounds.json");
+}
+
+function getQaWindowInspection(window: BrowserWindow | undefined, collapsed: boolean) {
+  if (!window || window.isDestroyed()) return null;
+  return {
+    bounds: roundBounds(window.getBounds()),
+    collapsed,
+    visible: window.isVisible()
+  };
+}
+
+function getQaThreeWindowLayoutInspection() {
+  if (process.env.QA_OPEN_THREE_WINDOW_LAYOUT !== "1") return undefined;
+  const hero = getQaWindowInspection(arenaHeroRankingWindow, false);
+  const opponent = getQaWindowInspection(
+    opponentOverlayWindow,
+    opponentOverlayWindowState?.isCollapsed() ?? false
+  );
+  const friendly = getQaWindowInspection(overlayWindow, false);
+  const referenceBounds = friendly?.bounds ?? opponent?.bounds ?? hero?.bounds;
+  return {
+    workArea: referenceBounds
+      ? roundBounds(screen.getDisplayMatching(referenceBounds).workArea)
+      : null,
+    hero,
+    opponent,
+    friendly
   };
 }
 
@@ -1322,13 +2129,16 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
     await new Promise((resolve) => setTimeout(resolve, 600));
   }
 
-  if (process.env.QA_SCAN_COLLECTION === "1") {
+  if (process.env.QA_OPEN_IMPORT_MODAL === "1" || process.env.QA_SCAN_COLLECTION === "1") {
     await window.webContents.executeJavaScript(`
       Array.from(document.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("手动导入") || button.textContent?.includes("导入卡组"))
+        .find((button) => button.textContent?.includes("手动导入") || button.textContent?.includes("导入卡组") || button.textContent?.includes("卡组工具"))
         ?.click();
     `);
     await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  if (process.env.QA_SCAN_COLLECTION === "1") {
     await window.webContents.executeJavaScript(`
       Array.from(document.querySelectorAll("button"))
         .find((button) => button.textContent?.includes("从收藏读取"))
@@ -1342,6 +2152,31 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
       document.querySelector('[aria-label="打开卡牌数据库"]')?.click();
     `);
     await new Promise((resolve) => setTimeout(resolve, 1400));
+  }
+
+  if (process.env.QA_OPEN_SETTINGS === "1") {
+    await window.webContents.executeJavaScript(`
+      document.querySelector('[aria-label="软件设置"]')?.click();
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const settingsSection = process.env.QA_SETTINGS_SECTION;
+    if (settingsSection) {
+      await window.webContents.executeJavaScript(`
+        Array.from(document.querySelectorAll("button"))
+          .find((button) => button.textContent?.trim() === ${JSON.stringify(settingsSection)})
+          ?.click();
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    const toggleLabel = process.env.QA_TOGGLE_SETTING_LABEL;
+    if (toggleLabel) {
+      await window.webContents.executeJavaScript(`
+        Array.from(document.querySelectorAll('[role="switch"]'))
+          .find((button) => button.getAttribute("aria-label")?.startsWith(${JSON.stringify(toggleLabel)}))
+          ?.click();
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
 
   const cardLibrarySearch = process.env.QA_CARD_LIBRARY_SEARCH;
@@ -1382,17 +2217,21 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
     await window.webContents.executeJavaScript(`
       window.hearthstoneTracker?.showCardPreview?.(${JSON.stringify({
         details: {
-          dbfId: 315,
-          name: "火球术",
-          manaCost: 4,
+          dbfId: 103354,
+          cardId: "TOY_378",
+          name: "星空投影球",
+          manaCost: 10,
           cardType: "法术",
           cardTypeId: 5,
           heroClass: "法师",
-          text: "造成 6 点伤害。",
+          text: "再次施放你在本局对战中施放过的法术，每种法力值消耗各随机一个。",
           isSpell: true,
-          relatedCards: [
-            { dbfId: 621, name: "炎爆术", manaCost: 10, cardType: "法术", text: "造成 10 点伤害。" },
-            { dbfId: 1001, name: "奥术飞弹", manaCost: 1, cardType: "法术", text: "造成 3 点伤害，随机分配到所有敌人身上。" }
+          relatedCards: [],
+          playedSpellsThisGame: [
+            { dbfId: 110290, cardId: "END_025", name: "永时火焰箭", manaCost: 3, cardType: "法术" },
+            { dbfId: 79767, cardId: "REV_505", name: "冰冷案例", manaCost: 4, cardType: "法术" },
+            { dbfId: 110290, cardId: "END_025", name: "永时火焰箭", manaCost: 3, cardType: "法术" },
+            { dbfId: 82319, cardId: "RLK_544", name: "奥术防御者", manaCost: 8, cardType: "法术" }
           ]
         },
         anchorRect
@@ -1425,16 +2264,35 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
     await new Promise((resolve) => setTimeout(resolve, waitAfterCardPreview));
   }
 
+  await waitForQaRendererSettled((script) => window.webContents.executeJavaScript(script));
+
   if (inspectPath) {
     const inspectJson = (await window.webContents.executeJavaScript(`(async () => JSON.stringify({
       hasApi: Boolean(window.hearthstoneTracker),
       location: window.location.href,
       bodyText: document.body.innerText.slice(0, 500),
       trackerState: await window.hearthstoneTracker?.getState?.(),
+      trackerSettings: await window.hearthstoneTracker?.getTrackerSettings?.(),
+      layout: {
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        bodyScrollWidth: document.body.scrollWidth,
+        bodyScrollHeight: document.body.scrollHeight
+      },
       clipboardText: ${JSON.stringify(process.env.QA_COPY_LADDER_DECK === "1" ? clipboard.readText() : "")}
     }))()`)) as string;
+    const rendererInspection = JSON.parse(inspectJson) as Record<string, unknown>;
+    const completeRendererInspection = {
+      ...rendererInspection,
+      trackerSettings: rendererInspection.trackerSettings ?? trackerSettings,
+      qaMainWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+    };
+    const qaWindowLayout = getQaThreeWindowLayoutInspection();
+    const inspection = qaWindowLayout
+      ? { ...completeRendererInspection, qaWindowLayout }
+      : completeRendererInspection;
     await fs.mkdir(path.dirname(inspectPath), { recursive: true });
-    await fs.writeFile(inspectPath, `${inspectJson}\n`, "utf8");
+    await fs.writeFile(inspectPath, `${JSON.stringify(inspection, null, 2)}\n`, "utf8");
   }
 
   if (screenshotPath) {
@@ -1451,6 +2309,6 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
   }
 
   if (process.env.QA_EXIT_AFTER_SCREENSHOT === "1") {
-    app.exit(0);
+    await requestQaQuit(() => app.quit());
   }
 }

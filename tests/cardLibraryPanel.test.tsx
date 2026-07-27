@@ -187,4 +187,12 @@ describe("CardLibraryPanel", () => {
     );
     expect(screen.getByText("没有匹配的卡牌")).toBeInTheDocument();
   });
+
+  it("keeps stale results visible while clearly reporting a refresh failure", () => {
+    renderPanel({ error: "本地缓存被占用" });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("刷新失败，已保留上次结果：本地缓存被占用");
+    expect(screen.getByRole("button", { name: "查看 火球术 详情" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看 碧蓝幼龙 详情" })).toBeInTheDocument();
+  });
 });

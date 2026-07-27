@@ -7,6 +7,12 @@ export type ArenaLogEvent =
       readonly raw: string;
     }
   | {
+      readonly type: "deck-id";
+      readonly deckId: string;
+      readonly source: "contents" | "redraft";
+      readonly raw: string;
+    }
+  | {
       readonly type: "hero-selected" | "card-picked" | "deck-card";
       readonly cardId?: string;
       readonly cardName?: string;
@@ -23,6 +29,11 @@ export function parseArenaLogLine(line: string): ArenaLogEvent[] {
     return [{ type: "mode", mode: arenaStatusForMode(modeMatch[1]), raw: line }];
   }
 
+  const redraftDeckIdMatch = line.match(/OnRedraftBegin.*?new redraft deck with ID:\s*(\d+)/i);
+  if (redraftDeckIdMatch?.[1]) {
+    return [{ type: "deck-id", deckId: redraftDeckIdMatch[1], source: "redraft", raw: line }];
+  }
+
   const heroMatch = line.match(/DraftManager\.OnChosen\(\).*?hero.*?(HERO_[A-Z0-9_]+)/i);
   if (heroMatch?.[1]) {
     return [{ type: "hero-selected", cardId: heroMatch[1], raw: line }];
@@ -30,7 +41,11 @@ export function parseArenaLogLine(line: string): ArenaLogEvent[] {
 
   const contentsHeroMatch = line.match(/OnChoicesAndContents.*?Hero\s+Card\s*=\s*(HERO_[A-Z0-9_]+)/i);
   if (contentsHeroMatch?.[1]) {
-    return [{ type: "hero-selected", cardId: contentsHeroMatch[1], raw: line }];
+    const deckId = line.match(/Draft Deck ID:\s*(\d+)/i)?.[1];
+    return [
+      ...(deckId ? [{ type: "deck-id" as const, deckId, source: "contents" as const, raw: line }] : []),
+      { type: "hero-selected", cardId: contentsHeroMatch[1], raw: line }
+    ];
   }
 
   if (line.includes("Draft deck contains card")) {
@@ -69,6 +84,10 @@ export function selectCurrentArenaLogText(content: string): string {
     let restoreStart = latestRestoreIndex;
     while (restoreStart > 0 && /DraftManager\.OnChoicesAndContents/i.test(lines[restoreStart - 1] ?? "")) {
       restoreStart -= 1;
+    }
+    const previousMode = lines[previousModeIndex] ?? "";
+    if (previousModeIndex >= 0 && /SetDraftMode\s*-\s*REDRAFTING\b/i.test(previousMode)) {
+      restoreStart = previousModeIndex;
     }
     return lines.slice(restoreStart).join("\n");
   }

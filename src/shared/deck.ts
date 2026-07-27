@@ -78,6 +78,7 @@ export function createEmptyDeckRows(cards: readonly DeckCard[]) {
     remaining: card.count,
     drawn: 0,
     played: 0,
-    cardId: card.cardId
+    cardId: card.cardId,
+    unresolved: card.unresolved
   }));
 }

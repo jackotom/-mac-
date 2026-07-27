@@ -77,7 +77,7 @@ describe("ladder deck recommendation panel", () => {
   it.each([
     ["installation-not-found", "未找到炉石", "请先启动一次炉石", true],
     ["version-unreadable", "无法读取版本", "无法确认当前炉石版本", true],
-    ["source-unconfigured", "等待国服数据", "国服数据源尚未接入", false],
+    ["source-unconfigured", "等待排行数据", "国服数据源尚未接入", false],
     ["network-failed", "网络更新失败", "暂时无法连接国服数据源", false],
     ["no-current-patch-data", "当前版本暂无推荐", "36.0 暂无达到最低场次的国服卡组", false],
     ["invalid-data", "数据校验失败", "推荐数据异常，已停止展示", false],

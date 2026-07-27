@@ -1,0 +1,41 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const styles = readFileSync(join(process.cwd(), "src/renderer/opponentOverlayStyles.css"), "utf8");
+
+describe("opponent secret list styles", () => {
+  it("keeps every secret slot as a compact readable row", () => {
+    expect(styles).toMatch(
+      /\.opponent-secret-section\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?align-content:\s*start;[\s\S]*?overflow:\s*visible;/
+    );
+    expect(styles).toMatch(
+      /\.opponent-secret-slot\s*\{[\s\S]*?grid-template-columns:\s*36px minmax\(0,\s*1fr\);[\s\S]*?align-items:\s*start;[\s\S]*?padding:\s*3px 4px;/
+    );
+    expect(styles).toMatch(
+      /\.opponent-secret-slot-label\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
+    );
+  });
+
+  it("wraps candidates inside the slot while keeping status text visible", () => {
+    expect(styles).toMatch(
+      /\.opponent-secret-candidates\s*\{[\s\S]*?display:\s*flex;[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*visible;[\s\S]*?flex-wrap:\s*wrap;/
+    );
+    expect(styles).toMatch(
+      /\.opponent-secret-candidates li\s*\{[\s\S]*?flex:\s*1 1 100%;[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/
+    );
+    expect(styles).toMatch(
+      /\.opponent-secret-candidates strong\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
+    );
+    expect(styles).toMatch(
+      /\.opponent-secret-candidates span\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?white-space:\s*nowrap;/
+    );
+    expect(styles).not.toMatch(/\.opponent-secret-section\s*\{\s*max-height:/);
+  });
+
+  it("tightens the slot label at the 240px minimum width", () => {
+    expect(styles).toMatch(
+      /@media \(max-width: 280px\)[\s\S]*?\.opponent-secret-slot\s*\{[\s\S]*?grid-template-columns:\s*32px minmax\(0,\s*1fr\);/
+    );
+  });
+});

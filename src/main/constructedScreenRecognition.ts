@@ -77,8 +77,16 @@ function findMatchingDecks(selectedName: string, mode: "standard" | "wild", deck
   }
   const modeDecks = decks.filter((deck) => deckMatchesMode(deck, mode));
   const exact = modeDecks.filter((deck) => normalizeText(deck.name ?? "") === normalizedSelectedName);
-  if (exact.length > 0 || normalizedSelectedName.length < 4) {
+  if (exact.length > 0) {
     return exact;
+  }
+
+  const displayAlias = normalizedSelectedName.replace(/^备阵/, "");
+  if (displayAlias !== normalizedSelectedName) {
+    return modeDecks.filter((deck) => normalizeText(deck.name ?? "") === displayAlias);
+  }
+  if (normalizedSelectedName.length < 4) {
+    return [];
   }
 
   const maxDistance = normalizedSelectedName.length <= 5 ? 1 : 2;

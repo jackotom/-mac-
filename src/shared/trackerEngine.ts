@@ -6,6 +6,7 @@ import {
   normalizeCardId,
   toCardDetails,
   type CardDatabase,
+  type CardDetails,
   type CardInfo
 } from "./cardDatabase.js";
 import type {
@@ -14,12 +15,14 @@ import type {
   DeckCard,
   EntitySnapshot,
   ParsedLogEvent,
+  PlayerMatchCounters,
   PublicTrackerState,
   TrackerEvent,
   TrackerZoneCard,
   Zone
 } from "./types.js";
 import { SecretTracker } from "./secretTracker.js";
+import { resolveMatchCardRelations } from "./matchCardRelations.js";
 
 interface EngineOptions {
   deckText?: string;
@@ -42,8 +45,10 @@ interface FriendlyObservation {
 const GENERATED_DECK_ROW_NAME = "对局生成的未知牌";
 const MISSING_COLLECTION_DECK_ROW_NAME = "日志缺失的收藏牌";
 const UNRESOLVED_HAND_CARD_NAME = "未识别手牌";
+const GALACTIC_PROJECTION_ORB_CARD_ID = "toy_378";
 const FRIENDLY_HAND_ZONES = new Set<Zone>(["HAND"]);
 const FRIENDLY_OTHER_ZONES = new Set<Zone>(["PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SECRET"]);
+const OPPONENT_OTHER_ZONES = new Set<Zone>(["PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SETASIDE", "SECRET"]);
 const DISPLAYABLE_CARD_TYPE_IDS = new Set([4, 5, 7, 39]);
 const NON_DISPLAYABLE_CARD_TYPE_IDS = new Set([2, 3, 6, 10]);
 const DISPLAYABLE_CARD_TYPES = new Set(["MINION", "SPELL", "WEAPON", "LOCATION", "随从", "法术", "武器", "地标"]);
@@ -65,6 +70,8 @@ export class TrackerEngine {
   private autoMatchedDeckId: string | undefined;
   private deckRows = new Map<string, CardTrackerRow>();
   private opponentRows = new Map<string, CardTrackerRow>();
+  private globalEffects = new Map<string, EntitySnapshot>();
+  private opponentGlobalEffects = new Map<string, EntitySnapshot>();
   private events: TrackerEvent[] = [];
   private entities = new Map<string, EntitySnapshot>();
   private collectionDecks: CollectionDeck[] = [];
@@ -82,9 +89,21 @@ export class TrackerEngine {
   private cardInfoByName = new Map<string, CardInfo>();
   private cardDatabase: CardDatabase | undefined;
   private pendingControllerEvents: ParsedLogEvent[] = [];
+  private unresolvedDrawEntityIds = new Set<string>();
   private pendingEntityDetail: EntitySnapshot | undefined;
+  private playerIdByName = new Map<string, number>();
+  private playerIdentityIds = new Set<number>();
+  private unknownPlayerIds = new Set<number>();
+  private matchCountersByPlayerId = new Map<number, PlayerMatchCounters>();
   private friendlyDeckSnapshot: FriendlyDeckSnapshot | undefined;
   private usingUnmatchedDeckSnapshot = false;
+  private lastGameStartTimestamp: string | undefined;
+  private friendlyCardsUsedThisGame: CardInfo[] = [];
+  private opponentCardsUsedThisGame: CardInfo[] = [];
+  private friendlyDeadMinionsThisGame: CardInfo[] = [];
+  private opponentDeadMinionsThisGame: CardInfo[] = [];
+  private recordedCardPlayEntityIds = new Set<string>();
+  private recordedDeathEntityIds = new Set<string>();
   private secretTracker: SecretTracker;
 
   constructor(options: EngineOptions = {}) {
@@ -139,11 +158,16 @@ export class TrackerEngine {
     this.deckRows = new Map(createEmptyDeckRows(imported.cards).map((row) => [deckCardKey(row), row]));
     this.rebuildDeckCardIdIndex();
     this.opponentRows.clear();
+    this.globalEffects.clear();
+    this.opponentGlobalEffects.clear();
     this.events = [];
     this.entities.clear();
     this.friendlyObservations = [];
     this.pendingControllerEvents = [];
+    this.unresolvedDrawEntityIds.clear();
     this.pendingEntityDetail = undefined;
+    this.clearMatchCounters();
+    this.clearMatchCardHistory();
     this.eventCounter = 0;
     this.gameActive = false;
     this.error = imported.warnings[0];
@@ -277,6 +301,7 @@ export class TrackerEngine {
     this.autoMatchedDeckId = undefined;
     this.deckRows = new Map(createEmptyDeckRows(this.deckCards).map((row) => [deckCardKey(row), row]));
     this.rebuildDeckCardIdIndex();
+    this.unresolvedDrawEntityIds.clear();
     this.error = undefined;
     this.gameActive = false;
   }
@@ -292,6 +317,8 @@ export class TrackerEngine {
     this.autoMatchedDeckId = undefined;
     this.deckRows.clear();
     this.deckRowsByCardId.clear();
+    this.unresolvedDrawEntityIds.clear();
+    this.clearMatchCardHistory();
     this.gameActive = false;
   }
 
@@ -299,16 +326,22 @@ export class TrackerEngine {
     this.deckRows = new Map(createEmptyDeckRows(this.deckCards).map((row) => [deckCardKey(row), row]));
     this.rebuildDeckCardIdIndex();
     this.opponentRows.clear();
+    this.globalEffects.clear();
+    this.opponentGlobalEffects.clear();
     this.events = [];
     this.entities.clear();
     this.friendlyObservations = [];
     this.pendingControllerEvents = [];
+    this.unresolvedDrawEntityIds.clear();
     this.pendingEntityDetail = undefined;
+    this.clearMatchCounters();
+    this.clearMatchCardHistory();
     this.eventCounter = 0;
     this.friendlyController = this.configuredFriendlyController;
     this.gameActive = true;
     this.friendlyDeckSnapshot = undefined;
     this.usingUnmatchedDeckSnapshot = false;
+    this.lastGameStartTimestamp = undefined;
     this.addEvent("game-start", "unknown", { cardName: "新对局开始" });
   }
 
@@ -320,17 +353,23 @@ export class TrackerEngine {
     this.deckRows.clear();
     this.deckRowsByCardId.clear();
     this.opponentRows.clear();
+    this.globalEffects.clear();
+    this.opponentGlobalEffects.clear();
     this.events = [];
     this.entities.clear();
     this.friendlyObservations = [];
     this.pendingControllerEvents = [];
+    this.unresolvedDrawEntityIds.clear();
     this.pendingEntityDetail = undefined;
+    this.clearMatchCounters();
+    this.clearMatchCardHistory();
     this.eventCounter = 0;
     this.friendlyController = this.configuredFriendlyController;
     this.gameActive = false;
     this.error = undefined;
     this.friendlyDeckSnapshot = undefined;
     this.usingUnmatchedDeckSnapshot = false;
+    this.lastGameStartTimestamp = undefined;
     this.secretTracker.reset();
   }
 
@@ -342,6 +381,10 @@ export class TrackerEngine {
 
   hasActiveGame() {
     return this.gameActive;
+  }
+
+  getFriendlyController() {
+    return this.friendlyController;
   }
 
   applyLine(line: string) {
@@ -362,6 +405,7 @@ export class TrackerEngine {
     const deck = Array.from(this.deckRows.values()).sort((a, b) => b.remaining - a.remaining || a.name.localeCompare(b.name));
     const friendlyHand = this.buildFriendlyZoneCards(FRIENDLY_HAND_ZONES);
     const friendlyOther = this.buildFriendlyZoneCards(FRIENDLY_OTHER_ZONES);
+    const opponentZones = this.buildOpponentZones();
     const opponentPlayed = Array.from(this.opponentRows.values()).sort((a, b) => b.played - a.played || a.name.localeCompare(b.name));
     const calculatedSummary = {
       totalCards: deck.reduce((total, row) => total + row.count, 0),
@@ -386,12 +430,20 @@ export class TrackerEngine {
       deckCode: this.deckCode,
       deckName: this.deckName,
       autoMatchedDeckId: this.autoMatchedDeckId,
-      deck: deck.map((row) => this.withCardDetails(row)),
+      deck: deck.map((row) => this.withCardDetails(row, true)),
       friendlyHand,
       friendlyOther,
+      opponentDeck: opponentZones.deck,
+      opponentHand: opponentZones.hand,
+      opponentOther: opponentZones.other,
+      globalEffects: this.buildGlobalEffects(this.globalEffects),
+      opponentGlobalEffects: this.buildGlobalEffects(this.opponentGlobalEffects),
+      opponentDeckCount: opponentZones.deckCount,
+      opponentHandCount: opponentZones.handCount,
       opponentPlayed: opponentPlayed.map((row) => this.withCardDetails(row)),
       opponentSecrets: this.secretTracker.getSlots(),
       boardAttack: this.buildBoardAttack(),
+      matchCounters: this.buildMatchCounters(),
       events: this.events.slice(-120).reverse(),
       summary,
       lastUpdated: new Date().toISOString(),
@@ -406,13 +458,40 @@ export class TrackerEngine {
     }
 
     if (event.type === "game-start") {
+      if (event.timestamp && event.timestamp === this.lastGameStartTimestamp) {
+        return;
+      }
       this.resetForGame();
+      this.lastGameStartTimestamp = event.timestamp;
       this.secretTracker.reset();
       return;
     }
 
     if (event.type === "game-end") {
       this.resetAfterGame();
+      return;
+    }
+
+    if (event.type === "player-identity") {
+      this.rememberPlayerIdentity(event.playerId, event.playerName);
+      return;
+    }
+
+    if (event.type === "player-counter") {
+      if (this.gameActive) {
+        this.updatePlayerCounter(event);
+      }
+      return;
+    }
+
+    if (event.type === "global-effect") {
+      const controller = event.entity.controller;
+      const target = this.isFriendlyController(controller)
+        ? this.globalEffects
+        : this.isKnownOpponentController(controller) ? this.opponentGlobalEffects : undefined;
+      if (!target) return;
+      const key = event.entity.id ?? `${controller}:${normalizeCardId(event.entity.cardId ?? "")}`;
+      target.set(key, event.entity);
       return;
     }
 
@@ -436,11 +515,18 @@ export class TrackerEngine {
 
     if (event.type === "action-boundary") {
       if (event.phase === "start") {
-        const info = event.entity?.cardId ? this.cardInfoByCardId.get(normalizeCardId(event.entity.cardId)) : undefined;
-        const isFriendlyPlay = event.action === "play" && this.isFriendlyController(event.entity?.controller);
+        const existing = event.entity?.id ? this.entities.get(event.entity.id) : undefined;
+        const cardId = event.entity?.cardId ?? existing?.cardId;
+        const controller = event.entity?.controller ?? existing?.controller;
+        const info = this.findCardInfo(cardId, event.entity?.name ?? existing?.name);
+        const isFriendlyPlay = event.action === "play" && this.isFriendlyController(controller);
+        const isOpponentPlay = event.action === "play" && this.isKnownOpponentController(controller);
         const action = isFriendlyPlay && info?.cardType === "法术"
           ? "friendly-spell"
           : isFriendlyPlay && info?.cardType === "随从" ? "friendly-minion" : "other";
+        if (this.gameActive && info && event.entity?.id && (isFriendlyPlay || isOpponentPlay)) {
+          this.recordUsedCard(event.entity.id, info, isFriendlyPlay ? "friendly" : "opponent");
+        }
         this.secretTracker.beginAction(action);
       } else this.secretTracker.endAction();
       return;
@@ -456,6 +542,14 @@ export class TrackerEngine {
     const cardName = this.resolveCardName(event.cardName ?? existing?.name, cardId);
     const controller = event.controller ?? existing?.controller;
     const fromZone = event.fromZone ?? existing?.zone;
+
+    if (event.entityId && event.toZone === "HAND" && fromZone !== "HAND") {
+      this.recordedCardPlayEntityIds.delete(event.entityId);
+    }
+
+    if (event.entityId && event.toZone === "PLAY" && fromZone !== "PLAY") {
+      this.recordedDeathEntityIds.delete(event.entityId);
+    }
 
     if (event.entityId) {
       this.mergeEntity({
@@ -473,6 +567,18 @@ export class TrackerEngine {
       (deckRow !== undefined && controller === undefined) ||
       (this.friendlyController === undefined && this.collectionDecks.length === 0 && controller === 1 && deckRow !== undefined);
     const isOpponent = this.isKnownOpponentController(controller) || (this.friendlyController === undefined && controller !== undefined && !isFriendly);
+    const cardInfo = this.findCardInfo(cardId, cardName);
+
+    if (
+      this.gameActive &&
+      event.entityId &&
+      fromZone === "PLAY" &&
+      event.toZone === "GRAVEYARD" &&
+      cardInfo?.cardType === "随从" &&
+      (isFriendly || isOpponent)
+    ) {
+      this.recordDeadMinion(event.entityId, cardInfo, isFriendly ? "friendly" : "opponent");
+    }
 
     if (event.entityId && isOpponent) {
       if (event.toZone === "SECRET") {
@@ -518,9 +624,18 @@ export class TrackerEngine {
 
     if (this.gameActive && isFriendly && fromZone === "DECK" && event.toZone === "HAND" && !deckRow) {
       const generatedRow = this.getGeneratedDeckRow();
-      if (generatedRow) {
-        decrementRemaining(generatedRow);
-        generatedRow.drawn += 1;
+      const unresolvedRow = this.getUnresolvedDeckRow();
+      const fallbackRow = generatedRow && generatedRow.remaining > 0
+        ? generatedRow
+        : unresolvedRow && unresolvedRow.remaining > 0
+          ? unresolvedRow
+          : undefined;
+      if (fallbackRow) {
+        decrementRemaining(fallbackRow);
+        fallbackRow.drawn += 1;
+        if (fallbackRow.unresolved && event.entityId) {
+          this.unresolvedDrawEntityIds.add(event.entityId);
+        }
         this.addEvent("draw", "friendly", { cardName, cardId, fromZone, toZone: event.toZone, raw: event.raw });
         return;
       }
@@ -537,6 +652,23 @@ export class TrackerEngine {
       deckRow.remaining = Math.min(deckRow.count, deckRow.remaining + 1);
       deckRow.drawn = Math.max(0, deckRow.drawn - 1);
       this.addEvent("zone-change", "friendly", { cardName, cardId, fromZone, toZone: event.toZone, raw: event.raw });
+      return;
+    }
+
+    if (
+      !deckRow &&
+      isFriendly &&
+      fromZone === "HAND" &&
+      event.toZone === "DECK" &&
+      event.entityId &&
+      this.unresolvedDrawEntityIds.delete(event.entityId)
+    ) {
+      const unresolvedRow = this.getUnresolvedDeckRow();
+      if (unresolvedRow) {
+        unresolvedRow.remaining = Math.min(unresolvedRow.count, unresolvedRow.remaining + 1);
+        unresolvedRow.drawn = Math.max(0, unresolvedRow.drawn - 1);
+        this.addEvent("zone-change", "friendly", { cardName, cardId, fromZone, toZone: event.toZone, raw: event.raw });
+      }
       return;
     }
 
@@ -590,13 +722,20 @@ export class TrackerEngine {
 
   private applyEntityDetailContinuation(line: string, events: readonly ParsedLogEvent[]) {
     const detailEvent = events.find((event): event is Extract<ParsedLogEvent, { type: "entity" }> => event.type === "entity");
-    if (detailEvent && /(?:FULL_ENTITY|SHOW_ENTITY)\s+-\s+Updating\b/.test(line) && detailEvent.entity.id) {
-      this.pendingEntityDetail = this.entities.get(detailEvent.entity.id) ?? detailEvent.entity;
+    if (/(?:FULL_ENTITY|SHOW_ENTITY)\s+-\s+(?:Creating|Updating)\b/.test(line)) {
+      this.pendingEntityDetail = detailEvent?.entity.id
+        ? (this.entities.get(detailEvent.entity.id) ?? detailEvent.entity)
+        : undefined;
       return;
     }
 
-    const tag = line.match(/-\s+tag=([A-Z_]+)\s+value=([^\s]+)/);
-    if (!tag || !this.pendingEntityDetail?.id) {
+    const tag = line.match(/-\s+tag=([A-Z0-9_]+)\s+value=([^\s]+)/i);
+    if (!tag) {
+      this.pendingEntityDetail = undefined;
+      return;
+    }
+
+    if (!this.pendingEntityDetail?.id) {
       return;
     }
 
@@ -841,6 +980,10 @@ export class TrackerEngine {
     return this.deckRows.get(deckCardKey({ name: GENERATED_DECK_ROW_NAME }));
   }
 
+  private getUnresolvedDeckRow() {
+    return [...this.deckRows.values()].find((row) => row.unresolved);
+  }
+
   private updateFriendlyDeckSnapshot(isFriendly: boolean, fromZone: Zone | undefined, toZone: Zone) {
     const snapshot = this.friendlyDeckSnapshot;
     if (!snapshot || !isFriendly) {
@@ -939,6 +1082,72 @@ export class TrackerEngine {
       name,
       count: 1,
       ...(cardId ? { cardId } : {}),
+      ...(cardInfo && this.cardDatabase ? { details: this.buildFriendlyCardDetails(cardInfo) } : {})
+    };
+  }
+
+  private buildOpponentZones() {
+    const deck = new Map<string, TrackerZoneCard>();
+    const hand = new Map<string, TrackerZoneCard>();
+    const other = new Map<string, TrackerZoneCard>();
+    let deckCount = 0;
+    let handCount = 0;
+
+    for (const entity of this.entities.values()) {
+      if (!this.isKnownOpponentController(entity.controller) || !entity.zone) continue;
+      if (entity.zone === "DECK") deckCount += 1;
+      if (entity.zone === "HAND") handCount += 1;
+
+      const target = entity.zone === "DECK"
+        ? deck
+        : entity.zone === "HAND"
+          ? hand
+          : OPPONENT_OTHER_ZONES.has(entity.zone) ? other : undefined;
+      if (!target) continue;
+
+      const card = this.resolveOpponentZoneCard(entity);
+      if (!card) {
+        continue;
+      }
+      addZoneCard(target, card);
+    }
+
+    return {
+      deck: sortZoneCards(deck.values()),
+      hand: sortZoneCards(hand.values()),
+      other: sortZoneCards(other.values()),
+      deckCount,
+      handCount
+    };
+  }
+
+  private buildGlobalEffects(effects: ReadonlyMap<string, EntitySnapshot>) {
+    const cards = new Map<string, TrackerZoneCard>();
+    for (const entity of effects.values()) {
+      const cardInfo = this.findCardInfo(entity.cardId, entity.name);
+      const name = cardInfo?.name ?? entity.name;
+      if (!name) continue;
+      const cardId = entity.cardId ?? cardInfo?.cardId ?? cardInfo?.id;
+      addZoneCard(cards, {
+        name,
+        count: 1,
+        ...(cardId ? { cardId } : {}),
+        ...(cardInfo && this.cardDatabase ? { details: toCardDetails(this.cardDatabase, cardInfo) } : {})
+      });
+    }
+    return sortZoneCards(cards.values());
+  }
+
+  private resolveOpponentZoneCard(entity: EntitySnapshot): TrackerZoneCard | undefined {
+    const cardInfo = this.findCardInfo(entity.cardId, entity.name);
+    if (cardInfo && classifyCardInfo(cardInfo) === "non-displayable") return undefined;
+    const name = cardInfo?.name ?? entity.name;
+    if (!name) return undefined;
+    const cardId = entity.cardId ?? cardInfo?.cardId ?? cardInfo?.id;
+    return {
+      name,
+      count: 1,
+      ...(cardId ? { cardId } : {}),
       ...(cardInfo && this.cardDatabase ? { details: toCardDetails(this.cardDatabase, cardInfo) } : {})
     };
   }
@@ -961,6 +1170,93 @@ export class TrackerEngine {
 
   private isKnownOpponentController(controller?: number) {
     return this.friendlyController !== undefined && controller !== undefined && controller !== this.friendlyController;
+  }
+
+  private rememberPlayerIdentity(playerId: number, playerName: string) {
+    const normalizedName = normalizePlayerIdentityName(playerName);
+    if (!normalizedName) {
+      return;
+    }
+    this.playerIdentityIds.add(playerId);
+    if (normalizedName === "UNKNOWN HUMAN PLAYER") {
+      this.unknownPlayerIds.add(playerId);
+      return;
+    }
+
+    this.playerIdByName.set(normalizedName, playerId);
+    const withoutBattleTag = normalizedName.replace(/#\d+$/, "");
+    if (withoutBattleTag !== normalizedName) {
+      this.playerIdByName.set(withoutBattleTag, playerId);
+    }
+  }
+
+  private updatePlayerCounter(event: Extract<ParsedLogEvent, { type: "player-counter" }>) {
+    const playerId = event.playerId ?? this.resolveCounterPlayerId(event.playerName);
+    if (playerId === undefined || event.value < 0) {
+      return;
+    }
+
+    let counters: PlayerMatchCounters = this.matchCountersByPlayerId.get(playerId) ?? {};
+    if (event.counter === "fatigue") {
+      if (event.value > 0) {
+        counters = { ...counters, nextFatigueDamage: event.value + 1 };
+      } else {
+        const { nextFatigueDamage: _nextFatigueDamage, ...remainingCounters } = counters;
+        counters = remainingCounters;
+      }
+    } else if (event.counter === "corpses") {
+      counters = { ...counters, corpses: event.value };
+    } else {
+      counters = { ...counters, spellsPlayed: event.value };
+    }
+
+    if (Object.keys(counters).length > 0) {
+      this.matchCountersByPlayerId.set(playerId, counters);
+    } else {
+      this.matchCountersByPlayerId.delete(playerId);
+    }
+  }
+
+  private resolveCounterPlayerId(playerName?: string) {
+    const normalizedName = normalizePlayerIdentityName(playerName);
+    if (!normalizedName) {
+      return undefined;
+    }
+
+    const exactPlayerId = this.playerIdByName.get(normalizedName);
+    if (exactPlayerId !== undefined) {
+      return exactPlayerId;
+    }
+
+    return this.playerIdentityIds.size === 2 && this.unknownPlayerIds.size === 1
+      ? this.unknownPlayerIds.values().next().value
+      : undefined;
+  }
+
+  private buildMatchCounters(): PublicTrackerState["matchCounters"] {
+    if (this.friendlyController === undefined || this.matchCountersByPlayerId.size === 0) {
+      return undefined;
+    }
+
+    const friendly = this.matchCountersByPlayerId.get(this.friendlyController) ?? {};
+    let opponent: PlayerMatchCounters = {};
+    for (const [playerId, counters] of this.matchCountersByPlayerId) {
+      if (playerId !== this.friendlyController) {
+        opponent = { ...opponent, ...counters };
+      }
+    }
+
+    return {
+      friendly: { ...friendly },
+      opponent
+    };
+  }
+
+  private clearMatchCounters() {
+    this.playerIdByName.clear();
+    this.playerIdentityIds.clear();
+    this.unknownPlayerIds.clear();
+    this.matchCountersByPlayerId.clear();
   }
 
   private shouldWaitForFriendlyController(event: ParsedLogEvent) {
@@ -1003,13 +1299,67 @@ export class TrackerEngine {
     });
   }
 
-  private withCardDetails(row: CardTrackerRow): CardTrackerRow {
+  private withCardDetails(row: CardTrackerRow, includeFriendlyMatchContext = false): CardTrackerRow {
     if (!this.cardDatabase) {
       return row;
     }
 
     const card = (row.cardId ? this.cardInfoByCardId.get(normalizeCardId(row.cardId)) : undefined) ?? this.cardInfoByName.get(normalizeCardKey(row.name));
-    return card ? { ...row, details: toCardDetails(this.cardDatabase, card) } : row;
+    if (!card) {
+      return row;
+    }
+
+    const details = includeFriendlyMatchContext
+      ? this.buildFriendlyCardDetails(card)
+      : toCardDetails(this.cardDatabase, card);
+    return { ...row, details };
+  }
+
+  private recordUsedCard(entityId: string, card: CardInfo, player: "friendly" | "opponent") {
+    if (this.recordedCardPlayEntityIds.has(entityId)) {
+      return;
+    }
+
+    this.recordedCardPlayEntityIds.add(entityId);
+    (player === "friendly" ? this.friendlyCardsUsedThisGame : this.opponentCardsUsedThisGame).push(card);
+  }
+
+  private recordDeadMinion(entityId: string, card: CardInfo, player: "friendly" | "opponent") {
+    if (this.recordedDeathEntityIds.has(entityId)) {
+      return;
+    }
+
+    this.recordedDeathEntityIds.add(entityId);
+    (player === "friendly" ? this.friendlyDeadMinionsThisGame : this.opponentDeadMinionsThisGame).push(card);
+  }
+
+  private clearMatchCardHistory() {
+    this.friendlyCardsUsedThisGame = [];
+    this.opponentCardsUsedThisGame = [];
+    this.friendlyDeadMinionsThisGame = [];
+    this.opponentDeadMinionsThisGame = [];
+    this.recordedCardPlayEntityIds.clear();
+    this.recordedDeathEntityIds.clear();
+  }
+
+  private buildFriendlyCardDetails(card: CardInfo): CardDetails {
+    const details = toCardDetails(this.cardDatabase!, card);
+    const cardId = normalizeCardId(card.cardId ?? card.id ?? "");
+    const history = {
+      friendlyUsed: this.friendlyCardsUsedThisGame,
+      opponentUsed: this.opponentCardsUsedThisGame,
+      friendlyDeadMinions: this.friendlyDeadMinionsThisGame,
+      opponentDeadMinions: this.opponentDeadMinionsThisGame
+    };
+    const gameContextSections = resolveMatchCardRelations(card, history);
+    const playedSpellsThisGame = cardId === GALACTIC_PROJECTION_ORB_CARD_ID
+      ? this.friendlyCardsUsedThisGame.filter((usedCard) => usedCard.cardType === "法术")
+      : undefined;
+    return {
+      ...details,
+      ...(gameContextSections.length > 0 ? { gameContextSections } : {}),
+      ...(playedSpellsThisGame ? { playedSpellsThisGame } : {})
+    };
   }
 }
 
@@ -1077,8 +1427,27 @@ function decrementRemaining(row: CardTrackerRow) {
   row.remaining = Math.max(0, row.remaining - 1);
 }
 
+function addZoneCard(cards: Map<string, TrackerZoneCard>, card: TrackerZoneCard) {
+  const key = card.cardId ? `id:${normalizeCardId(card.cardId)}` : `name:${normalizeCardKey(card.name)}`;
+  const current = cards.get(key);
+  if (current) current.count += card.count;
+  else cards.set(key, card);
+}
+
+function sortZoneCards(cards: Iterable<TrackerZoneCard>, firstName?: string) {
+  return [...cards].sort((left, right) => {
+    if (left.name === firstName) return -1;
+    if (right.name === firstName) return 1;
+    return left.name.localeCompare(right.name);
+  });
+}
+
 function normalizeCardKey(name: string) {
   return name.trim().toLocaleLowerCase();
+}
+
+function normalizePlayerIdentityName(name?: string) {
+  return name?.replace(/\s+/g, " ").trim().toLocaleUpperCase();
 }
 
 function classifyCardInfo(card: CardInfo): "displayable" | "non-displayable" | "unknown" {

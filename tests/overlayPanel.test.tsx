@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OverlayPanel } from "../src/renderer/components/OverlayPanel";
+import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
 import type { OverlayPanelViewModel } from "../src/renderer/types";
+import type { PublicTrackerState } from "../src/shared/types";
 
 const view: OverlayPanelViewModel = {
   summary: { totalCards: 30, remainingCards: 23, drawnCards: 7 },
@@ -17,6 +19,27 @@ describe("standard tracker overlay", () => {
     window.localStorage.clear();
   });
 
+  it("renders the recognized waiting state in green without a repair prompt", () => {
+    render(
+      <OverlayPanel
+        view={{
+          ...view,
+          status: {
+            tone: "tracking",
+            label: "已识别炉石，等待开局",
+            detail: "进入对局后自动开始记牌",
+            updatedAtLabel: "刚刚"
+          }
+        }}
+      />
+    );
+
+    const status = screen.getByText("已识别炉石，等待开局");
+    expect(status).toHaveClass("overlay-status-tracking");
+    expect(status).toHaveAttribute("title", "进入对局后自动开始记牌");
+    expect(screen.queryByText(/先点修复日志/)).not.toBeInTheDocument();
+  });
+
   it("omits the recent-draw section while keeping the compact deck summary", () => {
     render(<OverlayPanel view={view} />);
 
@@ -30,6 +53,7 @@ describe("standard tracker overlay", () => {
 
   it("renders the compact toolbar, deck summary, and all three card groups", () => {
     const onClose = vi.fn();
+    const onOpenSettings = vi.fn();
     const compactView: OverlayPanelViewModel = {
       ...view,
       remainingDeck: [
@@ -56,12 +80,20 @@ describe("standard tracker overlay", () => {
       otherCards: [{ id: "other-1", name: "幸运币", count: 1, cost: 0 }]
     };
 
-    const { container } = render(<OverlayPanel view={compactView} onClose={onClose} />);
+    const { container } = render(
+      <OverlayPanel view={compactView} onOpenSettings={onOpenSettings} onClose={onClose} />
+    );
 
     const toolbar = screen.getByLabelText("置顶小窗工具栏");
     expect(toolbar).toHaveTextContent("记牌器");
     expect(toolbar.querySelector(".lucide-layers-3")).toBeInTheDocument();
     expect(toolbar).toHaveTextContent("监听中");
+    const settingsButton = screen.getByRole("button", { name: "打开软件设置" });
+    expect(settingsButton).toHaveAttribute("title", "打开软件设置");
+    expect(settingsButton.compareDocumentPosition(screen.getByRole("button", { name: "关闭小窗" })))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    fireEvent.click(settingsButton);
+    expect(onOpenSettings).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "关闭小窗" }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
@@ -92,6 +124,138 @@ describe("standard tracker overlay", () => {
     const handGroup = screen.getByRole("region", { name: /手牌中.*3/ });
     expect(within(handGroup).queryByLabelText("数量 1")).not.toBeInTheDocument();
     expect(within(handGroup).getByLabelText("数量 2")).toHaveTextContent("2");
+  });
+
+  it("keeps card art and mana from deck details, using ? only when details are absent", () => {
+    const state: PublicTrackerState = {
+      status: "watching",
+      gameActive: true,
+      deckName: "缩略图回归套牌",
+      autoMatchedDeckId: "thumbnail-regression",
+      deck: [
+        {
+          name: "有详情卡牌",
+          count: 2,
+          remaining: 2,
+          drawn: 0,
+          played: 0,
+          details: {
+            dbfId: 1001,
+            name: "有详情卡牌",
+            manaCost: 6,
+            cropImageUrl: "https://example.com/known-card-crop.jpg",
+            imageUrl: "https://example.com/known-card-full.jpg",
+            isSpell: true,
+            relatedCards: []
+          }
+        },
+        {
+          name: "无详情卡牌",
+          count: 1,
+          remaining: 1,
+          drawn: 0,
+          played: 0
+        }
+      ],
+      opponentPlayed: [],
+      events: [],
+      summary: { totalCards: 3, remainingCards: 3, drawnCards: 0, opponentPlayedCount: 0 }
+    };
+
+    render(<OverlayPanel view={toOverlayPanelViewModel(state)} />);
+
+    const deckGroup = screen.getByRole("region", { name: /牌库中.*3/ });
+    const knownRow = within(deckGroup).getByText("有详情卡牌").closest(".overlay-compact-card-row") as HTMLElement;
+    const unknownRow = within(deckGroup).getByText("无详情卡牌").closest(".overlay-compact-card-row") as HTMLElement;
+
+    expect(within(knownRow).getByLabelText("费用 6")).toHaveTextContent("6");
+    expect(within(knownRow).queryByLabelText("费用 ?")).not.toBeInTheDocument();
+    expect(knownRow.querySelector(".overlay-card-art-image")).toHaveAttribute(
+      "src",
+      "https://example.com/known-card-crop.jpg"
+    );
+    expect(within(unknownRow).getByLabelText("费用 ?")).toHaveTextContent("?");
+    expect(unknownRow.querySelector(".overlay-card-art-image")).not.toBeInTheDocument();
+  });
+
+  it("shows global effects first and clears them when a reset state arrives", () => {
+    const effectView: OverlayPanelViewModel = {
+      ...view,
+      globalEffects: [{ id: "global-1", name: "全场法力消耗降低", count: 1, cost: 0 }]
+    };
+    const { rerender } = render(<OverlayPanel view={effectView} />);
+
+    const globalGroup = screen.getByRole("region", { name: /影响全局.*1/ });
+    const deckGroup = screen.getByRole("region", { name: /牌库中.*23/ });
+    expect(globalGroup.compareDocumentPosition(deckGroup)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(globalGroup).toHaveTextContent("全场法力消耗降低");
+
+    rerender(<OverlayPanel view={{ ...view, globalEffects: [] }} />);
+    expect(screen.getByRole("region", { name: /影响全局.*0/ })).toHaveTextContent("暂无全局影响");
+    expect(screen.queryByText("全场法力消耗降低")).not.toBeInTheDocument();
+
+    rerender(<OverlayPanel view={view} />);
+    expect(screen.getByRole("region", { name: /影响全局.*0/ })).toHaveTextContent("暂无全局影响");
+  });
+
+  it("renders only available friendly public counters as short text-and-number outputs", () => {
+    render(
+      <OverlayPanel
+        view={{
+          ...view,
+          friendlyCounters: { nextFatigueDamage: 0, corpses: 6 }
+        }}
+      />
+    );
+
+    const counters = screen.getByRole("region", { name: "我方公开计数" });
+    const fatigue = within(counters).getByLabelText("我方下次疲劳伤害 0");
+    const corpses = within(counters).getByLabelText("我方尸体 6");
+
+    expect(counters).toHaveClass("overlay-public-counters");
+    expect(fatigue).toHaveClass("overlay-public-counter", "overlay-public-counter-fatigue");
+    expect(fatigue.querySelector(".overlay-public-counter-label")).toHaveTextContent("疲劳");
+    expect(fatigue.querySelector(".overlay-public-counter-value")).toHaveTextContent("0");
+    expect(corpses.querySelector(".overlay-public-counter-label")).toHaveTextContent("尸体");
+    expect(corpses.querySelector(".overlay-public-counter-value")).toHaveTextContent("6");
+    expect(counters.querySelector("svg")).not.toBeInTheDocument();
+    expect(within(counters).queryByLabelText(/已用法术/)).not.toBeInTheDocument();
+  });
+
+  it("keeps essential card information available at 100px wide", () => {
+    const narrowView: OverlayPanelViewModel = {
+      ...view,
+      deckIdentity: {
+        name: "这是一个需要在窄窗口中省略显示的超长套牌名称",
+        status: "automatic",
+        detail: "已自动识别当前对局"
+      },
+      remainingDeck: [
+        {
+          id: "narrow-card",
+          name: "这是一张需要在窄窗口中省略显示的超长卡牌名称",
+          count: 12,
+          cost: 10
+        }
+      ]
+    };
+
+    render(<OverlayPanel view={narrowView} style={{ width: 100 }} />);
+
+    const overlay = screen.getByLabelText("炉石记牌器置顶小窗");
+    expect(overlay).toHaveStyle({ width: "100px" });
+    expect(screen.getByLabelText("套牌概览").querySelector(".overlay-deck-name")).toHaveAttribute(
+      "title",
+      expect.stringContaining("超长套牌名称")
+    );
+
+    const cardGroup = screen.getByRole("region", { name: /牌库中.*23/ });
+    expect(within(cardGroup).getByLabelText("费用 10")).toHaveTextContent("10");
+    expect(within(cardGroup).getByLabelText("数量 12")).toHaveTextContent("12");
+    expect(within(cardGroup).getByText(/超长卡牌名称/)).toHaveAttribute(
+      "title",
+      "这是一张需要在窄窗口中省略显示的超长卡牌名称"
+    );
   });
 
   it("collapses and restores each normal card group independently", () => {
@@ -138,11 +302,12 @@ describe("standard tracker overlay", () => {
     expect(screen.queryByRole("button", { name: /牌库中/ })).not.toBeInTheDocument();
   });
 
-  it("lets the arena overlay split be adjusted and remembered", () => {
+  it("shows only the Firestone-style Arena deck table with exact rate and impact formatting", () => {
     const arenaView: OverlayPanelViewModel = {
       ...view,
       arena: {
         isChoosing: true,
+        showDeckStats: true,
         statusLabel: "选牌中",
         progress: "11/30",
         hero: "玛法里奥",
@@ -152,47 +317,145 @@ describe("standard tracker overlay", () => {
           { id: "arena-choice-2", name: "候选二", score: 90 },
           { id: "arena-choice-3", name: "候选三", score: 80 }
         ],
-        deck: [{ id: "arena-deck-1", name: "卡多雷培育师", count: 1, detail: "随从" }],
-        deckCount: 11
+        deck: [
+          { id: "arena-deck-1", name: "卡多雷培育师", count: 2, cost: 3, pickRate: 75.6, deckImpact: 0.1 },
+          { id: "arena-deck-2", name: "空数据牌", count: 1, cost: 4 },
+          { id: "arena-deck-3", name: "负影响牌", count: 1, cost: 5, pickRate: 29.74, deckImpact: -9.13 },
+          { id: "arena-deck-4", name: "零影响牌", count: 1, cost: 6, pickRate: 50, deckImpact: 0 }
+        ],
+        deckCount: 11,
+        confirmedCount: 11,
+        unresolvedCount: 19
       }
     };
 
     render(<OverlayPanel view={arenaView} />);
 
-    const slider = screen.getByLabelText("调整当前牌库高度");
-    fireEvent.change(slider, { target: { value: "60" } });
-
-    expect(window.localStorage.getItem("hearthstone.overlay.arenaDeckShare")).toBe("60");
-    expect(screen.getByLabelText("竞技场选牌评分")).toHaveStyle({
-      gridTemplateRows: "auto minmax(92px, 40fr) 14px minmax(78px, 60fr) auto"
-    });
+    const arena = screen.getByLabelText("竞技场卡组影响");
+    expect(within(arena).getByLabelText("竞技场牌库表头")).toHaveTextContent("选取率卡牌影响");
+    expect(within(arena).getByLabelText("选取率 75.6%")).toHaveTextContent("75.6%");
+    expect(within(arena).getByLabelText("选取率 75.6%")).toHaveClass("is-positive");
+    expect(within(arena).getByLabelText("选取率 29.7%")).toHaveClass("is-negative");
+    expect(within(arena).getByLabelText("选取率 50.0%")).toHaveClass("is-neutral");
+    expect(within(arena).getByLabelText("卡组影响 0.10")).toHaveTextContent("0.10");
+    expect(within(arena).getByLabelText("卡组影响 0.10")).toHaveClass("is-positive");
+    expect(within(arena).getByLabelText("卡组影响 -9.13")).toHaveClass("is-negative");
+    expect(within(arena).getByLabelText("卡组影响 0.00")).toHaveClass("is-neutral");
+    expect(within(arena).getAllByText("—")).toHaveLength(2);
+    expect(within(arena).getByLabelText("数量 2")).toHaveTextContent("2");
+    expect(screen.queryByRole("region", { name: "当前竞技场候选牌" })).not.toBeInTheDocument();
+    expect(screen.queryByText("最近选择：")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("套牌概览")).not.toBeInTheDocument();
   });
 
-  it("uses the compact tracker after the Arena draft is complete", () => {
+  it.each(["选牌中", "重选中", "等待开局"])("shows the Arena phase above the deck table: %s", (statusLabel) => {
+    render(
+      <OverlayPanel
+        style={{ width: 100 }}
+        view={{
+          ...view,
+          arena: {
+            isChoosing: statusLabel !== "等待开局",
+            showDeckStats: true,
+            statusLabel,
+            progress: "30/30",
+            hero: "玛法里奥",
+            choices: [],
+            deck: [{ id: "arena-deck-1", name: "再生德鲁伊", count: 1 }],
+            deckCount: 30,
+            confirmedCount: 30,
+            unresolvedCount: 0
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByLabelText("竞技场阶段")).toHaveTextContent(statusLabel);
+  });
+
+  it("keeps the Arena deck table visible while waiting for the match to start", () => {
     const arenaView: OverlayPanelViewModel = {
       ...view,
       deckIdentity: { name: "竞技场牌库", status: "arena", detail: "已选 30/30" },
       remainingDeck: [{ id: "arena-remaining-1", name: "再生德鲁伊", count: 1, detail: "剩 1/1" }],
       arena: {
         isChoosing: false,
-        statusLabel: "牌库已生成",
+        showDeckStats: true,
+        statusLabel: "等待开局",
         progress: "30/30",
         hero: "玛法里奥",
         scoreSource: "竞技场评分",
         choices: [],
-        deck: [{ id: "arena-deck-1", name: "再生德鲁伊", count: 1, detail: "随从" }],
-        deckCount: 30
+        deck: [{ id: "arena-deck-1", name: "再生德鲁伊", count: 1, pickRate: 82.4, deckImpact: -9.08 }],
+        deckCount: 30,
+        confirmedCount: 30,
+        unresolvedCount: 0
       }
     };
 
     render(<OverlayPanel view={arenaView} />);
 
-    expect(screen.queryByRole("region", { name: "当前竞技场候选牌" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("调整当前牌库高度")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("竞技场选牌评分")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("套牌概览")).toHaveTextContent("竞技场牌库");
-    expect(screen.getByRole("button", { name: /牌库中.*23/ })).toBeInTheDocument();
+    const arena = screen.getByLabelText("竞技场卡组影响");
+    expect(arena).toHaveTextContent("再生德鲁伊");
+    expect(within(arena).getByLabelText("选取率 82.4%")).toBeInTheDocument();
+    expect(within(arena).getByLabelText("卡组影响 -9.08")).toBeInTheDocument();
+    expect(screen.queryByLabelText("套牌概览")).not.toBeInTheDocument();
+  });
+
+  it("keeps unresolved Arena placeholder cards out of the table", () => {
+    const incompleteArenaView = {
+      ...view,
+      summary: { totalCards: 30, remainingCards: 30, drawnCards: 0 },
+      deckIdentity: { name: "竞技场牌库", status: "arena", detail: "已确认 24/30" },
+      remainingDeck: [
+        { id: "known-card", name: "再生德鲁伊", count: 1, cost: 3 },
+        { id: "unresolved-cards", name: "日志缺失的竞技场牌", count: 6, unresolved: true }
+      ],
+      arena: {
+        isChoosing: false,
+        showDeckStats: true,
+        statusLabel: "牌库待确认",
+        progress: "已确认 24/30",
+        hero: "玛法里奥",
+        choices: [],
+        deck: [{ id: "known-card", name: "再生德鲁伊", count: 1, cost: 3 }],
+        deckCount: 30,
+        confirmedCount: 24,
+        unresolvedCount: 6
+      }
+    } as OverlayPanelViewModel;
+
+    render(<OverlayPanel view={incompleteArenaView} style={{ width: 100 }} />);
+
+    expect(screen.getByLabelText("竞技场卡组影响")).toBeInTheDocument();
+    expect(screen.queryByText("日志缺失的竞技场牌")).not.toBeInTheDocument();
     expect(screen.getByText("再生德鲁伊")).toBeInTheDocument();
+  });
+
+  it("distinguishes the remaining Arena deck from its total after drafting", () => {
+    const completedArenaView: OverlayPanelViewModel = {
+      ...view,
+      summary: { totalCards: 30, remainingCards: 27, drawnCards: 3 },
+      deckIdentity: { name: "竞技场牌库", status: "arena", detail: "已选 30/30" },
+      arena: {
+        isChoosing: false,
+        showDeckStats: false,
+        statusLabel: "对局中",
+        progress: "30/30",
+        hero: "玛法里奥",
+        choices: [],
+        deck: [{ id: "arena-deck-1", name: "再生德鲁伊", count: 1 }],
+        deckCount: 30,
+        confirmedCount: 30,
+        unresolvedCount: 0
+      }
+    };
+
+    render(<OverlayPanel view={completedArenaView} style={{ width: 100 }} />);
+
+    const deckCount = screen.getByLabelText("牌库剩余 27，总计 30");
+    expect(deckCount).toHaveTextContent("27/30");
+    expect(deckCount).toHaveAttribute("title", "牌库剩余 27，总计 30");
   });
 
   it("shows the Arena deck instead of the normal deck while drafting", () => {
@@ -206,23 +469,212 @@ describe("standard tracker overlay", () => {
       remainingDeck: [{ id: "normal-deck-1", name: "普通牌库假卡", count: 1, detail: "不应显示" }],
       arena: {
         isChoosing: false,
+        showDeckStats: true,
         statusLabel: "选牌中",
         progress: "12/30",
         hero: "玛法里奥",
         scoreSource: "竞技场评分",
         choices: [],
         deck: arenaDeck,
-        deckCount: 12
+        deckCount: 12,
+        confirmedCount: 12,
+        unresolvedCount: 18
       }
     };
 
     render(<OverlayPanel view={arenaView} />);
 
-    const arenaDeckRegion = screen.getByRole("region", { name: "当前竞技场牌库" });
-    expect(screen.getByLabelText("竞技场选牌评分")).toHaveTextContent("12/30");
-    expect(arenaDeckRegion).toHaveTextContent("当前牌库");
-    expect(arenaDeckRegion).toHaveTextContent("12");
-    expect(arenaDeckRegion).toHaveTextContent("竞技场已选 12");
+    const arenaDeckTable = screen.getByLabelText("竞技场卡组影响");
+    expect(arenaDeckTable).toHaveTextContent("选取率");
+    expect(arenaDeckTable).toHaveTextContent("竞技场已选 12");
     expect(screen.queryByText("普通牌库假卡")).not.toBeInTheDocument();
+  });
+
+  it("highlights synergy cards across normal groups on hover and clears when the pointer leaves", () => {
+    const synergyView = {
+      ...view,
+      remainingDeck: [
+        {
+          id: "cold-case",
+          name: "冰冷案例",
+          count: 1,
+          details: {
+            dbfId: 77659,
+            name: "冰冷案例",
+            isSpell: true,
+            relatedCards: [],
+            synergyCards: [
+              {
+                dbfId: 78394,
+                cardId: "REV_514",
+                name: "天定之灾克尔苏加德",
+                reason: "共同使用不稳定的骷髅"
+              }
+            ]
+          }
+        }
+      ],
+      handCards: [
+        {
+          id: "kelthuzad",
+          name: "天定之灾克尔苏加德",
+          count: 1,
+          details: {
+            dbfId: 118119,
+            cardId: "CORE_REV_514",
+            name: "天定之灾克尔苏加德",
+            isSpell: false,
+            relatedCards: [],
+            synergyCards: []
+          }
+        }
+      ],
+      otherCards: [
+        {
+          id: "unrelated-card",
+          name: "无关卡牌",
+          count: 1,
+          details: {
+            dbfId: 99999,
+            name: "无关卡牌",
+            isSpell: true,
+            relatedCards: [],
+            synergyCards: []
+          }
+        }
+      ]
+    } as OverlayPanelViewModel;
+
+    const { rerender } = render(<OverlayPanel view={synergyView} />);
+
+    const coldCaseRow = screen.getByText("冰冷案例").closest(".overlay-compact-card-row") as HTMLElement;
+    const kelthuzadRow = screen.getByText("天定之灾克尔苏加德").closest(".overlay-compact-card-row") as HTMLElement;
+    const unrelatedRow = screen.getByText("无关卡牌").closest(".overlay-compact-card-row") as HTMLElement;
+
+    fireEvent.mouseEnter(coldCaseRow);
+
+    expect(kelthuzadRow).toHaveClass("is-synergy-related");
+    expect(kelthuzadRow).toHaveAttribute("data-card-related", "true");
+    expect(kelthuzadRow).toHaveAttribute("data-synergy-marker", "配");
+    expect(kelthuzadRow).toHaveAttribute("title", "与当前卡牌有配合");
+    expect(coldCaseRow).not.toHaveClass("is-synergy-related");
+    expect(unrelatedRow).not.toHaveClass("is-synergy-related");
+
+    fireEvent.mouseLeave(coldCaseRow);
+
+    expect(kelthuzadRow).not.toHaveClass("is-synergy-related");
+    expect(kelthuzadRow).not.toHaveAttribute("data-card-related");
+    expect(kelthuzadRow).not.toHaveAttribute("data-synergy-marker");
+    expect(kelthuzadRow).not.toHaveAttribute("title");
+
+    fireEvent.mouseEnter(coldCaseRow);
+    expect(kelthuzadRow).toHaveClass("is-synergy-related");
+
+    rerender(<OverlayPanel view={{ ...synergyView, remainingDeck: [] }} />);
+
+    expect(screen.getByText("天定之灾克尔苏加德").closest(".overlay-compact-card-row"))
+      .not.toHaveClass("is-synergy-related");
+
+    rerender(<OverlayPanel view={synergyView} />);
+
+    expect(screen.getByText("天定之灾克尔苏加德").closest(".overlay-compact-card-row"))
+      .not.toHaveClass("is-synergy-related");
+  });
+
+  it("does not confuse distinct cards that share the same display name", () => {
+    const sameNameView: OverlayPanelViewModel = {
+      ...view,
+      remainingDeck: [
+        {
+          id: "source-card",
+          name: "配合来源卡",
+          count: 1,
+          details: {
+            dbfId: 2001,
+            name: "配合来源卡",
+            isSpell: true,
+            relatedCards: [],
+            synergyCards: [{ dbfId: 78394, cardId: "REV_514", name: "天定之灾克尔苏加德", reason: "测试配合" }]
+          }
+        }
+      ],
+      handCards: [
+        {
+          id: "different-same-name-card",
+          name: "天定之灾克尔苏加德",
+          count: 1,
+          details: {
+            dbfId: 96313,
+            cardId: "REV_786",
+            name: "天定之灾克尔苏加德",
+            isSpell: false,
+            relatedCards: []
+          }
+        }
+      ],
+      otherCards: []
+    };
+
+    render(<OverlayPanel view={sameNameView} />);
+
+    fireEvent.mouseEnter(screen.getByText("配合来源卡").closest(".overlay-compact-card-row") as HTMLElement);
+
+    expect(screen.getByText("天定之灾克尔苏加德").closest(".overlay-compact-card-row"))
+      .not.toHaveClass("is-synergy-related");
+  });
+
+  it("treats existing related cards bidirectionally on keyboard focus and clears on blur", () => {
+    const relatedView: OverlayPanelViewModel = {
+      ...view,
+      remainingDeck: [
+        {
+          id: "source-card",
+          name: "关联来源卡",
+          count: 1,
+          details: {
+            dbfId: 1001,
+            name: "关联来源卡",
+            isSpell: true,
+            relatedCards: [{ dbfId: 1002, name: "关联目标卡" }]
+          }
+        }
+      ],
+      handCards: [],
+      otherCards: [
+        {
+          id: "target-card",
+          name: "关联目标卡",
+          count: 1,
+          details: {
+            dbfId: 1002,
+            name: "关联目标卡",
+            isSpell: false,
+            relatedCards: []
+          }
+        }
+      ]
+    };
+
+    render(<OverlayPanel view={relatedView} />);
+
+    const sourceRow = screen.getByText("关联来源卡").closest(".overlay-compact-card-row") as HTMLElement;
+    const targetRow = screen.getByText("关联目标卡").closest(".overlay-compact-card-row") as HTMLElement;
+
+    expect(targetRow).toHaveAttribute("tabindex", "0");
+
+    fireEvent.focus(targetRow);
+
+    expect(sourceRow).toHaveClass("is-synergy-related");
+    expect(sourceRow).toHaveAttribute("data-card-related", "true");
+    expect(sourceRow).toHaveAttribute("data-synergy-marker", "配");
+    expect(sourceRow).toHaveAttribute("title", "与当前卡牌有配合");
+    expect(targetRow).not.toHaveClass("is-synergy-related");
+
+    fireEvent.blur(targetRow);
+
+    expect(sourceRow).not.toHaveClass("is-synergy-related");
+    expect(sourceRow).not.toHaveAttribute("data-card-related");
+    expect(sourceRow).not.toHaveAttribute("data-synergy-marker");
+    expect(sourceRow).not.toHaveAttribute("title");
   });
 });

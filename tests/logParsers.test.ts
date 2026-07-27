@@ -4,9 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parsePlayerLog, parsePowerLog } from "../src/main/logParsers.js";
-import { inspectFriendlyDeckSnapshot } from "../src/shared/powerLogParser.js";
+import { inspectFriendlyDeckSnapshot, selectCurrentPowerGameText } from "../src/shared/powerLogParser.js";
 
 const fixtureDir = resolve("fixtures/logs/session-2026-07-10");
+const duplicateFixtureDir = resolve("fixtures/logs/constructed-duplicate-create");
 
 describe("log parsers", () => {
   it("parses Power.log game, draw, reveal, and play events", async () => {
@@ -61,6 +62,20 @@ describe("log parsers", () => {
     expect(events.at(-1)).toMatchObject({ type: "game-started", source: "Player.log" });
   });
 
+  it("keeps identity lines between duplicate CREATE_GAME dumps for the same game", () => {
+    const currentGame = selectCurrentPowerGameText([
+      "D 11:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=昏沉的幽灵#511319",
+      "D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME",
+      "D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=火羽精灵 id=37 zone=DECK cardId=CORE_UNG_809 player=2] tag=ZONE value=HAND"
+    ].join("\n"));
+
+    expect(currentGame).toContain("PlayerID=2, PlayerName=昏沉的幽灵#511319");
+    expect(currentGame).not.toContain("11:00:00.000");
+  });
+
   it("uses the Power.log entity snapshot to verify the local deck size", () => {
     const snapshot = inspectFriendlyDeckSnapshot(`
 D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
@@ -72,6 +87,15 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=S
 `, 2);
 
     expect(snapshot).toEqual({ initialDeckSize: 2, remainingDeckSize: 1 });
+  });
+
+  it("counts nested SHOW_ENTITY zone continuations in the sanitized real duplicate-start snapshot", async () => {
+    const content = await readFile(resolve(duplicateFixtureDir, "Power.log"), "utf8");
+
+    expect(inspectFriendlyDeckSnapshot(content, 1)).toEqual({
+      initialDeckSize: 30,
+      remainingDeckSize: 28
+    });
   });
 
   it("keeps game-start generated deck cards separate from the selected collection deck", () => {

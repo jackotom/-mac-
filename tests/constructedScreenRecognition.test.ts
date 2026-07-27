@@ -74,6 +74,19 @@ describe("constructed screen recognition", () => {
     expect(inspection.selectedDeck).toBe(selectedDeck);
   });
 
+  it("matches Hearthstone's 备阵 display prefix to the logged deck name", () => {
+    const standardPriest = { ...baseDeck, id: "standard-priest", name: "牧师", format: "标准" };
+    const inspection = inspectConstructedDeckScreen(
+      [
+        { text: "标准对战", confidence: 1, x: 0.35, y: 0.89, width: 0.06, height: 0.02 },
+        { text: "备阵牧师", confidence: 1, x: 0.72, y: 0.34, width: 0.07, height: 0.02 }
+      ],
+      [standardPriest, { ...baseDeck, id: "wild-priest", name: "牧师", format: "狂野" }]
+    );
+
+    expect(inspection.selectedDeck).toBe(standardPriest);
+  });
+
   it("returns the exact deck after filtering matching names by mode", () => {
     const standardDeck = { ...baseDeck, id: "standard", format: "标准" };
     const inspection = inspectConstructedDeckScreen(

@@ -62,7 +62,20 @@ describe("board attack overlay", () => {
     expect(getBoardAttackOverlayQuery(false)).toEqual({ "board-attack-overlay": "1" });
     expect(getBoardAttackOverlayQuery(true)).toEqual({
       "board-attack-overlay": "1",
+      "show-friendly-attack": "1",
+      "show-opponent-attack": "1",
       "qa-opponent-demo": "1"
+    });
+    expect(getBoardAttackOverlayQuery(true, { showFriendly: false, showOpponent: false })).toEqual({
+      "board-attack-overlay": "1",
+      "show-friendly-attack": "1",
+      "show-opponent-attack": "1",
+      "qa-opponent-demo": "1"
+    });
+    expect(getBoardAttackOverlayQuery(false, { showFriendly: false, showOpponent: true })).toEqual({
+      "board-attack-overlay": "1",
+      "show-friendly-attack": "0",
+      "show-opponent-attack": "1"
     });
   });
 

@@ -185,6 +185,32 @@
   scrollbar-width: thin;
 }
 
+.card-library-stale-warning {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(237, 189, 109, 0.46);
+  border-radius: 6px;
+  color: #f3d8a6;
+  background: rgba(91, 62, 25, 0.42);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.card-library-stale-warning svg {
+  flex: 0 0 auto;
+}
+
+.card-library-stale-warning span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card-library-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));

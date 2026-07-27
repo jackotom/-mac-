@@ -98,12 +98,13 @@ function findMatchingDeck(
   if (activeCandidate.deckId) {
     const byDeckId = decks.find((deck) => deck.deckId === activeCandidate.deckId);
     if (byDeckId) {
-      return byDeckId;
+      return { ...byDeckId, mode: activeCandidate.mode ?? byDeckId.mode };
     }
   }
 
   if (activeCandidate.rawDeckString) {
-    return decks.find((deck) => deck.rawDeckString === activeCandidate.rawDeckString);
+    const byCode = decks.find((deck) => deck.rawDeckString === activeCandidate.rawDeckString);
+    return byCode ? { ...byCode, mode: activeCandidate.mode ?? byCode.mode } : undefined;
   }
 
   return undefined;

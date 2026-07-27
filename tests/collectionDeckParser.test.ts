@@ -113,6 +113,29 @@ I 20:57:48.8376790 AAEBAa0GAvCfBPO4Bg7LCNMK1wqFnwS+nwS7xwXCtgaQ9Aag+waFhgeslAedr
     );
   });
 
+  it("extracts the latest exact Arena deck as the active Arena deck", () => {
+    const content = `
+I 08:45:38.1831380 Starting Arena Game With Deck:
+I 08:45:38.1831380 ###
+I 08:45:38.1831380 # Deck ID: 9463240332
+I 08:45:38.1831380 AAEBAZirBBL3Df2eBP6eBLztBP+SBduhBdbQBejpBdCeBrGgBruUB+ilB9GmB5iwB4SxB8e2B+rdBwbnnwTx0wTb3gSmwwXoxQX9qAYAAA==
+I 08:59:08.4143730 Starting Arena Game With Deck:
+I 08:59:08.4143730 ###
+I 08:59:08.4143730 # Deck ID: 9463305273
+I 08:59:08.4143730 AAEBAea5AxiAhQS2nwS0oAS6tASl5AS67QSkwwW4xQXo6QXr9QXLnwbtnwaPowbgqAa7sAbDsAbJsAaptgaw4QahsQfisQeSsgfH3QecgggD6e0EvrAG5LEHAAA=
+`;
+    const options = { sourcePath: "/Applications/Hearthstone/Logs/session/Decks.log", updatedAt: "2026-07-18T08:59:08.000Z" };
+
+    expect(parseCollectionDecksLog(content, options)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ deckId: "9463240332", mode: "arena" }),
+      expect.objectContaining({ deckId: "9463305273", mode: "arena" })
+    ]));
+    expect(findActiveCollectionDeck(content, options)).toEqual(expect.objectContaining({
+      deckId: "9463305273",
+      mode: "arena"
+    }));
+  });
+
   it("preserves unknown blocks with a warning", () => {
     const decks = parseCollectionDecksLog("unexpected format line\nstill useful raw text", {
       sourcePath: "/tmp/Decks.log",

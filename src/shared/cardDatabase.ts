@@ -19,6 +19,7 @@ export interface CardInfo {
   readonly spellSchool?: string;
   readonly heroClass?: string;
   readonly heroClasses?: readonly string[];
+  readonly races?: readonly string[];
   readonly imageUrl?: string;
   readonly cropImageUrl?: string;
   readonly relatedCardIds?: readonly number[];
@@ -37,9 +38,23 @@ export interface RelatedCardInfo {
   readonly cropImageUrl?: string;
 }
 
+export interface CardSynergyInfo extends RelatedCardInfo {
+  readonly reason: string;
+}
+
 export interface CardDetails extends CardInfo {
   readonly isSpell: boolean;
   readonly relatedCards: readonly RelatedCardInfo[];
+  readonly synergyCards?: readonly CardSynergyInfo[];
+  readonly playedSpellsThisGame?: readonly RelatedCardInfo[];
+  readonly gameContextSections?: readonly GameContextSection[];
+}
+
+export interface GameContextSection {
+  readonly key: string;
+  readonly title: string;
+  readonly emptyText: string;
+  readonly cards: readonly RelatedCardInfo[];
 }
 
 export type CardDatabase = Readonly<Record<string, unknown>>;
@@ -131,23 +146,192 @@ export function toCardDetails(cardDb: CardDatabase, card: CardInfo): CardDetails
   const relatedCards = (card.relatedCardIds ?? [])
     .map((dbfId) => getCardInfo(cardDb, dbfId))
     .filter((related): related is CardInfo => related !== undefined)
-    .map(({ dbfId, name, cardId, manaCost, cardType, rarity, text, imageUrl, cropImageUrl }) => ({
-      dbfId,
-      name,
-      cardId,
-      manaCost,
-      cardType,
-      rarity,
-      text,
-      imageUrl,
-      cropImageUrl
-    }));
+    .map(toRelatedCardInfo);
+  const synergyCards = inferCardSynergies(cardDb, card);
 
   return {
     ...card,
     isSpell: card.cardTypeId === 5 || card.cardType === "法术" || card.cardType?.toUpperCase() === "SPELL",
-    relatedCards
+    relatedCards,
+    ...(synergyCards.length > 0 ? { synergyCards } : {})
   };
+}
+
+type SynergyRole = "produce" | "consume";
+
+interface CardNameMention {
+  readonly name: string;
+  readonly role: SynergyRole;
+  readonly verb: string;
+}
+
+const CARD_NAME_PREFIX_LENGTH = 4;
+const MAX_ACTION_DISTANCE = 24;
+const MAX_SYNERGY_CARDS = 6;
+const PRODUCER_ACTIONS = ["召唤", "制造", "获取", "获得", "置入", "加入", "发现", "复制", "变形为"] as const;
+const CONSUMER_ACTIONS = ["复活", "触发", "消耗", "消灭", "牺牲", "摧毁", "使用", "施放", "打出", "控制", "拥有", "强化"] as const;
+const ACTION_BOUNDARIES = ["。", "；", ";", "！", "!", "？", "?", "\n"] as const;
+const synergyIndexCache = new WeakMap<CardDatabase, ReadonlyMap<number, readonly CardSynergyInfo[]>>();
+
+export function inferCardSynergies(cardDb: CardDatabase, source: CardInfo): readonly CardSynergyInfo[] {
+  let index = synergyIndexCache.get(cardDb);
+  if (!index) {
+    index = buildCardSynergyIndex(cardDb);
+    synergyIndexCache.set(cardDb, index);
+  }
+  return index.get(source.dbfId) ?? [];
+}
+
+function buildCardSynergyIndex(cardDb: CardDatabase): ReadonlyMap<number, readonly CardSynergyInfo[]> {
+  const allCards = listCardInfos(cardDb);
+  const cards = allCards.filter(isSynergyEligibleCard).sort((left, right) => left.dbfId - right.dbfId);
+  const namePrefixes = buildCardNamePrefixes(cards);
+  const mentionsByReference = new Map<string, { produce: Map<number, MentionedCard>; consume: Map<number, MentionedCard> }>();
+
+  for (const card of cards) {
+    for (const mention of findCardNameMentions(card, namePrefixes)) {
+      const group = mentionsByReference.get(mention.name) ?? { produce: new Map(), consume: new Map() };
+      group[mention.role].set(card.dbfId, { card, verb: mention.verb });
+      mentionsByReference.set(mention.name, group);
+    }
+  }
+
+  const results = new Map<number, Map<string, CardSynergyInfo>>();
+  for (const [referenceName, group] of mentionsByReference) {
+    for (const source of group.produce.values()) {
+      for (const target of group.consume.values()) {
+        addSynergy(results, source, target, referenceName);
+        addSynergy(results, target, source, referenceName);
+      }
+    }
+  }
+
+  const indexedResults = new Map<number, readonly CardSynergyInfo[]>(
+    [...results].map(([dbfId, cardsByName]) => [
+      dbfId,
+      Object.freeze([...cardsByName.values()].slice(0, MAX_SYNERGY_CARDS))
+    ])
+  );
+  const resultsByCanonicalCardId = new Map<string, readonly CardSynergyInfo[]>();
+  for (const card of cards) {
+    const canonicalCardId = normalizeSynergyCardId(card.cardId ?? card.id);
+    const cardResults = indexedResults.get(card.dbfId);
+    if (canonicalCardId && cardResults && !resultsByCanonicalCardId.has(canonicalCardId)) {
+      resultsByCanonicalCardId.set(canonicalCardId, cardResults);
+    }
+  }
+  for (const card of allCards) {
+    if (indexedResults.has(card.dbfId)) {
+      continue;
+    }
+    const canonicalCardId = normalizeSynergyCardId(card.cardId ?? card.id);
+    const canonicalResults = canonicalCardId ? resultsByCanonicalCardId.get(canonicalCardId) : undefined;
+    if (canonicalResults) {
+      indexedResults.set(card.dbfId, canonicalResults);
+    }
+  }
+  return indexedResults;
+}
+
+interface MentionedCard {
+  readonly card: CardInfo;
+  readonly verb: string;
+}
+
+function addSynergy(
+  results: Map<number, Map<string, CardSynergyInfo>>,
+  source: MentionedCard,
+  target: MentionedCard,
+  referenceName: string
+): void {
+  if (source.card.dbfId === target.card.dbfId || source.card.name === target.card.name) {
+    return;
+  }
+
+  const cardsByName = results.get(source.card.dbfId) ?? new Map<string, CardSynergyInfo>();
+  if (!cardsByName.has(target.card.name)) {
+    cardsByName.set(target.card.name, {
+      ...toRelatedCardInfo(target.card),
+      reason: `共同关联「${referenceName}」：${source.verb} ↔ ${target.verb}`
+    });
+  }
+  results.set(source.card.dbfId, cardsByName);
+}
+
+function isSynergyEligibleCard(card: CardInfo): boolean {
+  return card.collectible === true
+    && Boolean(card.text)
+    && Boolean(card.imageUrl || card.cropImageUrl)
+    && Array.from(card.name).length >= CARD_NAME_PREFIX_LENGTH
+    && BROWSABLE_CARD_TYPES.has(card.cardType ?? "");
+}
+
+function normalizeSynergyCardId(cardId: string | undefined): string | undefined {
+  return cardId ? normalizeCardId(cardId).replace(/^core_/, "") : undefined;
+}
+
+function buildCardNamePrefixes(cards: readonly CardInfo[]): ReadonlyMap<string, readonly string[]> {
+  const prefixes = new Map<string, string[]>();
+  for (const name of new Set(cards.map((card) => card.name))) {
+    const prefix = name.slice(0, CARD_NAME_PREFIX_LENGTH);
+    const names = prefixes.get(prefix) ?? [];
+    names.push(name);
+    names.sort((left, right) => right.length - left.length);
+    prefixes.set(prefix, names);
+  }
+  return prefixes;
+}
+
+function findCardNameMentions(
+  card: CardInfo,
+  namePrefixes: ReadonlyMap<string, readonly string[]>
+): readonly CardNameMention[] {
+  const text = card.text ?? "";
+  const mentions = new Map<string, CardNameMention>();
+  for (let index = 0; index <= text.length - CARD_NAME_PREFIX_LENGTH; index += 1) {
+    const prefix = text.slice(index, index + CARD_NAME_PREFIX_LENGTH);
+    const name = (namePrefixes.get(prefix) ?? []).find((candidate) => text.startsWith(candidate, index));
+    if (name) {
+      const action = findMentionAction(text, index);
+      if (action && name !== card.name) {
+        mentions.set(`${name}:${action.role}`, { name, ...action });
+      }
+      index += name.length - 1;
+    }
+  }
+  return [...mentions.values()];
+}
+
+function findMentionAction(text: string, mentionIndex: number): Omit<CardNameMention, "name"> | undefined {
+  const before = text.slice(Math.max(0, mentionIndex - 30), mentionIndex);
+  const boundaryIndex = Math.max(...ACTION_BOUNDARIES.map((boundary) => before.lastIndexOf(boundary)));
+  const clause = before.slice(boundaryIndex + 1);
+  const producer = findLatestAction(clause, PRODUCER_ACTIONS);
+  const consumer = findLatestAction(clause, CONSUMER_ACTIONS);
+  const latest = producer.index > consumer.index
+    ? { role: "produce" as const, ...producer }
+    : consumer.index > producer.index
+      ? { role: "consume" as const, ...consumer }
+      : undefined;
+  return latest && clause.length - latest.index <= MAX_ACTION_DISTANCE
+    ? { role: latest.role, verb: latest.verb }
+    : undefined;
+}
+
+function findLatestAction(text: string, actions: readonly string[]): { readonly index: number; readonly verb: string } {
+  return actions.reduce(
+    (latest, verb) => {
+      const index = text.lastIndexOf(verb);
+      return index > latest.index ? { index, verb } : latest;
+    },
+    { index: -1, verb: "" }
+  );
+}
+
+function toRelatedCardInfo(
+  { dbfId, name, cardId, manaCost, cardType, rarity, text, imageUrl, cropImageUrl }: CardInfo
+): RelatedCardInfo {
+  return { dbfId, name, cardId, manaCost, cardType, rarity, text, imageUrl, cropImageUrl };
 }
 
 export function createCardIdNameLookup(cardDb: CardDatabase): ReadonlyMap<string, string> {
@@ -197,6 +381,7 @@ function parseCardInfo(value: unknown): CardInfo | undefined {
   const spellSchoolId = numberValue(value.spellSchoolId) ?? numberValue(value.spell_school_id);
   const spellSchool = stringValue(value.spellSchool) ?? stringValue(value.spell_school);
   const heroClasses = parseHeroClasses(value);
+  const races = parseCardRaces(value);
   const relatedCardIds = uniqueNumbers([
     ...numberArray(value.relatedCardIds),
     ...numberArray(value.child_ids),
@@ -225,6 +410,7 @@ function parseCardInfo(value: unknown): CardInfo | undefined {
     spellSchool,
     heroClass: heroClasses.length > 0 ? heroClasses.join(" / ") : undefined,
     heroClasses: heroClasses.length > 0 ? heroClasses : undefined,
+    races: races.length > 0 ? races : undefined,
     imageUrl: stringValue(value.image) ?? stringValue(value.imageUrl) ?? stringValue(value.img),
     cropImageUrl: validCropImageUrl(value.crop_image) ?? validCropImageUrl(value.cropImage) ?? validCropImageUrl(value.cropImageUrl),
     relatedCardIds: relatedCardIds.length > 0 ? relatedCardIds : undefined,
@@ -321,6 +507,20 @@ function parseHeroClasses(value: Record<string, unknown>): string[] {
   ];
 
   return uniqueStrings(sourceValues.flatMap(extractHeroClassValues));
+}
+
+function parseCardRaces(value: Record<string, unknown>): string[] {
+  const scalarRaces = [
+    stringValue(value.race),
+    stringValue(value.raceName),
+    stringValue(value.race_name)
+  ].filter((race): race is string => Boolean(race));
+  return uniqueStrings([
+    ...scalarRaces,
+    ...textArray(value.races),
+    ...textArray(value.raceIds),
+    ...textArray(value.race_ids)
+  ]).map((race) => race.toLocaleUpperCase());
 }
 
 function extractHeroClassValues(value: unknown): string[] {

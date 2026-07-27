@@ -1,7 +1,7 @@
-import { BookOpen, FolderOpen, LayoutDashboard, MonitorUp, Pause, Play, ScrollText, Settings, Swords, Upload } from "lucide-react";
+import { FolderOpen, MonitorUp, Pause, Play, ScrollText, Settings, Swords, Upload } from "lucide-react";
 import type { TrackerStatus } from "../types";
 
-export type MainView = "tracker" | "card-library";
+export type MainView = "home" | "tracker" | "card-library" | "deck-tools" | "match-history" | "settings";
 
 interface TopBarProps {
   status: TrackerStatus;
@@ -14,14 +14,11 @@ interface TopBarProps {
   onToggleOverlay: () => void;
   onToggleOpponentOverlay: () => void;
   onMinimize: () => void;
-  activeView?: MainView;
-  onShowCardLibrary?: () => void;
-  onShowTracker?: () => void;
 }
 
-const statusLabels: Record<TrackerStatus["state"], string> = {
+export const trackerStatusLabels: Record<TrackerStatus["state"], string> = {
   ready: "待开始",
-  tracking: "读取中",
+  tracking: "监听中",
   paused: "已暂停",
   offline: "未连接"
 };
@@ -35,14 +32,8 @@ export function TopBar({
   onImportDeck,
   onEnsureLogConfig,
   onToggleOverlay,
-  onToggleOpponentOverlay,
-  activeView = "tracker",
-  onShowCardLibrary,
-  onShowTracker
+  onToggleOpponentOverlay
 }: TopBarProps) {
-  const isCardLibraryOpen = activeView === "card-library";
-  const canSwitchView = isCardLibraryOpen ? Boolean(onShowTracker) : Boolean(onShowCardLibrary);
-
   return (
     <header className="top-bar" aria-label="记牌器工具栏">
       <section className="brand-block" aria-label="日志状态">
@@ -50,7 +41,7 @@ export function TopBar({
           <ScrollText aria-hidden="true" size={20} />
         </div>
         <div>
-          <h1>炉石 Mac 记牌器</h1>
+          <h1>实时日志</h1>
           <p title={status.logPath}>
             {status.logPath} · {status.watchedFiles} 个文件 · {status.parsedLines.toLocaleString("zh-CN")} 行
           </p>
@@ -59,7 +50,7 @@ export function TopBar({
 
       <section className="status-strip" aria-label="当前读取状态">
         <span className={`status-dot status-${status.state}`} aria-hidden="true" />
-        <strong>{status.isLoading ? "正在读取" : statusLabels[status.state]}</strong>
+        <strong>{status.isLoading ? "正在读取" : trackerStatusLabels[status.state]}</strong>
         <span>同步 {status.lastSyncedAt}</span>
       </section>
 
@@ -72,7 +63,14 @@ export function TopBar({
           <FolderOpen aria-hidden="true" size={17} />
           选择日志目录
         </button>
-        <button type="button" onClick={onEnsureLogConfig} disabled={isBusy} title="修复日志" aria-label="修复日志">
+        <button
+          className={`repair-action${status.state === "offline" ? " is-recommended" : ""}`}
+          type="button"
+          onClick={onEnsureLogConfig}
+          disabled={isBusy}
+          title="修复日志"
+          aria-label="修复日志"
+        >
           <Settings aria-hidden="true" size={17} />
           修复日志
         </button>
@@ -80,18 +78,6 @@ export function TopBar({
           <MonitorUp aria-hidden="true" size={17} />
           小窗
         </button>
-        {canSwitchView ? (
-          <button
-            className="icon-action"
-            type="button"
-            onClick={isCardLibraryOpen ? onShowTracker : onShowCardLibrary}
-            disabled={isBusy}
-            title={isCardLibraryOpen ? "返回对局面板" : "打开卡牌数据库"}
-            aria-label={isCardLibraryOpen ? "返回对局面板" : "打开卡牌数据库"}
-          >
-            {isCardLibraryOpen ? <LayoutDashboard aria-hidden="true" size={17} /> : <BookOpen aria-hidden="true" size={17} />}
-          </button>
-        ) : null}
         <button
           className="icon-action"
           type="button"

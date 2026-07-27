@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import sampleCardDb from "../fixtures/cards.sample.json";
 import { parseDeckText } from "../src/shared/deck";
 import { createCardDatabase, type CardDatabase } from "../src/shared/cardDatabase";
@@ -84,9 +86,410 @@ describe("parseLogLine", () => {
       parseLogLine("D 12:10:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=FINAL_GAMEOVER")
     ).toEqual([expect.objectContaining({ type: "game-end" })]);
   });
+
+  it("parses player identities and public player counters without card data", () => {
+    expect(
+      parseLogLine(
+        "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=测试玩家#1234"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        type: "player-identity",
+        playerId: 2,
+        playerName: "测试玩家#1234"
+      })
+    ]);
+
+    expect(
+      parseLogLine(
+        "D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=测试玩家#1234 tag=FATIGUE value=2"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        type: "player-counter",
+        playerName: "测试玩家#1234",
+        counter: "fatigue",
+        value: 2
+      })
+    ]);
+    expect(
+      parseLogLine(
+        "D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=测试玩家#1234 tag=CORPSES value=7"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        type: "player-counter",
+        playerName: "测试玩家#1234",
+        counter: "corpses",
+        value: 7
+      })
+    ]);
+    expect(
+      parseLogLine(
+        "D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=测试玩家 id=2 zone=PLAY cardId= player=2] tag=NUM_SPELLS_PLAYED_THIS_GAME value=5"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        type: "player-counter",
+        playerId: 2,
+        counter: "spells-played",
+        value: 5
+      })
+    ]);
+  });
+
+  it("emits only whitelisted start-of-game global effect triggers", () => {
+    const globalEffect = parseLogLine(
+      "D 20:46:32.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=指挥官碧阿崔克丝 id=42 zone=SETASIDE cardId=JAIL_397 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=START_OF_GAME_KEYWORD"
+    );
+    const ordinaryTrigger = parseLogLine(
+      "D 20:46:33.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=普通光环 id=43 zone=PLAY cardId=NORMAL_AURA player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=START_OF_GAME_KEYWORD"
+    );
+
+    expect(globalEffect).toEqual([
+      expect.objectContaining({ type: "global-effect", entity: expect.objectContaining({ cardId: "JAIL_397", controller: 2 }) })
+    ]);
+    expect(ordinaryTrigger).toEqual([]);
+  });
+
+  it("emits a persistent effect only for an explicitly whitelisted played card", () => {
+    const persistentPlay = parseLogLine(
+      "D 12:00:01.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星界沟通 id=51 zone=HAND cardId=BAR_539 player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1"
+    );
+    const ordinaryPlay = parseLogLine(
+      "D 12:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通法术 id=52 zone=HAND cardId=NORMAL_SPELL player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1"
+    );
+
+    expect(persistentPlay).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "global-effect",
+        source: "played",
+        entity: expect.objectContaining({ cardId: "BAR_539", controller: 1 })
+      })
+    ]));
+    expect(ordinaryPlay.some((event) => event.type === "global-effect")).toBe(false);
+  });
 });
 
 describe("TrackerEngine", () => {
+  it("shows Aviana beside Hamuul after the opponent reaches full moon", () => {
+    const fixture = readFileSync(
+      join(process.cwd(), "fixtures/logs/opponent-aviana-full-moon/Power.log"),
+      "utf8"
+    );
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "EDR_845", name: "哈缪尔·符文图腾", type: "MINION" },
+      { id: 2, cardId: "EDR_895", name: "艾维娜，艾露恩钦选者", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+
+    engine.applyText(fixture);
+
+    expect(engine.getState().opponentGlobalEffects).toHaveLength(2);
+    expect(engine.getState().opponentGlobalEffects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "哈缪尔·符文图腾", cardId: "EDR_845" }),
+      expect.objectContaining({ name: "艾维娜，艾露恩钦选者", cardId: "EDR_895" })
+    ]));
+  });
+
+  it("replays the sanitized real duplicate-start fixture without dropping the selected deck", () => {
+    const fixture = readFileSync(
+      join(process.cwd(), "fixtures/logs/constructed-duplicate-create/Power.log"),
+      "utf8"
+    );
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "JAIL_397", name: "指挥官碧阿崔克丝", type: "MINION" },
+      { id: 2, cardId: "CORE_DS1_184", name: "追踪术", type: "SPELL" },
+      { id: 3, cardId: "JAM_037", name: "精英牛头人歌王", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({
+      cardDatabase: richDb,
+      collectionDecks: [createCollectionDeck("selected", "学徒猎人", [{ name: "测试卡", count: 30, cardId: "TEST_CARD" }])]
+    });
+    engine.setFriendlyController(1);
+    const [firstLine, ...remainingLines] = fixture.trimEnd().split("\n");
+    engine.applyLine(firstLine);
+    expect(engine.activateCollectionDeck("selected")).toBe(true);
+    engine.applyText(remainingLines.join("\n"));
+
+    expect(engine.getState()).toMatchObject({
+      deckName: "学徒猎人",
+      summary: { totalCards: 30, remainingCards: 30, drawnCards: 0 },
+      friendlyHand: [{ name: "精英牛头人歌王", count: 1, cardId: "JAM_037" }],
+      friendlyOther: [{ name: "追踪术", count: 1, cardId: "CORE_DS1_184" }],
+      globalEffects: [],
+      opponentGlobalEffects: [{ name: "指挥官碧阿崔克丝", count: 1, cardId: "JAIL_397" }]
+    });
+  });
+
+  it("keeps friendly and opponent global effects separate and resets them on a real new game", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "GIL_692", name: "格恩·灰鬃", type: "MINION" },
+      { id: 2, cardId: "JAIL_397", name: "指挥官碧阿崔克丝", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 20:46:06.3975180 GameState.DebugPrintPower() - CREATE_GAME
+D 20:46:07.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=格恩·灰鬃 id=41 zone=SETASIDE cardId=GIL_692 player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=START_OF_GAME_KEYWORD
+D 20:46:08.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=指挥官碧阿崔克丝 id=42 zone=SETASIDE cardId=JAIL_397 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=START_OF_GAME_KEYWORD
+D 20:46:06.3975180 PowerTaskList.DebugPrintPower() - CREATE_GAME
+`);
+
+    expect(engine.getState()).toMatchObject({
+      globalEffects: [{ name: "格恩·灰鬃", count: 1, cardId: "GIL_692" }],
+      opponentGlobalEffects: [{ name: "指挥官碧阿崔克丝", count: 1, cardId: "JAIL_397" }]
+    });
+
+    engine.applyLine("D 20:50:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME");
+    expect(engine.getState()).toMatchObject({ globalEffects: [], opponentGlobalEffects: [] });
+  });
+
+  it("tracks public counters by PlayerID and resets them at game boundaries", () => {
+    const engine = new TrackerEngine();
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 12:00:00.100 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER
+D 12:00:00.100 GameState.DebugPrintGame() - PlayerID=2, PlayerName=看似对手#1234
+D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=本地玩家 tag=NUM_SPELLS_PLAYED_THIS_GAME value=4
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=本地玩家 tag=NUM_SPELLS_PLAYED_THIS_GAME value=4
+D 12:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=CORPSES value=7
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=CORPSES value=7
+D 12:00:03.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=本地玩家 tag=FATIGUE value=2
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=本地玩家 tag=FATIGUE value=2
+D 12:00:04.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=NUM_SPELLS_PLAYED_THIS_GAME value=5
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=NUM_SPELLS_PLAYED_THIS_GAME value=5
+D 12:00:05.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=FATIGUE value=0
+`);
+
+    expect(engine.getState().matchCounters).toEqual({
+      friendly: { corpses: 7, spellsPlayed: 5 },
+      opponent: { nextFatigueDamage: 3, spellsPlayed: 4 }
+    });
+
+    engine.applyLine("D 12:01:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME");
+    expect(engine.getState().matchCounters).toBeUndefined();
+
+    engine.applyText(`
+D 12:01:00.100 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER
+D 12:01:00.100 GameState.DebugPrintGame() - PlayerID=2, PlayerName=看似对手#1234
+D 12:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=CORPSES value=2
+D 12:01:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=看似对手#1234 tag=PLAYSTATE value=LOST
+`);
+    expect(engine.getState().matchCounters).toBeUndefined();
+  });
+
+  const realPowerLogPath = "/Applications/Hearthstone/Logs/Hearthstone_2026_07_23_11_05_14/Power.log";
+  const realPowerLogTest = existsSync(realPowerLogPath) ? it : it.skip;
+  realPowerLogTest("replays public counters from the real 2026-07-23 Power.log", () => {
+    const fixture = readFileSync(realPowerLogPath, "utf8");
+    const gameEndIndex = fixture.search(
+      /tag=PLAYSTATE\s+value=(?:WON|LOST|TIED|CONCEDED)\b|tag=(?:STEP|NEXT_STEP)\s+value=FINAL_GAMEOVER\b/i
+    );
+    expect(gameEndIndex).toBeGreaterThan(0);
+
+    const engine = new TrackerEngine();
+    engine.setFriendlyController(2);
+    engine.applyText(fixture.slice(0, gameEndIndex));
+
+    expect(engine.getState().matchCounters).toEqual({
+      friendly: { corpses: 17, spellsPlayed: 14 },
+      opponent: { nextFatigueDamage: 3, corpses: 12, spellsPlayed: 11 }
+    });
+
+    engine.applyText(fixture.slice(gameEndIndex));
+    expect(engine.getState().matchCounters).toBeUndefined();
+  });
+
+  it("separates persistent effects played by each controller and clears them after game end", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "BAR_539", name: "星界沟通", type: "SPELL" },
+      { id: 2, cardId: "GDB_467", name: "类星体", type: "SPELL" },
+      { id: 3, cardId: "NORMAL_SPELL", name: "普通法术", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星界沟通 id=51 zone=HAND cardId=BAR_539 player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=类星体 id=52 zone=HAND cardId=GDB_467 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星界沟通 id=53 zone=HAND cardId=BAR_539] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通法术 id=54 zone=HAND cardId=NORMAL_SPELL player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+`);
+
+    expect(engine.getState()).toMatchObject({
+      globalEffects: [{ name: "星界沟通", count: 1, cardId: "BAR_539" }],
+      opponentGlobalEffects: [{ name: "类星体", count: 1, cardId: "GDB_467" }]
+    });
+
+    engine.applyLine("D 12:10:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=PLAYSTATE value=LOST");
+    expect(engine.getState()).toMatchObject({ globalEffects: [], opponentGlobalEffects: [] });
+  });
+
+  it("在星空投影球详情中按施放顺序记录本局我方法术并忽略重复日志", () => {
+    const richDb = createCardDatabase([
+      { id: 103354, cardId: "TOY_378", name: "星空投影球", type: "SPELL", cost: 10 },
+      { id: 1, cardId: "CORE_CS2_024", name: "寒冰箭", type: "SPELL", cost: 2 },
+      { id: 2, cardId: "REV_840", name: "死神之躯", type: "SPELL", cost: 6 },
+      { id: 3, cardId: "OPPONENT_SPELL", name: "对手法术", type: "SPELL", cost: 4 }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 08:18:06.3615000 GameState.DebugPrintPower() - CREATE_GAME
+D 08:18:32.0537060 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星空投影球 id=60 zone=DECK zonePos=0 cardId=TOY_378 player=2] tag=ZONE value=HAND
+D 08:20:53.4861770 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:20:53.4861770 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:21:39.5040300 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=死神之躯 id=85 zone=HAND zonePos=5 cardId=REV_840 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:21:39.5040300 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=死神之躯 id=85 zone=HAND zonePos=5 cardId=REV_840 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:22:00.0000000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=对手法术 id=90 zone=HAND zonePos=1 cardId=OPPONENT_SPELL player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+`);
+
+    expect(engine.getState().friendlyHand).toContainEqual(
+      expect.objectContaining({
+        name: "星空投影球",
+        cardId: "TOY_378",
+        details: expect.objectContaining({
+          playedSpellsThisGame: [
+            expect.objectContaining({ name: "寒冰箭", cardId: "CORE_CS2_024" }),
+            expect.objectContaining({ name: "死神之躯", cardId: "REV_840" })
+          ]
+        })
+      })
+    );
+  });
+
+  it("同一法术实体回手后再次施放会重复记录且新局清空历史", () => {
+    const richDb = createCardDatabase([
+      { id: 103354, cardId: "TOY_378", name: "星空投影球", type: "SPELL", cost: 10 },
+      { id: 1, cardId: "CORE_CS2_024", name: "寒冰箭", type: "SPELL", cost: 2 }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 08:18:06.3615000 GameState.DebugPrintPower() - CREATE_GAME
+D 08:18:32.0537060 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星空投影球 id=60 zone=DECK zonePos=0 cardId=TOY_378 player=2] tag=ZONE value=HAND
+D 08:20:53.4861770 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:20:53.4861770 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] tag=ZONE value=PLAY
+D 08:20:53.4861770 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=寒冰箭 id=51 zone=PLAY zonePos=0 cardId=CORE_CS2_024 player=2] tag=ZONE value=GRAVEYARD
+D 08:20:53.4861770 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:21:00.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=寒冰箭 id=51 zone=GRAVEYARD zonePos=0 cardId=CORE_CS2_024 player=2] tag=ZONE value=HAND
+D 08:21:01.0000000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=1 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:21:01.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=1 cardId=CORE_CS2_024 player=2] tag=ZONE value=PLAY
+D 08:21:01.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=寒冰箭 id=51 zone=PLAY zonePos=0 cardId=CORE_CS2_024 player=2] tag=ZONE value=GRAVEYARD
+D 08:21:01.0000000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=1 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+`);
+
+    expect(engine.getState().friendlyHand).toContainEqual(
+      expect.objectContaining({
+        cardId: "TOY_378",
+        details: expect.objectContaining({
+          playedSpellsThisGame: [
+            expect.objectContaining({ name: "寒冰箭", cardId: "CORE_CS2_024" }),
+            expect.objectContaining({ name: "寒冰箭", cardId: "CORE_CS2_024" })
+          ]
+        })
+      })
+    );
+
+    engine.applyText(`
+D 08:26:11.3028700 GameState.DebugPrintPower() - CREATE_GAME
+D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星空投影球 id=160 zone=DECK zonePos=0 cardId=TOY_378 player=2] tag=ZONE value=HAND
+`);
+
+    expect(engine.getState().friendlyHand).toContainEqual(
+      expect.objectContaining({
+        cardId: "TOY_378",
+        details: expect.objectContaining({ playedSpellsThisGame: [] })
+      })
+    );
+  });
+
+  it("reports known opponent cards in deck, hand, and other current zones", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "OPP_DECK", name: "对手牌库牌", type: "SPELL" },
+      { id: 2, cardId: "OPP_HAND", name: "对手手牌", type: "MINION" },
+      { id: 3, cardId: "OPP_PLAY", name: "对手场上牌", type: "LOCATION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=对手牌库牌 id=10 zone=DECK cardId=OPP_DECK player=2] CardID=OPP_DECK
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=对手手牌 id=11 zone=HAND cardId=OPP_HAND player=2] CardID=OPP_HAND
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=对手场上牌 id=12 zone=PLAY cardId=OPP_PLAY player=2] CardID=OPP_PLAY
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentDeck: [{ name: "对手牌库牌", count: 1, cardId: "OPP_DECK" }],
+      opponentHand: [{ name: "对手手牌", count: 1, cardId: "OPP_HAND" }],
+      opponentOther: [{ name: "对手场上牌", count: 1, cardId: "OPP_PLAY" }],
+      opponentDeckCount: 1,
+      opponentHandCount: 1
+    });
+  });
+
+  it("counts hidden opponent deck and hand entities without inventing deck identities", () => {
+    const engine = new TrackerEngine();
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=20 zone=DECK cardId= player=2] CardID=
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=21 zone=DECK cardId= player=2] CardID=
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=22 zone=HAND cardId= player=2] CardID=
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=23 zone=HAND cardId= player=2] CardID=
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentDeck: [],
+      opponentHand: [],
+      opponentDeckCount: 2,
+      opponentHandCount: 2
+    });
+  });
+
+  it("replaces one hidden opponent hand row when that entity is revealed", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "REVEALED", name: "被揭示的牌", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=30 zone=HAND cardId= player=2] CardID=
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=31 zone=HAND cardId= player=2] CardID=
+`);
+    engine.applyLine(
+      "D 12:00:03.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=被揭示的牌 id=30 zone=HAND cardId= player=2] CardID=REVEALED"
+    );
+
+    expect(engine.getState()).toMatchObject({
+      opponentHand: [{ name: "被揭示的牌", count: 1, cardId: "REVEALED" }],
+      opponentHandCount: 2
+    });
+  });
+
+  it("clears opponent zone cards and totals on the next game", () => {
+    const engine = new TrackerEngine();
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=40 zone=DECK cardId= player=2] CardID=
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=41 zone=HAND cardId= player=2] CardID=
+D 12:01:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentDeck: [],
+      opponentHand: [],
+      opponentOther: [],
+      opponentDeckCount: 0,
+      opponentHandCount: 0
+    });
+  });
+
   it("tracks opponent secret slots and live attack totals for both boards", () => {
     const richDb = createCardDatabase([
       { id: 1, cardId: "EX1_287", name: "法术反制", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
@@ -223,6 +626,63 @@ D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
     });
   });
 
+  it("keeps a revealed hand card in hand when a different entity is created in play", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "HAND_A", name: "手牌A", type: "MINION" },
+      { id: 2, cardId: "HAND_B", name: "手牌B", type: "MINION" },
+      { id: 3, cardId: "HAND_C", name: "手牌C", type: "MINION" },
+      { id: 4, cardId: "HAND_D", name: "手牌D", type: "MINION" },
+      { id: 5, cardId: "HAND_E", name: "手牌E", type: "MINION" },
+      { id: 6, cardId: "TOY_375", name: "滑冰元素", type: "MINION" },
+      { id: 7, cardId: "RLK_544t", name: "奥术防御者衍生物", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+
+    engine.applyText(`
+D 09:05:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=手牌A id=70 zone=DECK cardId=HAND_A player=2] tag=ZONE value=HAND
+D 09:05:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=手牌B id=71 zone=DECK cardId=HAND_B player=2] tag=ZONE value=HAND
+D 09:05:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=手牌C id=72 zone=DECK cardId=HAND_C player=2] tag=ZONE value=HAND
+D 09:05:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=手牌D id=73 zone=DECK cardId=HAND_D player=2] tag=ZONE value=HAND
+D 09:05:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=手牌E id=74 zone=DECK cardId=HAND_E player=2] tag=ZONE value=HAND
+D 09:05:26.6659900 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=59 zone=DECK zonePos=0 cardId= player=2] CardID=TOY_375
+D 09:05:26.6659900 GameState.DebugPrintPower() -         tag=CONTROLLER value=2
+D 09:05:26.6659900 GameState.DebugPrintPower() -         tag=ZONE value=HAND
+`);
+
+    const revealedState = engine.getState();
+    expect(revealedState.friendlyHand?.reduce((total, card) => total + card.count, 0)).toBe(6);
+    expect(revealedState.friendlyHand).toContainEqual(
+      expect.objectContaining({ name: "滑冰元素", count: 1, cardId: "TOY_375" })
+    );
+
+    engine.applyText(`
+D 09:05:32.4991480 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=156 CardID=RLK_544t
+D 09:05:32.4991480 GameState.DebugPrintPower() -                 tag=CONTROLLER value=2
+D 09:05:32.4991480 GameState.DebugPrintPower() -                 tag=ZONE value=PLAY
+`);
+
+    const createdState = engine.getState();
+    expect(createdState.friendlyHand?.reduce((total, card) => total + card.count, 0)).toBe(6);
+    expect(createdState.friendlyHand).toContainEqual(
+      expect.objectContaining({ name: "滑冰元素", count: 1, cardId: "TOY_375" })
+    );
+    expect(createdState.friendlyOther).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "滑冰元素" })])
+    );
+
+    engine.applyLine(
+      "D 09:05:33.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=滑冰元素 id=160 zone=PLAY cardId=TOY_375 player=2] tag=ZONE value=GRAVEYARD"
+    );
+
+    expect(engine.getState().friendlyHand).toContainEqual(
+      expect.objectContaining({ name: "滑冰元素", count: 1, cardId: "TOY_375" })
+    );
+    expect(engine.getState().friendlyOther).toContainEqual(
+      expect.objectContaining({ name: "滑冰元素", count: 1, cardId: "TOY_375" })
+    );
+  });
+
   it.each(["PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SECRET"])(
     "groups the %s zone under friendly other",
     (zone) => {
@@ -348,6 +808,35 @@ D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
     expect(engine.getState().deck[0]).toMatchObject({ name: "Fireball", remaining: 1, drawn: 0 });
     expect(engine.getState().friendlyHand).toEqual([]);
     expect(engine.getState().friendlyOther).toEqual([]);
+  });
+
+  it("moves an unresolved Arena card out of and back into the deck for an unknown mulligan card", () => {
+    const engine = new TrackerEngine();
+    engine.loadDeckCards([
+      { name: "Sample Singleton", count: 29, cardId: "TEST_001" },
+      { name: "未解析竞技场牌", count: 1, unresolved: true }
+    ], "竞技场牌库");
+    engine.setFriendlyController(1);
+
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Unknown Arena Card id=64 zone=DECK zonePos=0 cardId=UNKNOWN_001 player=1] tag=ZONE value=HAND
+`);
+
+    expect(engine.getState().summary).toMatchObject({ totalCards: 30, remainingCards: 29, drawnCards: 1 });
+    expect(engine.getState().deck.find((card) => card.unresolved)).toMatchObject({ remaining: 0, drawn: 1 });
+
+    engine.applyLine(
+      "D 12:00:01.500 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Generated Unknown Card id=65 zone=DECK zonePos=0 cardId=UNKNOWN_002 player=1] tag=ZONE value=HAND"
+    );
+    expect(engine.getState().summary).toMatchObject({ totalCards: 30, remainingCards: 29, drawnCards: 1 });
+
+    engine.applyLine(
+      "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Unknown Arena Card id=64 zone=HAND zonePos=1 cardId=UNKNOWN_001 player=1] tag=ZONE value=DECK"
+    );
+
+    expect(engine.getState().summary).toMatchObject({ totalCards: 30, remainingCards: 30, drawnCards: 0 });
+    expect(engine.getState().deck.find((card) => card.unresolved)).toMatchObject({ remaining: 1, drawn: 0 });
   });
 
   it("clears friendly zone cards across game, import, and reset boundaries", () => {

@@ -24,3 +24,9 @@ outputs/
 # Legacy generated files kept outside the current build directories
 /logDiscovery.js
 /trackerService.js
+
+# Local review, browser, and unrelated media work artifacts
+/.continue/
+/--full-page
+/code-review.md
+/mika-v2-upgrade/

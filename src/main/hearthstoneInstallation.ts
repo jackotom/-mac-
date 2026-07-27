@@ -76,7 +76,7 @@ async function readVersion(
   } catch { return undefined; }
   if (!allowSystemPlist) return undefined;
   try {
-    const { stdout } = await execFile("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleVersion", plistPath]);
+    const { stdout } = await execFile("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleVersion", plistPath], { timeout: 3000 });
     return stdout.trim() || undefined;
   } catch { return undefined; }
 }

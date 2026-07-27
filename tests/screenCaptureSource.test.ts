@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectHearthstoneCaptureSource } from "../src/main/screenCaptureSource";
+import { HEARTHSTONE_CAPTURE_TYPES, selectHearthstoneCaptureSource } from "../src/main/screenCaptureSource";
 
 const sources = [
   { id: "screen:1:0", name: "Entire Screen", display_id: "1" },
@@ -8,6 +8,10 @@ const sources = [
 ];
 
 describe("screen capture source selection", () => {
+  it("requests window thumbnails only", () => {
+    expect(HEARTHSTONE_CAPTURE_TYPES).toEqual(["window"]);
+  });
+
   it("prefers the Hearthstone window even when another display is active", () => {
     expect(selectHearthstoneCaptureSource(sources, 2)?.id).toBe("window:20:0");
   });
@@ -38,9 +42,9 @@ describe("screen capture source selection", () => {
     expect(selectHearthstoneCaptureSource([smallWindow, gameWindow, ...sources], 2)?.id).toBe("window:22:0");
   });
 
-  it("falls back to the active display and then the first screen", () => {
+  it("does not capture a display when the Hearthstone window is missing", () => {
     const screens = sources.filter((source) => source.id.startsWith("screen:"));
-    expect(selectHearthstoneCaptureSource(screens, 2)?.id).toBe("screen:2:0");
-    expect(selectHearthstoneCaptureSource(screens, 99)?.id).toBe("screen:1:0");
+    expect(selectHearthstoneCaptureSource(screens, 2)).toBeUndefined();
+    expect(selectHearthstoneCaptureSource(screens, 99)).toBeUndefined();
   });
 });

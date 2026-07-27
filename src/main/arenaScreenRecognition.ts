@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,14 +42,40 @@ interface ArenaOcrPayload {
   readonly observations?: unknown;
 }
 
+const SCREEN_CAPTURE_DIRECTORY_PREFIX = "hearthstone-screen-";
+const STALE_SCREEN_CAPTURE_AGE_MS = 10 * 60 * 1_000;
+
+export async function cleanupStaleScreenCaptures(
+  temporaryRoot = tmpdir(),
+  olderThanMs = Date.now() - STALE_SCREEN_CAPTURE_AGE_MS
+) {
+  const entries = await readdir(temporaryRoot, { withFileTypes: true });
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(SCREEN_CAPTURE_DIRECTORY_PREFIX))
+    .map(async (entry) => {
+      const directory = path.join(temporaryRoot, entry.name);
+      const metadata = await stat(directory);
+      if (metadata.mtimeMs <= olderThanMs) {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }));
+}
+
 export class ArenaScreenRecognizer {
+  private staleCaptureCleanup: Promise<void> | undefined;
+  private staleCaptureCleanupComplete = false;
+
   constructor(
     private readonly helperPath = resolveArenaOcrHelperPath(),
-    private readonly captureScreenImage?: () => Promise<Buffer>
+    private readonly captureScreenImage?: () => Promise<Buffer>,
+    private readonly getFrontmostApplication = getFrontmostAppName,
+    private readonly cleanupStaleCaptures = cleanupStaleScreenCaptures
   ) {}
 
   async recognize(options: ArenaScreenRecognitionOptions = {}): Promise<ArenaScreenRecognitionResult> {
-    if (options.requireHearthstoneFrontmost !== false && !isHearthstoneFrontmost(await getFrontmostAppName())) {
+    await this.ensureStaleCaptureCleanup();
+
+    if (options.requireHearthstoneFrontmost !== false && !isHearthstoneFrontmost(await this.getFrontmostApplication())) {
       return {
         status: "window-not-found",
         message: "炉石不在前台，已暂停竞技场画面识别。",
@@ -69,14 +95,13 @@ export class ArenaScreenRecognizer {
 
     let captureDirectory: string | undefined;
     try {
-      captureDirectory = await mkdtemp(path.join(tmpdir(), "hearthstone-screen-"));
+      captureDirectory = await mkdtemp(path.join(tmpdir(), SCREEN_CAPTURE_DIRECTORY_PREFIX));
       const imagePath = path.join(captureDirectory, "screen.png");
       try {
-        if (this.captureScreenImage) {
-          await writeFile(imagePath, await this.captureScreenImage());
-        } else {
-          await runProcess("/usr/sbin/screencapture", ["-x", imagePath]);
+        if (!this.captureScreenImage) {
+          throw new ScreenCaptureError("capture-failed", "主进程截图功能不可用。");
         }
+        await writeFile(imagePath, await this.captureScreenImage());
       } catch (error) {
         const status = error instanceof ScreenCaptureError ? error.status : "permission-denied";
         if (status === "permission-denied") {
@@ -102,6 +127,24 @@ export class ArenaScreenRecognizer {
         await rm(captureDirectory, { recursive: true, force: true }).catch(() => undefined);
       }
     }
+  }
+
+  private async ensureStaleCaptureCleanup(): Promise<void> {
+    if (this.staleCaptureCleanupComplete) return;
+    if (!this.staleCaptureCleanup) {
+      const cleanup = this.cleanupStaleCaptures()
+        .then(() => {
+          this.staleCaptureCleanupComplete = true;
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.staleCaptureCleanup === cleanup) {
+            this.staleCaptureCleanup = undefined;
+          }
+        });
+      this.staleCaptureCleanup = cleanup;
+    }
+    await this.staleCaptureCleanup;
   }
 }
 
@@ -184,19 +227,36 @@ function runHelper(helperPath: string, imagePath: string, profile: ArenaScreenRe
   return runProcess(helperPath, ["--image", imagePath, ...(profile ? ["--profile", profile] : [])]);
 }
 
-function runProcess(executablePath: string, args: readonly string[]) {
+function runProcess(executablePath: string, args: readonly string[], timeoutMs = 8000) {
   return new Promise<string>((resolve, reject) => {
     const child = spawn(executablePath, [...args], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+      reject(new Error(`识别组件运行超时（${timeoutMs}ms）。`));
+    }, timeoutMs);
+
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => { stdout += chunk; });
     child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      if (!timedOut) {
+        reject(error);
+      }
+    });
     child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        return;
+      }
       if (code === 0) {
         resolve(stdout.trim());
         return;

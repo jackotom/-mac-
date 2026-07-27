@@ -1,4 +1,4 @@
-import type { ArenaCardChoice, ArenaState, CardTrackerRow, PublicTrackerState, TrackerEvent, TrackerZoneCard } from "../shared/types";
+import type { ArenaCardChoice, ArenaState, CardTrackerRow, DeckCard, PublicTrackerState, TrackerEvent, TrackerZoneCard } from "../shared/types";
 import type {
   OverlayArenaChoice,
   OverlayCardItem,
@@ -42,7 +42,17 @@ export function toOverlayPanelViewModel(
   const constructedRecognitionStatus = isRecognizingConstructedDeck && state.error
     ? { tone: "error" as const, label: "识别失败" }
     : undefined;
+  const waitingForGameStatus = state.status === "watching" && state.gameActive !== true && !isRecognizingConstructedDeck
+    ? {
+        tone: "tracking" as const,
+        label: "已识别炉石，等待开局",
+        detail: "进入对局后自动开始记牌"
+      }
+    : undefined;
   const arena = state.arena && state.arena.status !== "inactive" && !logIssueStatus ? toArenaView(state.arena, maxDeckRows) : undefined;
+  const visibleOpponentHand = (state.opponentHand ?? []).filter((card) => !isHiddenOpponentHandCard(card));
+  const visibleOpponentHandCount = countZoneCards(visibleOpponentHand);
+  const opponentHandCount = state.opponentHandCount ?? countZoneCards(state.opponentHand ?? []);
 
   return {
     summary: {
@@ -58,11 +68,27 @@ export function toOverlayPanelViewModel(
       ? []
       : recentEvents.filter(isFriendlyDraw).slice(0, maxRecentRows).map((event) => toDrawItem(event, state.deck)),
     opponentRecentPlays: shouldClearTrackedData ? [] : toOpponentPlayedItems(state.opponentPlayed, maxRecentRows),
+    globalEffects: shouldClearTrackedData ? [] : toZoneCardItems(state.globalEffects ?? [], "global", maxDeckRows),
+    opponentGlobalEffects: shouldClearTrackedData ? [] : toZoneCardItems(state.opponentGlobalEffects ?? [], "opponent-global", maxDeckRows),
+    opponentDeck: shouldClearTrackedData ? [] : toZoneCardItems(state.opponentDeck ?? [], "opponent-deck", maxDeckRows),
+    opponentHand: shouldClearTrackedData ? [] : toZoneCardItems(visibleOpponentHand, "opponent-hand", maxDeckRows),
+    opponentOther: shouldClearTrackedData ? [] : toZoneCardItems(state.opponentOther ?? [], "opponent-other", maxDeckRows),
+    opponentDeckCount: shouldClearTrackedData ? 0 : state.opponentDeckCount ?? countZoneCards(state.opponentDeck ?? []),
+    opponentHandCount: shouldClearTrackedData ? 0 : opponentHandCount,
+    opponentUnknownHandCount: shouldClearTrackedData
+      ? 0
+      : Math.max(0, opponentHandCount - visibleOpponentHandCount),
     opponentSecrets: shouldClearTrackedData ? [] : toOpponentSecretSlots(state.opponentSecrets ?? []),
     boardAttack: shouldClearTrackedData ? { friendly: 0, opponent: 0 } : state.boardAttack ?? { friendly: 0, opponent: 0 },
+    friendlyCounters: shouldClearTrackedData ? undefined : state.matchCounters?.friendly,
+    opponentCounters: shouldClearTrackedData ? undefined : state.matchCounters?.opponent,
     status: {
-      ...(logIssueStatus ?? constructedRecognitionStatus ?? statusLabels[state.status]),
-      detail: logIssueStatus ? "先点修复日志，然后重启炉石/开始一局" : state.error ?? statusDetail(state),
+      ...(logIssueStatus ?? constructedRecognitionStatus ?? waitingForGameStatus ?? statusLabels[state.status]),
+      detail: logIssueStatus
+        ? "先点修复日志，完全退出并重新打开炉石，然后进入一局"
+        : waitingForGameStatus
+          ? waitingForGameDetail(state.error, waitingForGameStatus.label, waitingForGameStatus.detail)
+          : state.error ?? statusDetail(state),
       updatedAtLabel: formatTimeLabel(state.lastUpdated)
     },
     arena
@@ -83,10 +109,13 @@ function toOpponentSecretSlots(slots: NonNullable<PublicTrackerState["opponentSe
 
 function toDeckIdentity(state: PublicTrackerState): OverlayDeckIdentity {
   if (state.arena?.status && state.arena.status !== "inactive") {
+    const confirmedCount = 30 - state.arena.unresolvedCount;
     return {
       name: "竞技场牌库",
       status: "arena",
-      detail: `已选 ${state.arena.draftCount}/30`
+      detail: state.arena.unresolvedCount > 0
+        ? `已确认 ${confirmedCount}/30 · ${state.arena.unresolvedCount} 张待识别`
+        : "已选 30/30"
     };
   }
 
@@ -114,6 +143,11 @@ function toDeckIdentity(state: PublicTrackerState): OverlayDeckIdentity {
 }
 
 function toArenaView(state: ArenaState, maxDeckRows: number) {
+  const confirmedCount = state.status === "inactive" ? 0 : 30 - state.unresolvedCount;
+  const showDeckStats = state.status !== "playing";
+  const visibleDeck = state.status === "redrafting" && state.redraftPool?.length
+    ? state.redraftPool
+    : state.deck;
   const isChoosing = (state.status === "drafting" || state.status === "redrafting") && state.currentChoices.length >= 3;
   const choices = isChoosing
     ? [...state.currentChoices]
@@ -125,23 +159,29 @@ function toArenaView(state: ArenaState, maxDeckRows: number) {
 
   return {
     isChoosing,
-    statusLabel: state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成",
-    progress: `${state.draftCount}/30`,
+    showDeckStats,
+    statusLabel: state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "等待开局",
+    progress: state.unresolvedCount > 0 ? `已确认 ${confirmedCount}/30` : "30/30",
+    confirmedCount,
+    unresolvedCount: state.unresolvedCount,
     hero: state.hero?.name ?? "等待职业",
     scoreSource: state.scoreSource,
     error: state.error,
     choices,
-    deck: state.deck
+    deck: [...visibleDeck]
+      .sort(compareCardsByMana)
       .map((card, index) => ({
         id: `arena-deck-${index}-${card.cardId ?? card.name}`,
         name: card.name,
         cost: card.details?.manaCost,
         count: card.count,
+        ...(showDeckStats ? { pickRate: card.pickRate, deckImpact: card.deckImpact } : {}),
         details: card.details,
-        thumbnailUrl: card.details?.cropImageUrl ?? card.details?.imageUrl
+        thumbnailUrl: card.details?.cropImageUrl ?? card.details?.imageUrl,
+        unresolved: card.unresolved
       }))
       .slice(0, maxDeckRows),
-    deckCount: state.deck.reduce((total, card) => total + card.count, 0),
+    deckCount: visibleDeck.reduce((total, card) => total + card.count, 0),
     lastPick: latestPick ? toArenaChoice(latestPick) : undefined
   } satisfies NonNullable<OverlayPanelViewModel["arena"]>;
 }
@@ -169,6 +209,9 @@ function formatRatingSummary(rating: ArenaCardChoice["rating"]): string | undefi
   const parts = [rating.hearthArena === undefined ? undefined : `HA ${rating.hearthArena}`];
   if (rating.firestone?.includedWinrate !== undefined) {
     parts.push(`入选胜率 ${rating.firestone.includedWinrate.toFixed(1)}%`);
+  }
+  if (rating.pickRate !== undefined) {
+    parts.push(`选取率 ${rating.pickRate.toFixed(1)}%`);
   }
   if (rating.highWinPickRate !== undefined) {
     const label = rating.highWinThreshold === undefined ? "高胜选取" : `${rating.highWinThreshold}+胜选取`;
@@ -204,11 +247,12 @@ function toRemainingDeckItems(rows: readonly CardTrackerRow[], maxRows: number):
       count: row.remaining,
       detail: `剩 ${row.remaining}/${row.count}`,
       thumbnailUrl: row.details?.cropImageUrl ?? row.details?.imageUrl,
-      details: row.details
+      details: row.details,
+      unresolved: row.unresolved
     }));
 }
 
-function toZoneCardItems(rows: readonly TrackerZoneCard[], prefix: "hand" | "other", maxRows: number): OverlayCardItem[] {
+function toZoneCardItems(rows: readonly TrackerZoneCard[], prefix: string, maxRows: number): OverlayCardItem[] {
   return [...rows]
     .sort(compareCardsByMana)
     .slice(0, maxRows)
@@ -222,9 +266,17 @@ function toZoneCardItems(rows: readonly TrackerZoneCard[], prefix: "hand" | "oth
     }));
 }
 
+function countZoneCards(rows: readonly TrackerZoneCard[]): number {
+  return rows.reduce((total, row) => total + row.count, 0);
+}
+
+function isHiddenOpponentHandCard(card: TrackerZoneCard): boolean {
+  return /^(?:未知卡牌|未公开|unknown (?:card|entity))$/iu.test(card.name.trim());
+}
+
 function compareCardsByMana(
-  left: Pick<CardTrackerRow | TrackerZoneCard, "name" | "details">,
-  right: Pick<CardTrackerRow | TrackerZoneCard, "name" | "details">
+  left: Pick<CardTrackerRow | DeckCard | TrackerZoneCard, "name" | "details">,
+  right: Pick<CardTrackerRow | DeckCard | TrackerZoneCard, "name" | "details">
 ) {
   const leftCost = left.details?.manaCost ?? Number.POSITIVE_INFINITY;
   const rightCost = right.details?.manaCost ?? Number.POSITIVE_INFINITY;
@@ -301,6 +353,20 @@ function statusDetail(state: PublicTrackerState): string {
 
 function isPlayerOnlyLogPath(logPath: string | undefined): boolean {
   return Boolean(logPath?.trim().match(/(^|[\\/])Player\.log$/i));
+}
+
+function isRepeatedStatusMessage(label: string, detail: string): boolean {
+  const normalize = (value: string) => value.trim().replace(/[。.!！]+$/u, "");
+  return normalize(label) === normalize(detail);
+}
+
+function waitingForGameDetail(error: string | undefined, label: string, fallback: string): string {
+  if (!error || isRepeatedStatusMessage(label, error)) {
+    return fallback;
+  }
+
+  const detail = error.replace(/^已识别炉石[，,](?:正在)?等待开局[；;]\s*/u, "").trim();
+  return detail && detail !== error.trim() ? detail : error;
 }
 
 function compactPath(path: string): string {

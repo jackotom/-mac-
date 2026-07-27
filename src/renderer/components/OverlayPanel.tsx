@@ -1,16 +1,12 @@
-import { useId, useState, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, Hand, Layers3, X } from "lucide-react";
-import { getArenaScoreQuality } from "../../shared/arenaRatings";
-import type { OverlayArenaChoice, OverlayCardItem, OverlayPanelProps, OverlayStatusTone } from "../types";
-import { ArenaChoiceMetrics } from "./ArenaChoiceMetrics";
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, Hand, Layers3, Settings, X } from "lucide-react";
+import type { OverlayCardItem, OverlayPanelProps, OverlayStatusTone } from "../types";
 import { CardHoverPreview } from "./CardHoverPreview";
+import { PublicMatchCounters } from "./PublicMatchCounters";
 
-const arenaDeckShareStorageKey = "hearthstone.overlay.arenaDeckShare";
-const defaultArenaDeckShare = 42;
-const minArenaDeckShare = 26;
-const maxArenaDeckShare = 68;
+const MAX_REASONABLE_OTHER_CARD_COUNT = 100;
 
-export function OverlayPanel({ view, className = "overlay-shell", style, onClose, isLoading = false, loadError }: OverlayPanelProps) {
+export function OverlayPanel({ view, className = "overlay-shell", style, onClose, onOpenSettings, isLoading = false, loadError }: OverlayPanelProps) {
   const needsLogRepair = view.status.tone === "offline";
   const displayedStatus = isLoading
     ? { tone: "offline" as const, label: "读取中", detail: "正在读取本机状态" }
@@ -26,6 +22,11 @@ export function OverlayPanel({ view, className = "overlay-shell", style, onClose
           <span>记牌器</span>
         </strong>
         <StatusPill tone={displayedStatus.tone} label={displayedStatus.label} title={displayedStatus.detail} />
+        {onOpenSettings ? (
+          <button type="button" onClick={onOpenSettings} aria-label="打开软件设置" title="打开软件设置">
+            <Settings aria-hidden="true" size={13} />
+          </button>
+        ) : null}
         {onClose ? (
           <button type="button" onClick={onClose} aria-label="关闭小窗" title="关闭小窗">
             <X aria-hidden="true" size={13} />
@@ -47,33 +48,59 @@ export function OverlayPanel({ view, className = "overlay-shell", style, onClose
       ) : needsLogRepair ? (
         <section className="overlay-repair-prompt" role="status">
           <strong>{view.status.label}</strong>
-          <p>先点修复日志，然后重启炉石/开始一局。</p>
+          <p>先点修复日志，完全退出并重新打开炉石，然后进入一局。</p>
           <ol>
             <li>修复日志</li>
-            <li>重启炉石</li>
-            <li>开始一局</li>
+            <li>完全退出并重新打开炉石</li>
+            <li>进入一局</li>
           </ol>
           <span>当前不会展示默认示例卡组。</span>
         </section>
       ) : (
         <>
-          {view.arena && isArenaDraftActive(view.arena) ? <ArenaOverlay view={view.arena} /> : <NormalOverlay view={view} />}
+          {view.arena?.showDeckStats ? <ArenaOverlay view={view.arena} /> : <NormalOverlay view={view} />}
         </>
       )}
     </section>
   );
 }
 
-function isArenaDraftActive(view: NonNullable<OverlayPanelProps["view"]["arena"]>): boolean {
-  return view.isChoosing || view.statusLabel === "选牌中" || view.statusLabel === "重选中";
-}
-
 function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
+  const [activeCardId, setActiveCardId] = useState<string>();
   const deckIdentity = resolveDeckIdentity(view);
+  const globalEffects = view.globalEffects ?? [];
   const handCards = view.handCards ?? [];
   const otherCards = view.otherCards ?? [];
+  const remainingDeck = view.remainingDeck.filter((item) => !isUnresolvedCard(item));
+  const activeCard = [...globalEffects, ...remainingDeck, ...handCards, ...otherCards]
+    .find((item) => item.id === activeCardId);
+  const handleActiveCardChange = (card: OverlayCardItem | undefined) => setActiveCardId(card?.id);
+  useEffect(() => {
+    if (activeCardId && !activeCard) {
+      setActiveCardId(undefined);
+    }
+  }, [activeCard, activeCardId]);
   const handCount = countCards(handCards);
   const otherCount = countCards(otherCards);
+  const hasMissingDeckDetails =
+    view.deckIdentity?.status !== "arena" &&
+    view.summary.remainingCards > 0 &&
+    remainingDeck.length === 0;
+  const hasImplausibleOtherCount = otherCount > MAX_REASONABLE_OTHER_CARD_COUNT;
+  const hasDataIntegrityWarning = hasMissingDeckDetails || hasImplausibleOtherCount;
+  const deckTotal = view.arena?.deckCount;
+  const unresolvedCount = view.arena?.unresolvedCount ?? 0;
+  const confirmedCount = view.arena?.confirmedCount ?? 0;
+  const deckCountLabel = unresolvedCount > 0
+    ? `已确认 ${confirmedCount}，总计 ${confirmedCount + unresolvedCount}`
+    : deckTotal === undefined
+    ? "牌库剩余"
+    : `牌库剩余 ${view.summary.remainingCards}，总计 ${deckTotal}`;
+  const deckCountText = unresolvedCount > 0
+    ? `${confirmedCount}/${confirmedCount + unresolvedCount}`
+    : deckTotal === undefined
+    ? String(view.summary.remainingCards)
+    : `${view.summary.remainingCards}/${deckTotal}`;
 
   return (
     <div className="overlay-normal">
@@ -88,36 +115,83 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
           <Hand aria-hidden="true" size={13} />
           <strong>{handCount}</strong>
         </span>
-        <span className="overlay-summary-count" aria-label="牌库剩余" title="牌库剩余">
+        <span className="overlay-summary-count" aria-label={deckCountLabel} title={deckCountLabel}>
           <Layers3 aria-hidden="true" size={13} />
-          <strong>{view.summary.remainingCards}</strong>
+          <strong>{deckCountText}</strong>
         </span>
       </section>
 
+      <PublicMatchCounters side="friendly" counters={view.friendlyCounters} />
+
+      {hasDataIntegrityWarning ? (
+        <p
+          className="overlay-unresolved-warning overlay-data-integrity-warning"
+          role="alert"
+          aria-label="牌库数据异常"
+          title="当前计数仅供排障，不会被隐藏或自动改写"
+        >
+          牌库数据异常，正在重新识别
+        </p>
+      ) : unresolvedCount > 0 ? (
+        <p className="overlay-unresolved-warning" role="status" aria-label="牌库完整度">
+          {unresolvedCount} 张待识别
+        </p>
+      ) : null}
+
       <div className="overlay-card-groups">
+        <CollapsibleCardGroup
+          label="影响全局"
+          count={countCards(globalEffects)}
+          items={globalEffects}
+          emptyLabel="暂无全局影响"
+          activeCard={activeCard}
+          onActiveCardChange={handleActiveCardChange}
+        />
         <CollapsibleCardGroup
           label="牌库中"
           count={view.summary.remainingCards}
-          items={view.remainingDeck}
+          items={remainingDeck}
           emptyLabel="牌库中暂无卡牌"
+          activeCard={activeCard}
+          onActiveCardChange={handleActiveCardChange}
         />
-        <CollapsibleCardGroup label="手牌中" count={handCount} items={handCards} emptyLabel="手牌中暂无卡牌" />
-        <CollapsibleCardGroup label="其他" count={otherCount} items={otherCards} emptyLabel="暂无其他卡牌" />
+        <CollapsibleCardGroup
+          label="手牌中"
+          count={handCount}
+          items={handCards}
+          emptyLabel="手牌中暂无卡牌"
+          activeCard={activeCard}
+          onActiveCardChange={handleActiveCardChange}
+        />
+        <CollapsibleCardGroup
+          label="其他"
+          count={otherCount}
+          items={otherCards}
+          emptyLabel="暂无其他卡牌"
+          activeCard={activeCard}
+          onActiveCardChange={handleActiveCardChange}
+        />
       </div>
     </div>
   );
 }
 
-function CollapsibleCardGroup({
+export function CollapsibleCardGroup({
   label,
   count,
   items,
-  emptyLabel
+  emptyLabel,
+  children,
+  activeCard,
+  onActiveCardChange
 }: {
   label: string;
   count: number;
   items: readonly OverlayCardItem[];
   emptyLabel: string;
+  children?: ReactNode;
+  activeCard?: OverlayCardItem;
+  onActiveCardChange?: (card: OverlayCardItem | undefined) => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const contentId = useId();
@@ -137,38 +211,52 @@ function CollapsibleCardGroup({
         </span>
         {isExpanded ? <ChevronDown aria-hidden="true" size={13} /> : <ChevronRight aria-hidden="true" size={13} />}
       </button>
-      {isExpanded ? <CompactCardList id={contentId} items={items} emptyLabel={emptyLabel} /> : null}
+      {isExpanded ? (
+        <div id={contentId} className="overlay-card-group-content">
+          <CompactCardList
+            items={items}
+            emptyLabel={children ? undefined : emptyLabel}
+            activeCard={activeCard}
+            onActiveCardChange={onActiveCardChange}
+          />
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function CompactCardList({
-  id,
+export function CompactCardList({
   items,
-  emptyLabel
+  emptyLabel,
+  activeCard,
+  onActiveCardChange
 }: {
-  id: string;
   items: readonly OverlayCardItem[];
-  emptyLabel: string;
+  emptyLabel?: string;
+  activeCard?: OverlayCardItem;
+  onActiveCardChange?: (card: OverlayCardItem | undefined) => void;
 }) {
   if (items.length === 0) {
-    return (
-      <p id={id} className="overlay-card-group-empty">
-        {emptyLabel}
-      </p>
-    );
+    return emptyLabel ? <p className="overlay-card-group-empty">{emptyLabel}</p> : null;
   }
 
   return (
-    <ul id={id} className="overlay-compact-card-list">
+    <ul className="overlay-compact-card-list">
       {items.map((item) => {
         const cost = resolveCardCost(item);
         const count = resolveCardCount(item);
         const costLabel = cost === undefined ? "?" : String(cost);
+        const isRelated = activeCard ? areCardsRelated(activeCard, item) : false;
 
         return (
           <li key={item.id}>
-            <CardHoverPreview details={item.details} className="overlay-compact-card-row">
+            <CardHoverPreview
+              details={item.details}
+              className={`overlay-compact-card-row${isRelated ? " is-synergy-related" : ""}`}
+              isRelated={isRelated}
+              onActiveChange={(isActive) => onActiveCardChange?.(isActive ? item : undefined)}
+            >
               <span className={`overlay-card-cost ${rarityClassName(item.details?.rarity)}`} aria-label={`费用 ${costLabel}`}>
                 {costLabel}
               </span>
@@ -195,8 +283,49 @@ function countCards(items: readonly OverlayCardItem[]): number {
   return items.reduce((total, item) => total + resolveCardCount(item), 0);
 }
 
+function areCardsRelated(activeCard: OverlayCardItem, candidateCard: OverlayCardItem): boolean {
+  const activeDetails = activeCard.details;
+  const candidateDetails = candidateCard.details;
+  if (!activeDetails || !candidateDetails || activeDetails.dbfId === candidateDetails.dbfId) {
+    return false;
+  }
+
+  return referencesCard(activeDetails, candidateDetails) || referencesCard(candidateDetails, activeDetails);
+}
+
+function referencesCard(
+  details: NonNullable<OverlayCardItem["details"]>,
+  candidate: NonNullable<OverlayCardItem["details"]>
+): boolean {
+  return (
+    details.relatedCards.some((card) => isSameCard(card, candidate)) ||
+    details.synergyCards?.some((card) => isSameCard(card, candidate)) === true
+  );
+}
+
+function isSameCard(
+  referenced: NonNullable<OverlayCardItem["details"]>["relatedCards"][number],
+  candidate: NonNullable<OverlayCardItem["details"]>
+): boolean {
+  if (referenced.dbfId === candidate.dbfId) {
+    return true;
+  }
+
+  const referencedCardId = normalizeCardIdentity(referenced.cardId);
+  const candidateCardId = normalizeCardIdentity(candidate.cardId);
+  return Boolean(referencedCardId && candidateCardId && referencedCardId === candidateCardId);
+}
+
+function normalizeCardIdentity(cardId: string | undefined): string | undefined {
+  return cardId?.trim().toLocaleUpperCase().replace(/^CORE_/, "");
+}
+
 function resolveCardCount(item: OverlayCardItem): number {
   return item.count ?? 1;
+}
+
+function isUnresolvedCard(item: OverlayCardItem): boolean {
+  return item.unresolved === true;
 }
 
 function resolveCardCost(item: OverlayCardItem): number | undefined {
@@ -276,103 +405,50 @@ function asText(value: unknown): string | undefined {
 }
 
 function ArenaOverlay({ view }: { view: NonNullable<OverlayPanelProps["view"]["arena"]> }) {
-  const [deckShare, setDeckShare] = useState(readArenaDeckShare);
-  const showChoices = view.isChoosing && view.choices.length >= 3;
-  const choiceShare = 100 - deckShare;
-  const arenaGridStyle = {
-    gridTemplateRows: showChoices
-      ? `auto minmax(92px, ${choiceShare}fr) 14px minmax(78px, ${deckShare}fr) auto`
-      : "auto minmax(0, 1fr) auto"
-  } satisfies CSSProperties;
-
-  function updateDeckShare(nextValue: string) {
-    const nextShare = clampShare(Number(nextValue));
-    setDeckShare(nextShare);
-    try {
-      window.localStorage.setItem(arenaDeckShareStorageKey, String(nextShare));
-    } catch {
-      // Local storage can be unavailable in tests or locked-down environments.
-    }
-  }
-
   return (
-    <section
-      className="overlay-arena"
-      aria-label="竞技场选牌评分"
-      data-choosing={showChoices ? "true" : "false"}
-      style={arenaGridStyle}
-    >
-      <div className="overlay-arena-progress">
-        <Metric label="已选" value={view.progress} />
-        <Metric label="职业" value={view.hero} />
-        <Metric label="评分" value={view.error ?? view.scoreSource ?? "等待"} />
+    <section className="overlay-arena overlay-arena-stats" aria-label="竞技场卡组影响">
+      <strong className="overlay-arena-stage" aria-label="竞技场阶段" title={view.statusLabel}>
+        {view.statusLabel}
+      </strong>
+      <div className="overlay-arena-stats-header" aria-label="竞技场牌库表头">
+        <span>选取率</span>
+        <span>卡牌</span>
+        <span>影响</span>
       </div>
-
-      {showChoices ? (
-        <>
-          <section className="overlay-section overlay-arena-choice-section" aria-label="当前竞技场候选牌">
-            <SectionTitle label={`当前三选一 · ${view.statusLabel}`} count={view.choices.length} />
-            <ArenaChoiceList choices={view.choices} />
-          </section>
-
-          <label className="overlay-arena-resizer" title="拖动调整上下区域">
-            <span aria-hidden="true" />
-            <input
-              type="range"
-              min={minArenaDeckShare}
-              max={maxArenaDeckShare}
-              value={deckShare}
-              onChange={(event) => updateDeckShare(event.currentTarget.value)}
-              aria-label="调整当前牌库高度"
-            />
-          </label>
-        </>
-      ) : null}
-
-      <section className="overlay-section" aria-label="当前竞技场牌库">
-        <SectionTitle label="当前牌库" count={view.deckCount} />
-        <CardList items={view.deck} emptyLabel="尚未选择牌" listClassName="overlay-deck-list" />
-      </section>
-
-      {view.lastPick ? (
-        <div className="overlay-arena-last-pick">
-          <span>最近选择：{view.lastPick.name}</span>
-          <Score score={view.lastPick.score} quality={view.lastPick.quality} />
-        </div>
-      ) : null}
+      <ArenaDeckStatsList items={view.deck} />
     </section>
   );
 }
 
-function readArenaDeckShare(): number {
-  try {
-    return clampShare(Number(window.localStorage.getItem(arenaDeckShareStorageKey)));
-  } catch {
-    return defaultArenaDeckShare;
-  }
-}
-
-function clampShare(value: number): number {
-  if (!Number.isFinite(value)) {
-    return defaultArenaDeckShare;
+function ArenaDeckStatsList({ items }: { items: readonly OverlayCardItem[] }) {
+  const visibleItems = items.filter((item) => !isUnresolvedCard(item));
+  if (visibleItems.length === 0) {
+    return <p className="overlay-empty">尚未选择牌</p>;
   }
 
-  return Math.min(Math.max(Math.round(value), minArenaDeckShare), maxArenaDeckShare);
-}
-
-function ArenaChoiceList({ choices }: { choices: readonly OverlayArenaChoice[] }) {
   return (
-    <ul className="overlay-deck-list overlay-arena-choice-list">
-      {choices.map((choice) => (
-        <li key={choice.id}>
-          <CardHoverPreview details={choice.details} className="overlay-card-hover-target">
-            {choice.thumbnailUrl ? <img className="overlay-card-thumb" src={choice.thumbnailUrl} alt="" loading="lazy" /> : null}
-            <div className="overlay-card-main">
-              <strong title={choice.name}>{choice.name}</strong>
-              {choice.ratingSummary ? <small>{choice.ratingSummary}</small> : null}
-            </div>
-            <Score score={choice.score} quality={choice.quality} />
-            <ArenaChoiceMetrics choice={choice} className="overlay-arena-choice-metrics" />
+    <ul className="overlay-arena-stats-list">
+      {visibleItems.map((item) => (
+        <li key={item.id}>
+          <CardHoverPreview details={item.details} className="overlay-arena-stats-row">
+            <span
+              className={`overlay-arena-stat-pick ${pickRateTone(item.pickRate)}`}
+              aria-label={`选取率 ${formatPickRate(item.pickRate)}`}
+            >
+              {formatPickRate(item.pickRate)}
+            </span>
+            <span className="overlay-arena-stat-card">
+              <span className="overlay-cost" aria-label={`费用 ${item.cost ?? "?"}`}>{item.cost ?? "?"}</span>
+              {item.thumbnailUrl ? <img className="overlay-card-thumb" src={item.thumbnailUrl} alt="" loading="lazy" /> : null}
+              <strong title={item.name}>{item.name}</strong>
+              {(item.count ?? 1) > 1 ? <em aria-label={`数量 ${item.count}`}>{item.count}</em> : null}
+            </span>
+            <span
+              className={`overlay-arena-stat-impact ${deckImpactTone(item.deckImpact)}`}
+              aria-label={`卡组影响 ${formatDeckImpact(item.deckImpact)}`}
+            >
+              {formatDeckImpact(item.deckImpact)}
+            </span>
           </CardHoverPreview>
         </li>
       ))}
@@ -380,17 +456,20 @@ function ArenaChoiceList({ choices }: { choices: readonly OverlayArenaChoice[] }
   );
 }
 
-function Score({ score, quality }: Pick<OverlayArenaChoice, "score" | "quality">) {
-  const resolvedQuality = quality ?? getArenaScoreQuality(score);
-  return (
-    <span
-      className={`overlay-arena-score overlay-arena-score-${resolvedQuality.tier}`}
-      title={score === undefined ? "暂无评分" : `评分 ${score}，质量：${resolvedQuality.label}`}
-    >
-      <strong>{score === undefined ? "—" : score}</strong>
-      <small>{resolvedQuality.label}</small>
-    </span>
-  );
+function formatPickRate(value: number | undefined): string {
+  return value === undefined ? "—" : `${value.toFixed(1)}%`;
+}
+
+function formatDeckImpact(value: number | undefined): string {
+  return value === undefined ? "—" : value.toFixed(2);
+}
+
+function pickRateTone(value: number | undefined): "is-positive" | "is-negative" | "is-neutral" {
+  return value !== undefined && value >= 70 ? "is-positive" : value !== undefined && value <= 30 ? "is-negative" : "is-neutral";
+}
+
+function deckImpactTone(value: number | undefined): "is-positive" | "is-negative" | "is-neutral" {
+  return value === undefined || value === 0 ? "is-neutral" : value > 0 ? "is-positive" : "is-negative";
 }
 
 function StatusPill({ tone, label, title }: { tone: OverlayStatusTone; label: string; title?: string }) {
@@ -398,55 +477,6 @@ function StatusPill({ tone, label, title }: { tone: OverlayStatusTone; label: st
     <span className={`overlay-status overlay-status-${tone}`} style={statusToneStyles[tone]} title={title}>
       {label}
     </span>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="overlay-stat">
-      <span>{label}</span>
-      <strong title={value}>{value}</strong>
-    </div>
-  );
-}
-
-function SectionTitle({ label, count }: { label: string; count: number }) {
-  return (
-    <div className="overlay-section-title">
-      <h2>{label}</h2>
-      <em>{count}</em>
-    </div>
-  );
-}
-
-function CardList({
-  items,
-  emptyLabel,
-  listClassName
-}: {
-  items: readonly OverlayCardItem[];
-  emptyLabel: string;
-  listClassName: string;
-}) {
-  if (items.length === 0) {
-    return <p className="overlay-empty">{emptyLabel}</p>;
-  }
-
-  return (
-    <ul className={listClassName}>
-      {items.map((item) => (
-        <li key={item.id}>
-          <CardHoverPreview details={item.details} className="overlay-card-hover-target">
-            {item.thumbnailUrl ? <img className="overlay-card-thumb" src={item.thumbnailUrl} alt="" loading="lazy" /> : null}
-            <div className="overlay-card-main">
-              <strong title={item.name}>{item.name}</strong>
-              {item.detail ? <small>{item.detail}</small> : null}
-            </div>
-            {item.count ? <span className="overlay-count-badge">x{item.count}</span> : null}
-          </CardHoverPreview>
-        </li>
-      ))}
-    </ul>
   );
 }
 

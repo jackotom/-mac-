@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
 import sampleCardDb from "../fixtures/cards.sample.json";
-import type { CardDatabase } from "../src/shared/cardDatabase";
+import { createCardDatabase, type CardDatabase } from "../src/shared/cardDatabase";
 import { ArenaDraftEngine } from "../src/shared/arenaDraftEngine";
 import type { ArenaRatingTable } from "../src/shared/arenaRatings";
 import { parseArenaLogLine, selectCurrentArenaLogText } from "../src/shared/arenaLogParser";
 
 const cardDb = sampleCardDb as CardDatabase;
+const teamDraftCardDb = createCardDatabase([
+  { dbfId: 2001, name: "传说预览甲", cardId: "JAIL_851", rarity: "LEGENDARY" },
+  { dbfId: 2002, name: "传说预览乙", cardId: "TIME_064", rarity: "LEGENDARY" },
+  { dbfId: 2003, name: "传说预览丙", cardId: "TIME_EVENT_998", rarity: "LEGENDARY" },
+  { dbfId: 3001, name: "普通选牌", cardId: "TEST_001", rarity: "COMMON" }
+]);
+const realOcrCardDb = createCardDatabase([
+  { dbfId: 5001, name: "鱼人吸血鬼", cardId: "TEST_MURLOC", collectible: true },
+  { dbfId: 5002, name: "寒冰护体", cardId: "TEST_BARRIER", collectible: true },
+  { dbfId: 5003, name: "P1CK-P0K3T扒窃机", cardId: "JAIL_456", collectible: true },
+  { dbfId: 5004, name: "摩拉格", cardId: "TEST_MALAG", collectible: true },
+  { dbfId: 5005, name: "背叛者高弗雷", cardId: "TEST_GODFREY", collectible: true },
+  { dbfId: 5006, name: "探员摩洛克·福尔摩斯", cardId: "TEST_HOLMES", collectible: true },
+  { dbfId: 5007, name: "摩洛克·福尔摩斯", cardId: "TEST_HOLMES_DECOY", collectible: true }
+]);
 const ratings: ArenaRatingTable = {
   source: "test ratings",
   version: 7,
@@ -29,6 +44,22 @@ const ratings: ArenaRatingTable = {
         highWinPickRateImpact: 9
       }
     }
+  },
+  firestoneClasses: {
+    hunter: {
+      source: "Firestone",
+      playerClass: "hunter",
+      version: "hunter-v1",
+      lastUpdated: "2026-07-10T00:00:00.000Z",
+      overallWinrate: 50,
+      ratings: {
+        TEST_001: {
+          includedWinrate: 56.3,
+          sampleSize: 5000,
+          deckImpact: 6.3
+        }
+      }
+    }
   }
 };
 
@@ -45,10 +76,77 @@ describe("arena log parsing", () => {
     ]);
   });
 
+  it("does not count repeated hero selections as drafted cards", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+
+    engine.applyArenaText([
+      "D 08:02:58.1840550 SetDraftMode - DRAFTING",
+      "D 08:03:12.6175030 Client chooses: 安度因·乌瑞恩 (HERO_09)",
+      "D 08:03:15.6153630 Client chooses: 安度因·乌瑞恩 (HERO_09)",
+      "D 08:03:16.7659410 Client chooses: 古尔丹 (HERO_07)",
+      "D 08:03:18.1847730 DraftManager.OnChosen(): hero=HERO_07",
+      "D 08:03:25.9661450 Client chooses: Sample Singleton (TEST_001)"
+    ].join("\n"));
+
+    expect(engine.getState()).toMatchObject({
+      status: "drafting",
+      hero: { cardId: "HERO_07", className: "Warlock" },
+      draftCount: 1,
+      unresolvedCount: 29,
+      deck: [expect.objectContaining({ cardId: "TEST_001", count: 1 })]
+    });
+  });
+
   it("recognizes an Arena redraft transition as an active choice state", () => {
     expect(parseArenaLogLine("D 12:00:00.000 Arena.SetDraftMode - REDRAFTING")).toEqual([
       expect.objectContaining({ type: "mode", mode: "redrafting" })
     ]);
+  });
+
+  it("parses the new authoritative deck id announced by a redraft", () => {
+    expect(parseArenaLogLine("D 16:53:24.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633")).toEqual([
+      expect.objectContaining({ type: "deck-id", deckId: "9466340633", source: "redraft" })
+    ]);
+  });
+
+  it("tracks the main deck id separately from the redraft generation id", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    engine.applyArenaText([
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:24.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      "D 16:53:25.001 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001",
+      "D 16:53:26.000 Client chooses: [TEST_002]"
+    ].join("\n"));
+
+    expect(engine.getState()).toMatchObject({
+      deckId: "9466340632",
+      redraftGenerationId: "9466340633"
+    });
+  });
+
+  it("accepts an exact deck only for the current main Arena deck id", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    engine.applyArenaText([
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      "D 16:53:25.001 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001",
+      "D 16:53:27.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n"));
+    const unknownCards = [
+      { name: "Sample Multi", count: 29 },
+      { name: "Unknown card 123456", count: 1 }
+    ];
+    const unresolvedCards = [{ name: "Unresolved Arena cards", count: 30, unresolved: true as const }];
+    const exactCards = [{ name: "Sample Multi", count: 30 }];
+
+    expect(engine.applyExactDeck(exactCards, "9466340000")).toBe(false);
+    expect(engine.getState()).toMatchObject({ deckId: "9466340632", unresolvedCount: 29 });
+    expect(engine.applyExactDeck(unknownCards, "9466340632")).toBe(false);
+    expect(engine.getState()).toMatchObject({ deckId: "9466340632", draftCount: 1, unresolvedCount: 29 });
+    expect(engine.applyExactDeck(unresolvedCards, "9466340632")).toBe(false);
+    expect(engine.getState()).toMatchObject({ deckId: "9466340632", draftCount: 1, unresolvedCount: 29 });
+    expect(engine.applyExactDeck(exactCards, "9466340632")).toBe(true);
+    expect(engine.getState()).toMatchObject({ deckId: "9466340632", draftCount: 30, unresolvedCount: 0 });
   });
 
   it("keeps restored Arena cards and accepts screen choices during redrafting", () => {
@@ -61,8 +159,8 @@ D 12:00:00.000 DraftManager.OnChoicesAndContents - Draft deck contains card TEST
 D 12:00:01.000 Arena.SetDraftMode - REDRAFTING
 `);
 
-    expect(engine.getState()).toMatchObject({ status: "redrafting", draftCount: 2 });
-    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(30);
+    expect(engine.getState()).toMatchObject({ status: "redrafting", draftCount: 2, unresolvedCount: 28 });
+    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(2);
     expect(engine.applyScreenChoices(["Sample Singleton", "Sample Pair", "Sample Multi"])).toBe(true);
     expect(engine.getState().currentChoices).toHaveLength(3);
   });
@@ -111,9 +209,126 @@ D 17:40:02.0000000 SetDraftMode - ACTIVE_DRAFT_DECK
     expect(text).toContain("TEST_003");
     expect(text).toContain("ACTIVE_DRAFT_DECK");
   });
+
+  it("replays a completed redraft with every pick made after the retained snapshot", () => {
+    const retainedCards = Array.from(
+      { length: 24 },
+      (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+    );
+    const content = [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...retainedCards,
+      "D 16:54:01.000 Client chooses: [TEST_002]",
+      "D 16:54:02.000 Client chooses: [TEST_002]",
+      "D 16:54:03.000 Client chooses: [TEST_003]",
+      "D 16:54:04.000 Client chooses: [TEST_001]",
+      "D 16:54:05.000 Client chooses: [TEST_003]",
+      "D 16:54:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n");
+
+    const selected = selectCurrentArenaLogText(content);
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    engine.applyArenaText(selected);
+
+    expect(selected).toContain("REDRAFTING");
+    expect(engine.getState()).toMatchObject({
+      status: "complete",
+      draftCount: 29,
+      unresolvedCount: 1,
+      picks: expect.arrayContaining([
+        expect.objectContaining({ chosen: expect.objectContaining({ cardId: "TEST_002" }) }),
+        expect.objectContaining({ chosen: expect.objectContaining({ cardId: "TEST_003" }) })
+      ])
+    });
+    expect(engine.getState().picks).toHaveLength(29);
+    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(29);
+  });
 });
 
 describe("ArenaDraftEngine", () => {
+  it("keeps redraft picks when Arena.log arrives one line at a time", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    const lines = [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 16:54:01.000 Client chooses: [TEST_002]",
+      "D 16:54:02.000 Client chooses: [TEST_002]",
+      "D 16:54:03.000 Client chooses: [TEST_003]",
+      "D 16:54:04.000 Client chooses: [TEST_001]",
+      "D 16:54:05.000 Client chooses: [TEST_003]",
+      "D 16:54:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ];
+
+    for (const line of lines) {
+      engine.applyArenaLine(line);
+    }
+
+    expect(engine.getState()).toMatchObject({
+      status: "complete",
+      draftCount: 29,
+      unresolvedCount: 1
+    });
+    expect(engine.getState().picks).toHaveLength(29);
+  });
+
+  it("keeps all redraft candidates above thirty until an exact deck resolves the ambiguity", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
+    engine.applyArenaLine("D 17:15:01.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 3, Hero Card = HERO_05");
+    for (let index = 0; index < 26; index += 1) {
+      engine.applyArenaLine(`D 17:15:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`);
+    }
+    for (const [index, cardId] of ["TEST_002", "TEST_002", "TEST_003", "TEST_003", "TEST_002"].entries()) {
+      engine.applyArenaLine(`D 17:15:${String(index + 2).padStart(2, "0")}.000 Client chooses: [${cardId}]`);
+    }
+
+    expect(engine.getState()).toMatchObject({ status: "redrafting", picks: expect.any(Array) });
+    expect(engine.getState().picks).toHaveLength(31);
+
+    engine.applyArenaLine("D 17:16:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK");
+
+    expect(engine.getState()).toMatchObject({
+      status: "complete",
+      draftCount: 30,
+      unresolvedCount: 30,
+      deck: []
+    });
+    expect(engine.getState().picks).toHaveLength(31);
+  });
+
+  it("counts only the final legendary preview as a four-card team before normal picks", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: teamDraftCardDb, preferArenaLogPicks: true });
+    engine.applyArenaLine("D 12:00:00.000 SetDraftMode - DRAFTING");
+    expect(engine.applyScreenChoices(["传说预览甲", "传说预览乙", "传说预览丙"])).toBe(true);
+
+    engine.applyArenaLine("D 12:00:01.000 Client chooses: 传说预览甲 (JAIL_851)");
+    engine.applyArenaLine("D 12:00:02.000 Client chooses: 传说预览乙 (TIME_064)");
+    engine.applyArenaLine("D 12:00:03.000 Client chooses: 传说预览甲 (JAIL_851)");
+
+    expect(engine.getState().draftCount).toBe(0);
+    expect(engine.getState().currentChoices).toHaveLength(3);
+
+    engine.applyArenaLine("D 12:00:04.000 Client chooses: 普通选牌 (TEST_001)");
+    expect(engine.getState().draftCount).toBe(5);
+    expect(engine.getState().deck).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: "JAIL_851", count: 1 }),
+      expect.objectContaining({ cardId: "TEST_001", count: 1 })
+    ]));
+    expect(engine.getState()).toMatchObject({ unresolvedCount: 28 });
+
+    for (let slot = 0; slot < 25; slot += 1) {
+      engine.applyArenaLine(`D 12:01:${String(slot).padStart(2, "0")}.000 Client chooses: 普通选牌 (TEST_001)`);
+    }
+    expect(engine.getState()).toMatchObject({ status: "complete", draftCount: 30 });
+    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(27);
+    expect(engine.getState().unresolvedCount).toBe(3);
+  });
+
   it("scores the live choices and builds the arena deck from selected cards", () => {
     const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
 
@@ -140,6 +355,7 @@ D 12:00:02.000 ChoiceCardMgr.WaitThenShowChoices() - id=1 BEGIN
           highWinPickRate: 51,
           highWinThreshold: 6,
           highWinPickRateImpact: 9,
+          deckImpact: 6.3,
           firestone: {
             includedWinrate: 55.25,
             playedWinrate: 58.5,
@@ -163,10 +379,77 @@ D 12:00:02.000 ChoiceCardMgr.WaitThenShowChoices() - id=1 BEGIN
     expect(state.status).toBe("drafting");
     expect(state.draftCount).toBe(2);
     expect(state.deck).toEqual(expect.arrayContaining([
-      expect.objectContaining({ cardId: "TEST_001", name: "Sample Singleton", count: 1 }),
+      expect.objectContaining({ cardId: "TEST_001", name: "Sample Singleton", count: 1, pickRate: 42, deckImpact: 6.3 }),
       expect.objectContaining({ cardId: "TEST_002", name: "Sample Pair", count: 1 })
     ]));
     expect(state.picks[0]).toMatchObject({ slot: 1, chosen: { score: 88 } });
+
+    engine.applyArenaLine("D 12:00:05.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK");
+    engine.markPlaying();
+    expect(engine.getState().deck.find((card) => card.cardId === "TEST_001")).toMatchObject({
+      pickRate: 42,
+      deckImpact: 6.3
+    });
+  });
+
+  it("maps the HERO_04bh Arena hero to Paladin and scores its live choices", () => {
+    const paladinCardDb = createCardDatabase([
+      { dbfId: 700, name: "候选一", cardId: "MIS_700", collectible: true },
+      { dbfId: 918, name: "候选二", cardId: "MIS_918", collectible: true },
+      { dbfId: 848, name: "候选三", cardId: "UNG_848", collectible: true }
+    ]);
+    const paladinRatings: ArenaRatingTable = {
+      source: "test ratings",
+      version: 1,
+      fetchedAt: "2026-07-24T00:00:00.000Z",
+      ratings: {
+        Paladin: {
+          MIS_700: 70,
+          MIS_918: 80,
+          UNG_848: 90
+        }
+      },
+      firestoneClasses: {
+        paladin: {
+          source: "Firestone",
+          playerClass: "paladin",
+          version: "paladin-test",
+          lastUpdated: "2026-07-24T00:00:00.000Z",
+          overallWinrate: 50,
+          ratings: {
+            MIS_700: { includedWinrate: 51, sampleSize: 100, deckImpact: 1 },
+            MIS_918: { includedWinrate: 52, sampleSize: 100, deckImpact: 2 },
+            UNG_848: { includedWinrate: 53, sampleSize: 100, deckImpact: 3 }
+          }
+        }
+      }
+    };
+    const engine = new ArenaDraftEngine({
+      cardDatabase: paladinCardDb,
+      ratings: paladinRatings,
+      preferArenaLogPicks: true
+    });
+
+    engine.applyArenaText([
+      "D 12:00:00.000 Arena.SetDraftMode - DRAFTING",
+      "D 12:00:01.000 DraftManager.OnChosen(): hero=HERO_04bh"
+    ].join("\n"));
+    engine.applyPowerText([
+      "D 12:00:02.000 GameState.DebugPrintEntityChoices() - id=1 Player=Local TaskList=4 ChoiceType=GENERAL CountMin=1 CountMax=1",
+      "D 12:00:02.000 GameState.DebugPrintEntityChoices() -   Entities[0]=[entityName=候选一 id=101 zone=SETASIDE zonePos=0 cardId=MIS_700 player=1]",
+      "D 12:00:02.000 GameState.DebugPrintEntityChoices() -   Entities[1]=[entityName=候选二 id=102 zone=SETASIDE zonePos=0 cardId=MIS_918 player=1]",
+      "D 12:00:02.000 GameState.DebugPrintEntityChoices() -   Entities[2]=[entityName=候选三 id=103 zone=SETASIDE zonePos=0 cardId=UNG_848 player=1]",
+      "D 12:00:02.000 ChoiceCardMgr.WaitThenShowChoices() - id=1 BEGIN"
+    ].join("\n"));
+
+    expect(engine.getState()).toMatchObject({
+      hero: { cardId: "HERO_04bh", className: "Paladin" },
+      currentChoices: [
+        { cardId: "MIS_700", score: 70, rating: { hearthArena: 70, deckImpact: 1 } },
+        { cardId: "MIS_918", score: 80, rating: { hearthArena: 80, deckImpact: 2 } },
+        { cardId: "UNG_848", score: 90, rating: { hearthArena: 90, deckImpact: 3 } }
+      ]
+    });
   });
 
   it("restores draft contents that Hearthstone writes before the drafting mode marker", () => {
@@ -203,11 +486,11 @@ D 17:39:59.6202750 SetDraftMode - ACTIVE_DRAFT_DECK
     const state = engine.getState();
     expect(state.status).toBe("complete");
     expect(state.hero).toEqual(expect.objectContaining({ cardId: "HERO_06", className: "Druid" }));
-    expect(state.draftCount).toBe(30);
+    expect(state.draftCount).toBe(2);
+    expect(state.unresolvedCount).toBe(28);
     expect(state.deck).toEqual(expect.arrayContaining([
       expect.objectContaining({ cardId: "TEST_001", name: "Sample Singleton", count: 1 }),
-      expect.objectContaining({ cardId: "TEST_002", name: "Sample Pair", count: 1 }),
-      expect.objectContaining({ name: "日志缺失的竞技场牌", count: 28 })
+      expect.objectContaining({ cardId: "TEST_002", name: "Sample Pair", count: 1 })
     ]));
   });
 
@@ -244,6 +527,46 @@ D 12:00:00.001 DraftManager.OnChosen(): hero=HERO_05
     expect(engine.applyScreenChoices(["Sample Pair", "Sample Pair", "Sample Multi"])).toBe(false);
   });
 
+  it("uses the rated card when OCR matches duplicate card names", () => {
+    const duplicateNameCardDb = createCardDatabase([
+      { dbfId: 4001, name: "恐狼前锋", cardId: "EX1_162", collectible: true },
+      { dbfId: 4002, name: "恐狼前锋", cardId: "Story_09_DireWolfAlphaPuzzle" },
+      { dbfId: 4003, name: "频率振荡机", cardId: "ETC_106", collectible: true },
+      { dbfId: 4004, name: "宝藏经销商", cardId: "TOY_518", collectible: true },
+      { dbfId: 4005, name: "审判", cardId: "LOE_027", collectible: true },
+      { dbfId: 4006, name: "审判", cardId: "JAIL_326", collectible: true }
+    ]);
+    const duplicateNameRatings: ArenaRatingTable = {
+      source: "test ratings",
+      version: 1,
+      fetchedAt: "2026-07-23T00:00:00.000Z",
+      ratings: { Warlock: { EX1_162: 56, ETC_106: 61, TOY_518: 44, JAIL_326: 70 } },
+      firestone: {
+        source: "Firestone",
+        version: "test",
+        lastUpdated: "2026-07-23T00:00:00.000Z",
+        ratings: { EX1_162: { pickRate: 11.08 }, JAIL_326: { pickRate: 28.5 } }
+      }
+    };
+    const engine = new ArenaDraftEngine({ cardDatabase: duplicateNameCardDb, ratings: duplicateNameRatings });
+    engine.applyArenaText([
+      "D 08:02:58.1840550 SetDraftMode - DRAFTING",
+      "D 08:03:18.1847730 DraftManager.OnChosen(): hero=HERO_07"
+    ].join("\n"));
+
+    expect(engine.applyScreenChoices(["恐狼前锋", "审判", "频率振荡机"])).toBe(true);
+    expect(engine.getState().currentChoices[0]).toMatchObject({
+      cardId: "EX1_162",
+      score: 56,
+      rating: { pickRate: 11.08 }
+    });
+    expect(engine.getState().currentChoices[1]).toMatchObject({
+      cardId: "JAIL_326",
+      score: 70,
+      rating: { pickRate: 28.5 }
+    });
+  });
+
   it("accepts one-character OCR mistakes when the card name match is unambiguous", () => {
     const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings });
     engine.applyArenaText(`
@@ -257,6 +580,29 @@ D 12:00:00.001 DraftManager.OnChosen(): hero=HERO_05
       expect.objectContaining({ cardId: "TEST_001", name: "Sample Singleton" }),
       expect.objectContaining({ cardId: "TEST_002", name: "Sample Pair" })
     ]);
+  });
+
+  it("recovers the noisy long card names observed in real Arena screenshots", () => {
+    for (const noisyName of ["PICK-POK3T改意瓶", "PICK-POKST改意瓶"]) {
+      const normalDraft = new ArenaDraftEngine({ cardDatabase: realOcrCardDb });
+      normalDraft.applyArenaLine("D 12:00:00.000 Arena.SetDraftMode - DRAFTING");
+
+      expect(normalDraft.applyScreenChoices(["鱼人吸血鬼", "寒冰护体", noisyName])).toBe(true);
+      expect(normalDraft.getState().currentChoices).toEqual([
+        expect.objectContaining({ cardId: "TEST_MURLOC", name: "鱼人吸血鬼" }),
+        expect.objectContaining({ cardId: "TEST_BARRIER", name: "寒冰护体" }),
+        expect.objectContaining({ cardId: "JAIL_456", name: "P1CK-P0K3T扒窃机" })
+      ]);
+    }
+
+    const legendaryDraft = new ArenaDraftEngine({ cardDatabase: realOcrCardDb });
+    legendaryDraft.applyArenaLine("D 12:00:00.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(legendaryDraft.applyScreenChoices(["摩拉格", "背叛者高弗雷", "潔员摩洛免。福尔李斯"])).toBe(true);
+    expect(legendaryDraft.getState().currentChoices[2]).toMatchObject({
+      cardId: "TEST_HOLMES",
+      name: "探员摩洛克·福尔摩斯"
+    });
   });
 
   it("ignores orphan Arena picks and non-local or non-draft Power choices", () => {

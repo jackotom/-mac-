@@ -11,7 +11,7 @@
   --opponent-overlay-count: #ffd18d;
   --opponent-overlay-danger: #ffaaa0;
   display: grid;
-  grid-template-rows: 36px auto auto minmax(0, 1fr);
+  grid-template-rows: 36px minmax(0, 1fr);
   gap: 6px;
   width: 100vw;
   height: 100dvh;
@@ -28,8 +28,17 @@
   -webkit-backdrop-filter: blur(16px) saturate(1.18);
 }
 
-.opponent-overlay-shell:not(:has(.opponent-secret-section)) {
-  grid-template-rows: 36px auto minmax(0, 1fr);
+.opponent-overlay-card-groups {
+  border: 1px solid var(--opponent-overlay-line-soft);
+  border-radius: 7px;
+}
+
+.opponent-overlay-shell:has(.overlay-public-counters) {
+  grid-template-rows: 36px 31px minmax(0, 1fr);
+}
+
+.opponent-overlay-shell > .overlay-public-counters {
+  padding-inline: 1px;
 }
 
 .opponent-board-attack {
@@ -54,9 +63,7 @@
 }
 
 .opponent-board-attack button:hover,
-.opponent-board-attack button:focus-visible,
-.opponent-secret-tabs button:hover,
-.opponent-secret-tabs button:focus-visible {
+.opponent-board-attack button:focus-visible {
   border-color: rgba(255, 209, 141, 0.48);
   outline: 2px solid rgba(255, 209, 141, 0.24);
   outline-offset: -2px;
@@ -78,74 +85,80 @@
 
 .opponent-secret-section {
   display: grid;
+  min-width: 0;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
+  align-content: start;
+  overflow: visible;
   border: 1px solid var(--opponent-overlay-line-soft);
   border-radius: 7px;
   background: rgba(16, 24, 30, 0.86);
 }
 
-.opponent-secret-tabs {
-  display: flex;
-  min-height: 30px;
+.opponent-secret-slot {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
   gap: 4px;
-  padding: 4px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--opponent-overlay-line-soft);
 }
 
-.opponent-secret-tabs button {
-  flex: 0 0 auto;
-  min-width: 36px;
-  min-height: 22px;
-  padding: 2px 7px;
-  border: 1px solid rgba(255, 209, 141, 0.3);
-  border-radius: 5px;
+.opponent-secret-slot:last-child {
+  border-bottom: 0;
+}
+
+.opponent-secret-slot-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  padding-top: 5px;
   color: var(--opponent-overlay-count);
-  background: rgba(255, 209, 141, 0.08);
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 800;
-}
-
-.opponent-secret-tabs button[aria-expanded="true"] {
-  color: #11191f;
-  background: var(--opponent-overlay-count);
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .opponent-secret-candidates {
-  display: grid;
-  min-height: 0;
+  display: flex;
+  min-width: 0;
   align-content: start;
   gap: 3px;
   margin: 0;
-  padding: 4px;
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
+  padding: 0;
+  overflow: visible;
+  flex-wrap: wrap;
 }
 
 .opponent-secret-candidates li {
   display: grid;
-  min-height: 28px;
+  min-height: 20px;
+  flex: 1 1 100%;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  padding: 4px 7px;
-  border-radius: 5px;
+  gap: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
   list-style: none;
 }
 
 .opponent-secret-candidates strong {
+  min-width: 0;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 10px;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .opponent-secret-candidates span {
-  font-size: 9.5px;
+  flex: 0 0 auto;
+  font-size: 8.5px;
   font-weight: 750;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -527,13 +540,13 @@ body:has(.opponent-overlay-shell) {
 
 @media (min-height: 400px) {
   .opponent-overlay-shell {
-    grid-template-rows: 40px auto auto minmax(0, 1fr);
+    grid-template-rows: 40px minmax(0, 1fr);
     gap: 7px;
     padding: 8px;
   }
 
-  .opponent-overlay-shell:not(:has(.opponent-secret-section)) {
-    grid-template-rows: 40px auto minmax(0, 1fr);
+  .opponent-overlay-shell:has(.overlay-public-counters) {
+    grid-template-rows: 40px 31px minmax(0, 1fr);
   }
 
   .opponent-overlay-card,
@@ -592,27 +605,51 @@ body:has(.opponent-overlay-shell) {
     width: 28px;
     height: 35px;
   }
+
+  .opponent-secret-slot {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 3px;
+    padding-inline: 3px;
+  }
+
+  .opponent-secret-slot-label {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 120px) {
+  .opponent-overlay-shell .overlay-header {
+    grid-template-columns: minmax(0, 1fr) 6px 17px;
+    gap: 2px;
+    padding: 0 2px;
+  }
+
+  .opponent-overlay-shell .overlay-header strong {
+    font-size: 9px;
+  }
+
+  .opponent-overlay-shell .overlay-header button {
+    width: 17px;
+    height: 17px;
+    min-height: 17px;
+    border-radius: 4px;
+  }
 }
 
 @media (max-height: 260px) {
   .opponent-overlay-shell {
-    grid-template-rows: 32px auto auto minmax(0, 1fr);
+    grid-template-rows: 32px minmax(0, 1fr);
     gap: 5px;
     padding: 6px;
   }
 
-
-  .opponent-overlay-shell:not(:has(.opponent-secret-section)) {
-    grid-template-rows: 32px auto minmax(0, 1fr);
+  .opponent-overlay-shell:has(.overlay-public-counters) {
+    grid-template-rows: 32px 30px minmax(0, 1fr);
   }
 
   .opponent-board-attack button {
     min-height: 26px;
     padding-block: 2px;
-  }
-
-  .opponent-secret-section {
-    max-height: 86px;
   }
 
   .opponent-overlay-card,

@@ -1,6 +1,6 @@
 {
   "name": "hearthstone-mac-tracker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "dist-electron/main/main.js",
@@ -15,24 +15,24 @@
     "verify:release": "bash scripts/verify-release.sh"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
     "chokidar": "^4.0.3",
-    "deckstrings": "^3.1.2",
-    "hearthstonejson-client": "^1.18.0",
-    "lucide-react": "^0.468.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "deckstrings": "^3.1.2"
   },
   "devDependencies": {
+    "@electron/packager": "20.0.3",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
     "electron": "43.1.0",
     "jsdom": "^25.0.1",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^4.1.10",

@@ -11,7 +11,8 @@ const CACHE_FILE_NAME = "hearthstone-cards.zhCN.blizzard.json";
 const LEGACY_ALL_CACHE_FILE_NAME = "hearthstone-cards.zhCN.all.json";
 const LEGACY_CACHE_FILE_NAME = "hearthstone-cards.zhCN.collectible.json";
 const OFFICIAL_CARD_PAGE_SIZE = 200;
-const FETCH_TIMEOUT_MS = 20000;
+const FETCH_TIMEOUT_MS = 6000;
+const OVERALL_FETCH_BUDGET_MS = 15000;
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const SOURCE_NAME = "Blizzard 官方卡牌浏览器";
 
@@ -26,6 +27,7 @@ export interface CardDatabaseLoadResult {
 export interface CardDatabaseLoadOptions {
   readonly preferCache?: boolean;
   readonly forceRefresh?: boolean;
+  readonly cacheMaxAgeMs?: number;
 }
 
 interface CachedCardDatabaseLoadResult extends CardDatabaseLoadResult {
@@ -67,7 +69,7 @@ export class CardDataService {
       return this.toResult(this.cachedDatabase);
     }
 
-    const cached = await this.readCache();
+    const cached = await this.readCache(options.cacheMaxAgeMs);
     if (cached?.database) {
       this.cachedDatabase = cached.database;
       if (!options.forceRefresh && (options.preferCache || (!cached.isStale && !cached.requiresRelatedCardRefresh))) {
@@ -82,6 +84,7 @@ export class CardDataService {
 
   private async refreshOfficial(cached: CachedCardDatabaseLoadResult | undefined): Promise<CardDatabaseLoadResult> {
     let legacyDatabase: CardDatabase | undefined;
+    const overallStartTime = Date.now();
 
     try {
       const version = await this.fetchOfficialSourceVersion();
@@ -89,7 +92,7 @@ export class CardDataService {
         return this.toResult(cached.database, version);
       }
 
-      const officialCards = await this.fetchOfficialCards();
+      const officialCards = await this.fetchOfficialCards(overallStartTime);
       legacyDatabase = await this.readLegacyCardDatabase();
       const mergedCards = mergeOfficialCards(officialCards, legacyDatabase);
       const database = createCardDatabase(mergedCards);
@@ -127,7 +130,7 @@ export class CardDataService {
     }
   }
 
-  private async readCache(): Promise<CachedCardDatabaseLoadResult | undefined> {
+  private async readCache(cacheMaxAgeMs = CACHE_MAX_AGE_MS): Promise<CachedCardDatabaseLoadResult | undefined> {
     try {
       const stat = await fs.stat(this.cachePath);
       const cacheJson = JSON.parse(await fs.readFile(this.cachePath, "utf8")) as unknown;
@@ -151,7 +154,7 @@ export class CardDataService {
         version: parsed.version,
         cardCount: Object.keys(database).length,
         fetchedAt: parsed.fetchedAt,
-        isStale: !Number.isFinite(fetchedAtMs) || Date.now() - fetchedAtMs > CACHE_MAX_AGE_MS,
+        isStale: !Number.isFinite(fetchedAtMs) || Date.now() - fetchedAtMs > cacheMaxAgeMs,
         requiresRelatedCardRefresh
       };
     } catch (error) {
@@ -222,12 +225,17 @@ export class CardDataService {
     return versionMatch[0];
   }
 
-  private async fetchOfficialCards(): Promise<readonly unknown[]> {
+  private async fetchOfficialCards(overallStartTime = Date.now(), budgetMs = OVERALL_FETCH_BUDGET_MS): Promise<readonly unknown[]> {
     const cards: unknown[] = [];
     let page = 1;
     let total: number | undefined;
 
     while (total === undefined || cards.length < total) {
+      const elapsed = Date.now() - overallStartTime;
+      if (elapsed > budgetMs) {
+        throw new Error(`官网卡牌拉取超过整体时间预算（已耗时 ${elapsed}ms，预算 ${budgetMs}ms），提前中断并开始降级。`);
+      }
+
       const payload = (await this.fetchJson(OFFICIAL_CARDS_URL, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },

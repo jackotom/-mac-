@@ -20,6 +20,7 @@ export class LadderDeckOverlayController {
   private refreshPromise: Promise<void> | undefined;
   private displayedMode: LadderMode | undefined;
   private suppressedMode: LadderMode | undefined;
+  private lifecycleGeneration = 0;
 
   constructor(private readonly host: LadderDeckOverlayHost) {}
 
@@ -31,14 +32,17 @@ export class LadderDeckOverlayController {
   }
 
   stop() {
-    if (!this.monitor) return;
-    clearInterval(this.monitor);
-    this.monitor = undefined;
+    this.lifecycleGeneration += 1;
+    if (this.monitor) {
+      clearInterval(this.monitor);
+      this.monitor = undefined;
+    }
   }
 
   refresh(): Promise<void> {
     if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = this.refreshOnce().finally(() => {
+    const generation = this.lifecycleGeneration;
+    this.refreshPromise = this.refreshOnce(generation).finally(() => {
       this.refreshPromise = undefined;
     });
     return this.refreshPromise;
@@ -48,32 +52,45 @@ export class LadderDeckOverlayController {
     this.suppressedMode = resolveLadderDeckMode(this.host.getState());
   }
 
-  private async refreshOnce() {
+  private async refreshOnce(generation: number) {
     const mode = resolveLadderDeckMode(this.host.getState());
     const frontmostAppName = await this.host.getFrontmostAppName();
+    if (generation !== this.lifecycleGeneration) return;
     if (!mode) {
-      if (this.host.hasWindow() && this.host.isVisible()) this.host.hide();
+      if (this.host.hasWindow()) this.host.hide();
       return;
     }
 
     if (this.suppressedMode && this.suppressedMode !== mode) this.suppressedMode = undefined;
     if (this.suppressedMode === mode) {
-      if (this.host.hasWindow() && this.host.isVisible()) this.host.hide();
+      if (this.host.hasWindow()) this.host.hide();
       return;
     }
 
     if (!this.canRemainVisible(frontmostAppName)) {
-      if (this.host.hasWindow() && this.host.isVisible()) this.host.hide();
+      if (this.host.hasWindow()) this.host.hide();
       return;
     }
 
-    if (!this.host.hasWindow()) await this.host.createWindow();
+    if (!this.host.hasWindow()) {
+      try {
+        await this.host.createWindow();
+      } catch (error) {
+        if (generation !== this.lifecycleGeneration) return;
+        throw error;
+      }
+    }
+    if (generation !== this.lifecycleGeneration) {
+      return;
+    }
     if (mode !== this.displayedMode) {
       await this.host.updateMode(mode);
+      if (generation !== this.lifecycleGeneration) return;
       if (resolveLadderDeckMode(this.host.getState()) !== mode) return;
       this.displayedMode = mode;
     }
     const latestFrontmostAppName = await this.host.getFrontmostAppName();
+    if (generation !== this.lifecycleGeneration) return;
     if (!this.canRemainVisible(latestFrontmostAppName) || resolveLadderDeckMode(this.host.getState()) !== mode) return;
     if (!this.host.isVisible()) this.host.showInactive();
   }

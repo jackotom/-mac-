@@ -8,6 +8,8 @@ interface CardHoverPreviewProps {
   details?: CardDetails;
   children: ReactNode;
   className?: string;
+  isRelated?: boolean;
+  onActiveChange?: (isActive: boolean) => void;
 }
 
 const previewGap = 10;
@@ -17,16 +19,18 @@ const externalHideDelayMs = 120;
 let nextExternalPreviewOwnerId = 1;
 let activeExternalPreviewOwnerId: number | undefined;
 
-export function CardHoverPreview({ details, children, className }: CardHoverPreviewProps) {
+export function CardHoverPreview({ details, children, className, isRelated = false, onActiveChange }: CardHoverPreviewProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
   const externalRefreshTimerRef = useRef<number>();
   const externalHideTimerRef = useRef<number>();
   const externalPreviewOwnerIdRef = useRef<number>();
   const lastPointerRef = useRef<{ x: number; y: number }>();
+  const latestDetailsRef = useRef(details);
   const [position, setPosition] = useState<{ top: number; left: number }>();
   const [isPinned, setIsPinned] = useState(false);
   const isPinnedRef = useRef(false);
   const canPreview = Boolean(details);
+  latestDetailsRef.current = details;
   if (externalPreviewOwnerIdRef.current === undefined) {
     externalPreviewOwnerIdRef.current = nextExternalPreviewOwnerId++;
   }
@@ -101,6 +105,8 @@ export function CardHoverPreview({ details, children, className }: CardHoverPrev
       return;
     }
 
+    onActiveChange?.(true);
+
     const rect = anchorRef.current.getBoundingClientRect();
     if (usesExternalCardPreview() && window.hearthstoneTracker?.showCardPreview) {
       showExternalPreview(details, rect);
@@ -121,6 +127,7 @@ export function CardHoverPreview({ details, children, className }: CardHoverPrev
   }
 
   function hidePreview() {
+    onActiveChange?.(false);
     if (usesExternalCardPreview()) {
       stopExternalPreview();
     }
@@ -158,8 +165,13 @@ export function CardHoverPreview({ details, children, className }: CardHoverPrev
       }
 
       clearExternalHideTimer();
+      const latestDetails = latestDetailsRef.current;
+      if (!latestDetails) {
+        hidePreview();
+        return;
+      }
       void window.hearthstoneTracker?.showCardPreview?.({
-        details: nextDetails,
+        details: latestDetails,
         anchorRect: toAnchorRect(anchor.getBoundingClientRect())
       });
     }, 500);
@@ -167,6 +179,7 @@ export function CardHoverPreview({ details, children, className }: CardHoverPrev
 
   function handlePointerLeave() {
     lastPointerRef.current = undefined;
+    onActiveChange?.(false);
     if (!isPinnedRef.current) {
       if (usesExternalCardPreview()) {
         scheduleExternalHide();
@@ -294,7 +307,11 @@ export function CardHoverPreview({ details, children, className }: CardHoverPrev
       ref={anchorRef}
       className={className ? `card-hover-target ${className}` : "card-hover-target"}
       data-preview-pinned={isPinned}
+      data-card-related={isRelated ? "true" : undefined}
+      data-synergy-marker={isRelated ? "配" : undefined}
+      title={isRelated ? "与当前卡牌有配合" : undefined}
       aria-keyshortcuts="Alt+Q"
+      tabIndex={canPreview ? 0 : undefined}
       onMouseEnter={showPreview}
       onMouseMove={handlePointerMove}
       onMouseLeave={handlePointerLeave}

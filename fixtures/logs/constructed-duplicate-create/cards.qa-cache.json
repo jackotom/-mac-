@@ -1,0 +1,11 @@
+{
+  "source": "匿名实战回放卡牌库",
+  "version": "constructed-duplicate-1",
+  "fetchedAt": "2026-07-21T00:00:00.000Z",
+  "cards": [
+    { "dbfId": 1, "name": "测试卡", "cardId": "TEST_CARD", "type": "SPELL" },
+    { "dbfId": 2, "name": "追踪术", "cardId": "CORE_DS1_184", "type": "SPELL" },
+    { "dbfId": 3, "name": "精英牛头人歌王", "cardId": "JAM_037", "type": "MINION" },
+    { "dbfId": 4, "name": "指挥官碧阿崔克丝", "cardId": "JAIL_397", "type": "MINION" }
+  ]
+}

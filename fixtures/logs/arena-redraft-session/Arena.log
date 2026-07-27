@@ -1,0 +1,33 @@
+D 12:00:00.000 Arena.SetDraftMode - REDRAFTING
+D 12:00:00.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9000000002
+D 12:00:00.200 DraftManager.OnChoicesAndContents - Draft Deck ID: 9000000001, Hero Card = HERO_03
+D 12:00:00.201 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_01
+D 12:00:00.202 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_02
+D 12:00:00.203 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_03
+D 12:00:00.204 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_04
+D 12:00:00.205 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_05
+D 12:00:00.206 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_06
+D 12:00:00.207 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_07
+D 12:00:00.208 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_08
+D 12:00:00.209 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_09
+D 12:00:00.210 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_10
+D 12:00:00.211 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_11
+D 12:00:00.212 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_12
+D 12:00:00.213 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_13
+D 12:00:00.214 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_14
+D 12:00:00.215 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_15
+D 12:00:00.216 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_16
+D 12:00:00.217 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_17
+D 12:00:00.218 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_18
+D 12:00:00.219 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_19
+D 12:00:00.220 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_20
+D 12:00:00.221 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_21
+D 12:00:00.222 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_22
+D 12:00:00.223 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_23
+D 12:00:00.224 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_ARENA_24
+D 12:00:01.000 Client chooses: 测试重选牌25 (TEST_ARENA_25)
+D 12:00:02.000 Client chooses: 测试重选牌26 (TEST_ARENA_26)
+D 12:00:03.000 Client chooses: 测试重选牌27 (TEST_ARENA_27)
+D 12:00:04.000 Client chooses: 测试重选牌28 (TEST_ARENA_28)
+D 12:00:05.000 Client chooses: 测试重选牌29 (TEST_ARENA_29)
+D 12:00:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK

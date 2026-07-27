@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CardHoverPreview } from "../src/renderer/components/CardHoverPreview";
 import type { CardDetails } from "../src/shared/cardDatabase";
@@ -453,6 +453,46 @@ describe("CardHoverPreview", () => {
     vi.advanceTimersByTime(130);
 
     expect(hideCardPreview).not.toHaveBeenCalled();
+  });
+
+  it("shows the Galactic Projection Orb spell history and its empty state in the local preview", () => {
+    const projectionOrbDetails: CardDetails = {
+      dbfId: 103354,
+      cardId: "TOY_378",
+      name: "星空投影球",
+      manaCost: 10,
+      cardType: "法术",
+      isSpell: true,
+      relatedCards: [],
+      playedSpellsThisGame: [
+        { dbfId: 1, cardId: "CORE_CS2_024", name: "寒冰箭", manaCost: 2 },
+        { dbfId: 1, cardId: "CORE_CS2_024", name: "寒冰箭", manaCost: 2 },
+        { dbfId: 2, cardId: "CORE_CATA_009", name: "死神之躯", manaCost: 8 }
+      ]
+    };
+    const { rerender } = render(
+      <CardHoverPreview details={projectionOrbDetails}>
+        <button type="button">星空投影球</button>
+      </CardHoverPreview>
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "星空投影球" }));
+
+    const populatedTooltip = screen.getByRole("tooltip");
+    expect(populatedTooltip).toHaveTextContent("本局已施放法术（3）");
+    expect(within(populatedTooltip).getAllByText(/^(?:寒冰箭|死神之躯)$/).map((item) => item.textContent)).toEqual([
+      "寒冰箭",
+      "寒冰箭",
+      "死神之躯"
+    ]);
+
+    rerender(
+      <CardHoverPreview details={{ ...projectionOrbDetails, playedSpellsThisGame: [] }}>
+        <button type="button">星空投影球</button>
+      </CardHoverPreview>
+    );
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent("本局还没有施放过法术");
   });
 
   it("keeps the in-page tooltip outside overlay mode", () => {

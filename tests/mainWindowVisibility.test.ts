@@ -1,9 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { shouldHandleAppActivate, shouldShowMainWindowOnLaunch } from "../src/main/mainWindowVisibility";
+import { describe, expect, it, vi } from "vitest";
+import {
+  presentMainWindow,
+  shouldHandleAppActivate,
+  shouldShowMainWindowOnLaunch
+} from "../src/main/mainWindowVisibility";
 
 describe("main window launch visibility", () => {
-  it("keeps a normal launch in the background", () => {
-    expect(shouldShowMainWindowOnLaunch({})).toBe(false);
+  it("shows a normal launch for a new user", () => {
+    expect(shouldShowMainWindowOnLaunch({})).toBe(true);
+  });
+
+  it("keeps a normal launch in the background when start minimized is enabled", () => {
+    expect(shouldShowMainWindowOnLaunch({}, true)).toBe(false);
   });
 
   it("shows the main window for a main-window QA screenshot", () => {
@@ -26,10 +34,70 @@ describe("main window launch visibility", () => {
     })).toBe(false);
   });
 
+  it("keeps the main window hidden when QA is capturing the ladder recommendation overlay", () => {
+    expect(shouldShowMainWindowOnLaunch({
+      QA_SCREENSHOT_PATH: "/tmp/ladder.png",
+      QA_EXIT_AFTER_SCREENSHOT: "1",
+      QA_OPEN_LADDER_DECK_OVERLAY: "1"
+    })).toBe(false);
+  });
+
+  it("keeps the main window hidden when QA is capturing the Arena hero ranking", () => {
+    expect(shouldShowMainWindowOnLaunch({
+      QA_SCREENSHOT_PATH: "/tmp/hero-ranking.png",
+      QA_EXIT_AFTER_SCREENSHOT: "1",
+      QA_OPEN_ARENA_HERO_RANKING_OVERLAY: "1"
+    })).toBe(false);
+  });
+
+  it("keeps the main window hidden when QA is capturing the three-window layout", () => {
+    expect(shouldShowMainWindowOnLaunch({
+      QA_SCREENSHOT_PATH: "/tmp/three-window-layout.png",
+      QA_EXIT_AFTER_SCREENSHOT: "1",
+      QA_OPEN_THREE_WINDOW_LAYOUT: "1"
+    })).toBe(false);
+  });
+
   it("ignores the launch activate event and handles later user activation", () => {
     expect(shouldHandleAppActivate(false, false, 10_000, 9_000)).toBe(false);
     expect(shouldHandleAppActivate(true, false, 8_999, 9_000)).toBe(false);
     expect(shouldHandleAppActivate(true, false, 9_000, 9_000)).toBe(true);
     expect(shouldHandleAppActivate(true, true, 1_000, 9_000)).toBe(true);
+  });
+
+  it("never raises the main window during an overlay-only QA capture", () => {
+    expect(shouldHandleAppActivate(true, true, 10_000, 9_000, true)).toBe(false);
+  });
+
+  it("shows inactive without calling either focus API when focus on open is disabled", () => {
+    const calls: string[] = [];
+    const window = {
+      isMinimized: () => true,
+      restore: () => calls.push("restore"),
+      show: () => calls.push("show"),
+      showInactive: () => calls.push("showInactive"),
+      focus: () => calls.push("focus")
+    };
+    const focusApplication = vi.fn(() => calls.push("app.focus"));
+
+    presentMainWindow(window, false, focusApplication);
+
+    expect(calls).toEqual(["restore", "showInactive"]);
+    expect(focusApplication).not.toHaveBeenCalled();
+  });
+
+  it("brings the window forward once when focus on open is enabled", () => {
+    const calls: string[] = [];
+    const window = {
+      isMinimized: () => false,
+      restore: () => calls.push("restore"),
+      show: () => calls.push("show"),
+      showInactive: () => calls.push("showInactive"),
+      focus: () => calls.push("focus")
+    };
+
+    presentMainWindow(window, true, () => calls.push("app.focus"));
+
+    expect(calls).toEqual(["app.focus", "show", "focus"]);
   });
 });

@@ -5,6 +5,7 @@ export interface ArenaRatingTable {
   readonly ratings: Readonly<Record<string, Readonly<Record<string, number>>>>;
   readonly hearthArenaWeb?: HearthArenaWebRatingSource;
   readonly firestone?: FirestoneRatingSource;
+  readonly firestoneClasses?: Readonly<Record<string, FirestoneClassRatingSource>>;
 }
 
 export interface HearthArenaWebLocaleRatingSource {
@@ -24,6 +25,7 @@ export interface HearthArenaWebRatingSource {
 
 export interface FirestoneCardRating {
   readonly includedWinrate?: number;
+  readonly includedWins?: number;
   readonly playedWinrate?: number;
   readonly sampleSize?: number;
   readonly pickRate?: number;
@@ -35,6 +37,7 @@ export interface FirestoneCardRating {
   readonly twelveWinRate?: number;
   readonly twelveWinRateSampleSize?: number;
   readonly draftBuckets?: Readonly<Record<string, FirestoneDraftBucket>>;
+  readonly deckImpact?: number;
 }
 
 export interface FirestoneDraftBucket {
@@ -50,6 +53,17 @@ export interface FirestoneRatingSource {
   readonly ratings: Readonly<Record<string, FirestoneCardRating>>;
 }
 
+export interface FirestoneClassRatingSource {
+  readonly source: "Firestone";
+  readonly playerClass: string;
+  readonly version: string;
+  readonly lastUpdated: string;
+  readonly overallWinrate: number;
+  readonly overallWins?: number;
+  readonly overallGames?: number;
+  readonly ratings: Readonly<Record<string, FirestoneCardRating>>;
+}
+
 export interface ArenaCardRating {
   readonly hearthArena?: number;
   readonly pickRate?: number;
@@ -57,6 +71,7 @@ export interface ArenaCardRating {
   readonly highWinThreshold?: number;
   readonly highWinPickRateImpact?: number;
   readonly twelveWinRate?: number;
+  readonly deckImpact?: number;
   readonly firestone?: FirestoneCardRating;
 }
 
@@ -72,8 +87,11 @@ export function getArenaScore(table: ArenaRatingTable | undefined, cardId: strin
     return undefined;
   }
 
-  const normalizedCardId = cardId.trim().toUpperCase();
-  return getHearthArenaWebScore(table.hearthArenaWeb, normalizedCardId, className) ?? getScoreFromRatings(table.ratings, normalizedCardId, className);
+  for (const candidate of arenaCardIdCandidates(cardId)) {
+    const score = getHearthArenaWebScore(table.hearthArenaWeb, candidate, className) ?? getScoreFromRatings(table.ratings, candidate, className);
+    if (score !== undefined) return score;
+  }
+  return undefined;
 }
 
 export function getArenaCardRating(
@@ -85,10 +103,14 @@ export function getArenaCardRating(
     return undefined;
   }
 
-  const normalizedCardId = cardId.trim().toUpperCase();
+  const candidates = arenaCardIdCandidates(cardId);
   const hearthArena = getArenaScore(table, cardId, className);
-  const firestone = table.firestone?.ratings[normalizedCardId];
-  if (hearthArena === undefined && !firestone) {
+  const firestone = candidates.map((candidate) => table.firestone?.ratings[candidate]).find(Boolean);
+  const classSlug = toFirestoneClassSlug(className);
+  const classFirestone = classSlug
+    ? candidates.map((candidate) => table.firestoneClasses?.[classSlug]?.ratings[candidate]).find(Boolean)
+    : undefined;
+  if (hearthArena === undefined && !firestone && !classFirestone) {
     return undefined;
   }
 
@@ -99,8 +121,33 @@ export function getArenaCardRating(
     highWinThreshold: firestone?.highWinThreshold,
     highWinPickRateImpact: firestone?.highWinPickRateImpact,
     twelveWinRate: firestone?.twelveWinRate,
+    deckImpact: classFirestone?.deckImpact,
     firestone
   };
+}
+
+export function toFirestoneClassSlug(className: string | undefined): string | undefined {
+  const slug = className?.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return slug && FIRESTONE_CLASS_SLUGS.has(slug) ? slug : undefined;
+}
+
+const FIRESTONE_CLASS_SLUGS = new Set([
+  "deathknight",
+  "demonhunter",
+  "druid",
+  "hunter",
+  "mage",
+  "paladin",
+  "priest",
+  "rogue",
+  "shaman",
+  "warlock",
+  "warrior"
+]);
+
+function arenaCardIdCandidates(cardId: string): string[] {
+  const exact = cardId.trim().toUpperCase();
+  return exact.startsWith("CORE_") ? [exact, exact.slice("CORE_".length)] : [exact];
 }
 
 export function getArenaScoreSourceLabel(table: ArenaRatingTable | undefined): string | undefined {

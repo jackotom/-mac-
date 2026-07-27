@@ -2,9 +2,11 @@ import { app } from "electron";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { toFirestoneClassSlug } from "../shared/arenaRatings.js";
 import type {
   ArenaRatingTable,
   FirestoneCardRating,
+  FirestoneClassRatingSource,
   FirestoneDraftBucket,
   FirestoneRatingSource,
   HearthArenaWebLocaleRatingSource,
@@ -15,6 +17,7 @@ const SOURCE = "Arena Tracker / HearthArena";
 const VERSION_URL = "https://raw.githubusercontent.com/supertriodo/Arena-Tracker/master/HearthArena/haVersion.json";
 const RATINGS_URL = "https://raw.githubusercontent.com/supertriodo/Arena-Tracker/master/HearthArena/hearthArena.json";
 const FIRESTONE_CARD_STATS_URL = "https://static.zerotoheroes.com/api/arena/stats/cards/arena-underground/last-patch/global.gz.json?v=6";
+const FIRESTONE_CLASS_OVERVIEW_URL = "https://static.zerotoheroes.com/api/arena/stats/classes/arena-underground/last-patch/overview.gz.json";
 const FIRESTONE_DRAFT_STATS_URLS = [
   "https://static.zerotoheroes.com/api/arena/stats/draft/arena/last-patch/global.gz.json?v=6",
   "https://static.zerotoheroes.com/api/arena/stats/draft/arena-underground/last-patch/global.gz.json?v=6"
@@ -25,7 +28,9 @@ const HEARTH_ARENA_WEB_SOURCES = [
 ] as const;
 const CACHE_FILE_NAME = "hearthstone-arena-ratings.json";
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 20000;
+const FETCH_TIMEOUT_MS = 5000;
+const FETCH_RETRY_DELAY_MS = 150;
+const FETCH_ATTEMPTS = 2;
 const HEARTH_ARENA_CLASS_BY_SLUG: Readonly<Record<string, string>> = {
   "death-knight": "Death Knight",
   "demon-hunter": "Demon Hunter",
@@ -45,33 +50,237 @@ const HEARTH_ARENA_CLASS_BY_SLUG: Readonly<Record<string, string>> = {
 export interface ArenaRatingLoadResult {
   readonly table?: ArenaRatingTable;
   readonly warnings: readonly string[];
+  readonly firestoneClassCacheStatus?: "fresh" | "stale" | "missing";
 }
 
 export class ArenaRatingService {
   private readonly cachePath: string | undefined;
   private readonly fetcher: typeof fetch;
   private cachedTable: ArenaRatingTable | undefined;
+  private cachedTableLoadedAt = 0;
+  private baseRefreshPromise: Promise<void> | undefined;
+  private baseRefreshWarning: string | undefined;
+  private readonly firestoneClassLoadedAt = new Map<string, number>();
+  private readonly firestoneClassRefreshPromises = new Map<string, Promise<ArenaRatingLoadResult>>();
+  private readonly firestoneClassRefreshWarnings = new Map<string, string>();
 
   constructor(cachePath?: string, fetcher: typeof fetch = fetch) {
     this.cachePath = cachePath;
     this.fetcher = fetcher;
   }
 
-  async loadRatings(): Promise<ArenaRatingLoadResult> {
+  async loadRatings(className?: string): Promise<ArenaRatingLoadResult> {
+    const base = await this.loadBaseRatings();
+    const classSlug = toFirestoneClassSlug(className);
+    const classLoadedAt = classSlug ? this.firestoneClassLoadedAt.get(classSlug) : undefined;
+    if (
+      !base.table ||
+      !classSlug ||
+      (base.table.firestoneClasses?.[classSlug] && classLoadedAt !== undefined && Date.now() - classLoadedAt < CACHE_MAX_AGE_MS)
+    ) {
+      return classSlug && base.table?.firestoneClasses?.[classSlug]
+        ? { ...base, firestoneClassCacheStatus: "fresh" }
+        : base;
+    }
+
+    const cachedClass = base.table.firestoneClasses?.[classSlug] ?? await this.readFirestoneClassCache(classSlug);
+    if (cachedClass) {
+      const table = this.mergeFirestoneClass(base.table, cachedClass);
+      if (!(await this.isClassCacheStale(classSlug))) {
+        this.firestoneClassLoadedAt.set(classSlug, Date.now());
+        return {
+          table,
+          warnings: base.warnings,
+          firestoneClassCacheStatus: "fresh"
+        };
+      }
+
+      this.startFirestoneClassRefresh(table, classSlug);
+      return {
+        table,
+        warnings: [
+          ...base.warnings,
+          this.firestoneClassRefreshWarnings.get(classSlug)
+            ?? `Firestone ${classSlug} 卡组影响缓存已过期，正在后台更新；继续使用本地缓存`
+        ],
+        firestoneClassCacheStatus: "stale"
+      };
+    }
+
+    const classResult = await this.getFirestoneClassRefresh(base.table, classSlug);
+    const source = classResult.table?.firestoneClasses?.[classSlug];
+    const mergedTable = source ? this.mergeFirestoneClass(this.cachedTable ?? base.table, source) : base.table;
+    if (classResult.firestoneClassCacheStatus === "fresh") {
+      this.firestoneClassLoadedAt.set(classSlug, Date.now());
+    } else {
+      this.firestoneClassLoadedAt.delete(classSlug);
+    }
+    return {
+      table: mergedTable ?? base.table,
+      warnings: [...base.warnings, ...classResult.warnings],
+      firestoneClassCacheStatus: classResult.firestoneClassCacheStatus
+    };
+  }
+
+  private async loadBaseRatings(): Promise<ArenaRatingLoadResult> {
+    if (this.cachedTable && Date.now() - this.cachedTableLoadedAt < CACHE_MAX_AGE_MS) {
+      const warnings = this.baseRefreshWarning ? [this.baseRefreshWarning] : [];
+      return { table: this.cachedTable, warnings };
+    }
+
     if (this.cachedTable) {
-      return { table: this.cachedTable, warnings: [] };
+      this.startBaseRefresh(this.cachedTable);
+      return {
+        table: this.cachedTable,
+        warnings: [
+          this.baseRefreshWarning
+            ?? `竞技场评分缓存已过期，正在后台更新；继续使用本地 v${this.cachedTable.version}`
+        ]
+      };
     }
 
     const cached = await this.readCache();
     if (cached) {
       this.cachedTable = cached;
-      if (!cached.firestone || !hasFirestoneDraftStats(cached.firestone) || !hasHearthArenaWebStats(cached.hearthArenaWeb) || (await this.isStale())) {
+      if (!cached.firestone || !hasFirestoneDraftStats(cached.firestone) || !hasHearthArenaWebStats(cached.hearthArenaWeb)) {
+        this.cachedTableLoadedAt = 0;
         return this.refresh(cached);
       }
+      if (await this.isStale()) {
+        this.cachedTableLoadedAt = 0;
+        this.startBaseRefresh(cached);
+        return {
+          table: cached,
+          warnings: [`竞技场评分缓存已过期，正在后台更新；继续使用本地 v${cached.version}`]
+        };
+      }
+      this.cachedTableLoadedAt = Date.now();
       return { table: cached, warnings: [] };
     }
 
     return this.refresh(undefined);
+  }
+
+  private startBaseRefresh(cached: ArenaRatingTable): void {
+    if (this.baseRefreshPromise) {
+      return;
+    }
+    const promise = this.refresh(cached)
+      .then((result) => {
+        this.baseRefreshWarning = result.warnings[0];
+      })
+      .catch((error) => {
+        this.baseRefreshWarning = `竞技场评分更新失败，继续使用本地 v${cached.version}：${formatError(error)}`;
+      })
+      .finally(() => {
+        if (this.baseRefreshPromise === promise) {
+          this.baseRefreshPromise = undefined;
+        }
+      });
+    this.baseRefreshPromise = promise;
+  }
+
+  private startFirestoneClassRefresh(table: ArenaRatingTable, classSlug: string): void {
+    void this.getFirestoneClassRefresh(table, classSlug)
+      .then((result) => {
+        const source = result.table?.firestoneClasses?.[classSlug];
+        if (source) {
+          this.mergeFirestoneClass(this.cachedTable ?? table, source);
+        }
+        if (result.firestoneClassCacheStatus === "fresh") {
+          this.firestoneClassLoadedAt.set(classSlug, Date.now());
+          this.firestoneClassRefreshWarnings.delete(classSlug);
+        } else {
+          this.firestoneClassLoadedAt.delete(classSlug);
+          if (result.warnings[0]) {
+            this.firestoneClassRefreshWarnings.set(classSlug, result.warnings[0]);
+          }
+        }
+      })
+      .catch((error) => {
+        this.firestoneClassLoadedAt.delete(classSlug);
+        this.firestoneClassRefreshWarnings.set(
+          classSlug,
+          `Firestone ${classSlug} 卡组影响更新失败，继续使用本地缓存：${formatError(error)}`
+        );
+      });
+  }
+
+  private getFirestoneClassRefresh(
+    table: ArenaRatingTable,
+    classSlug: string
+  ): Promise<ArenaRatingLoadResult> {
+    const active = this.firestoneClassRefreshPromises.get(classSlug);
+    if (active) {
+      return active;
+    }
+    const promise = this.loadFirestoneClassRatings(table, classSlug)
+      .finally(() => {
+        if (this.firestoneClassRefreshPromises.get(classSlug) === promise) {
+          this.firestoneClassRefreshPromises.delete(classSlug);
+        }
+      });
+    this.firestoneClassRefreshPromises.set(classSlug, promise);
+    return promise;
+  }
+
+  private mergeFirestoneClass(table: ArenaRatingTable, source: FirestoneClassRatingSource): ArenaRatingTable {
+    const latestTable = this.cachedTable ?? table;
+    const mergedTable = withFirestoneClass(latestTable, source);
+    this.cachedTable = mergedTable;
+    return mergedTable;
+  }
+
+  private async loadFirestoneClassRatings(
+    table: ArenaRatingTable,
+    classSlug: string
+  ): Promise<ArenaRatingLoadResult> {
+    const cached = await this.readFirestoneClassCache(classSlug);
+    if (cached && !(await this.isClassCacheStale(classSlug))) {
+      return { table: withFirestoneClass(table, cached), warnings: [], firestoneClassCacheStatus: "fresh" };
+    }
+
+    try {
+      const [overviewPayload, cardPayload] = await Promise.all([
+        this.fetchJson(FIRESTONE_CLASS_OVERVIEW_URL),
+        this.fetchJson(firestoneClassCardsUrl(classSlug))
+      ]);
+      const source = parseFirestoneClass(overviewPayload, cardPayload, classSlug);
+      const cachePath = this.getClassCachePath(classSlug);
+      await fs.mkdir(path.dirname(cachePath), { recursive: true });
+      await fs.writeFile(cachePath, JSON.stringify(source), "utf8");
+      return { table: withFirestoneClass(table, source), warnings: [], firestoneClassCacheStatus: "fresh" };
+    } catch (error) {
+      if (cached) {
+        return {
+          table: withFirestoneClass(table, cached),
+          warnings: [`Firestone ${classSlug} 卡组影响更新失败，继续使用本地缓存：${formatError(error)}`],
+          firestoneClassCacheStatus: "stale"
+        };
+      }
+      return {
+        table,
+        warnings: [`Firestone ${classSlug} 卡组影响读取失败：${formatError(error)}`],
+        firestoneClassCacheStatus: "missing"
+      };
+    }
+  }
+
+  private async readFirestoneClassCache(classSlug: string): Promise<FirestoneClassRatingSource | undefined> {
+    try {
+      return parseFirestoneClassCache(JSON.parse(await fs.readFile(this.getClassCachePath(classSlug), "utf8")), classSlug);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async isClassCacheStale(classSlug: string) {
+    try {
+      const stat = await fs.stat(this.getClassCachePath(classSlug));
+      return Date.now() - stat.mtimeMs > CACHE_MAX_AGE_MS;
+    } catch {
+      return true;
+    }
   }
 
   private async refresh(cached: ArenaRatingTable | undefined): Promise<ArenaRatingLoadResult> {
@@ -94,7 +303,10 @@ export class ArenaRatingService {
         !hasFirestoneDraftStats(cached.firestone);
 
       if (!needsHearthArena && !needsHearthArenaWeb && !needsFirestone && cached) {
-        return { table: cached, warnings };
+        const table = preserveFirestoneClasses(cached, this.cachedTable);
+        this.cachedTable = table;
+        this.cachedTableLoadedAt = Date.now();
+        return { table, warnings };
       }
 
       const ratings = needsHearthArena ? parseRatings(await this.fetchJson(RATINGS_URL)) : cached?.ratings;
@@ -146,16 +358,21 @@ export class ArenaRatingService {
         fetchedAt: new Date().toISOString(),
         ratings,
         hearthArenaWeb,
-        firestone
+        firestone,
+        firestoneClasses: this.cachedTable?.firestoneClasses ?? cached?.firestoneClasses
       };
       const cachePath = this.getCachePath();
       await fs.mkdir(path.dirname(cachePath), { recursive: true });
       await fs.writeFile(cachePath, JSON.stringify(table), "utf8");
       this.cachedTable = table;
+      this.cachedTableLoadedAt = Date.now();
       return { table, warnings };
     } catch (error) {
       if (cached) {
-        return { table: cached, warnings: [`竞技场评分更新失败，继续使用本地 v${cached.version}：${formatError(error)}`] };
+        const table = preserveFirestoneClasses(cached, this.cachedTable);
+        this.cachedTable = table;
+        this.cachedTableLoadedAt = 0;
+        return { table, warnings: [`竞技场评分更新失败，继续使用本地 v${cached.version}：${formatError(error)}`] };
       }
       return { warnings: [`竞技场评分读取失败：${formatError(error)}`] };
     }
@@ -183,38 +400,47 @@ export class ArenaRatingService {
     return this.cachePath ?? path.join(app.getPath("userData"), CACHE_FILE_NAME);
   }
 
+  private getClassCachePath(classSlug: string): string {
+    const parsed = path.parse(this.getCachePath());
+    return path.join(parsed.dir, `${parsed.name}-firestone-${classSlug}${parsed.ext || ".json"}`);
+  }
+
   private async fetchJson(url: string): Promise<unknown> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const response = await this.fetcher(url, { headers: { accept: "application/json" }, signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    return this.withShortRetry(async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const response = await this.fetcher(url, { headers: { accept: "application/json" }, signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+      } finally {
+        clearTimeout(timeout);
       }
-      return response.json();
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   private async fetchText(url: string): Promise<string> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const response = await this.fetcher(url, {
-        headers: {
-          accept: "text/html,application/xhtml+xml",
-          "user-agent": "Mozilla/5.0 HearthstoneMacTracker/0.1"
-        },
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    return this.withShortRetry(async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const response = await this.fetcher(url, {
+          headers: {
+            accept: "text/html,application/xhtml+xml",
+            "user-agent": "Mozilla/5.0 HearthstoneMacTracker/0.1"
+          },
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.text();
+      } finally {
+        clearTimeout(timeout);
       }
-      return response.text();
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   private async fetchFirestoneVersion(): Promise<string> {
@@ -226,27 +452,67 @@ export class ArenaRatingService {
   }
 
   private async fetchVersionHeader(url: string): Promise<string> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const response = await this.fetcher(url, {
-        method: "HEAD",
-        headers: { accept: "application/json" },
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+    return this.withShortRetry(async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const response = await this.fetcher(url, {
+          method: "HEAD",
+          headers: { accept: "application/json" },
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
 
-      const version = response.headers.get("last-modified") ?? response.headers.get("etag");
-      if (!version) {
-        throw new Error("Firestone 评分版本号未找到");
+        const version = response.headers.get("last-modified") ?? response.headers.get("etag");
+        if (!version) {
+          throw new Error("Firestone 评分版本号未找到");
+        }
+        return version;
+      } finally {
+        clearTimeout(timeout);
       }
-      return version;
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
+
+  private async withShortRetry<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        if (attempt + 1 >= FETCH_ATTEMPTS || !isRetryableFetchError(error)) {
+          throw error;
+        }
+        await delay(FETCH_RETRY_DELAY_MS);
+      }
+    }
+    throw lastError;
+  }
+}
+
+function preserveFirestoneClasses(
+  base: ArenaRatingTable,
+  latest: ArenaRatingTable | undefined
+): ArenaRatingTable {
+  const firestoneClasses = latest?.firestoneClasses ?? base.firestoneClasses;
+  return firestoneClasses ? { ...base, firestoneClasses } : base;
+}
+
+function isRetryableFetchError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = /^HTTP (\d+)$/.exec(message)?.[1];
+  if (!status) {
+    return true;
+  }
+  const code = Number(status);
+  return code === 408 || code === 429 || code >= 500;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function parseCachedTable(value: unknown): ArenaRatingTable | undefined {
@@ -388,6 +654,134 @@ function parseFirestone(value: unknown, draftValue: unknown | readonly unknown[]
     lastUpdated: value.lastUpdated,
     ratings
   };
+}
+
+function parseFirestoneClass(
+  overviewValue: unknown,
+  cardValue: unknown,
+  classSlug: string
+): FirestoneClassRatingSource {
+  if (!isRecord(overviewValue) || typeof overviewValue.lastUpdated !== "string" || !Array.isArray(overviewValue.stats)) {
+    throw new Error("Firestone 职业基准数据格式无效");
+  }
+  if (!isRecord(cardValue) || typeof cardValue.lastUpdated !== "string" || !Array.isArray(cardValue.stats)) {
+    throw new Error("Firestone 职业单卡数据格式无效");
+  }
+
+  const classStats = overviewValue.stats.filter(
+    (entry): entry is Record<string, unknown> => isRecord(entry) && entry.playerClass === classSlug
+  );
+  if (!classStats.length) {
+    throw new Error(`Firestone 职业基准未找到：${classSlug}`);
+  }
+  const validClassStats = classStats
+    .map((entry) => ({ wins: numberValue(entry.totalsWins), games: numberValue(entry.totalGames) }))
+    .filter((entry): entry is { wins: number; games: number } => entry.wins !== undefined && entry.games !== undefined);
+  const overallWins = validClassStats.reduce((total, entry) => total + entry.wins, 0);
+  const overallGames = validClassStats.reduce((total, entry) => total + entry.games, 0);
+  const overallRatio = ratioValue(overallWins, overallGames);
+  if (overallRatio === undefined) {
+    throw new Error(`Firestone 职业基准样本无效：${classSlug}`);
+  }
+  const overallWinrate = roundPercent(overallRatio * 100);
+
+  const ratings: Record<string, FirestoneCardRating> = {};
+  for (const entry of cardValue.stats) {
+    if (!isRecord(entry) || typeof entry.cardId !== "string" || !isRecord(entry.stats)) {
+      continue;
+    }
+    const sampleSize = numberValue(entry.stats.decksWithCard);
+    const includedWins = numberValue(entry.stats.decksWithCardThenWin);
+    const includedRatio = ratioValue(includedWins, sampleSize);
+    if (includedRatio === undefined) {
+      continue;
+    }
+    const includedWinrate = roundPercent(includedRatio * 100);
+    ratings[entry.cardId.trim().toUpperCase()] = {
+      includedWinrate,
+      includedWins,
+      sampleSize,
+      deckImpact: roundPercent((includedRatio - overallRatio) * 100)
+    };
+  }
+
+  return {
+    source: "Firestone",
+    playerClass: classSlug,
+    version: `overview:${overviewValue.lastUpdated}|cards:${cardValue.lastUpdated}`,
+    lastUpdated: [overviewValue.lastUpdated, cardValue.lastUpdated].sort().at(-1)!,
+    overallWinrate,
+    overallWins,
+    overallGames,
+    ratings
+  };
+}
+
+function parseFirestoneClassCache(value: unknown, classSlug: string): FirestoneClassRatingSource | undefined {
+  const overallWins = isRecord(value) ? numberValue(value.overallWins) : undefined;
+  const overallGames = isRecord(value) ? numberValue(value.overallGames) : undefined;
+  const overallRatio = ratioValue(overallWins, overallGames);
+  if (
+    !isRecord(value) ||
+    value.source !== "Firestone" ||
+    value.playerClass !== classSlug ||
+    typeof value.version !== "string" ||
+    typeof value.lastUpdated !== "string" ||
+    overallRatio === undefined ||
+    !isRecord(value.ratings)
+  ) {
+    return undefined;
+  }
+  const overallWinrate = roundPercent(overallRatio * 100);
+
+  const ratings: Record<string, FirestoneCardRating> = {};
+  for (const [cardId, rawRating] of Object.entries(value.ratings)) {
+    if (!isRecord(rawRating)) {
+      continue;
+    }
+    const rating: FirestoneCardRating = {
+      includedWins: numberValue(rawRating.includedWins),
+      sampleSize: numberValue(rawRating.sampleSize)
+    };
+    const includedRatio = ratioValue(rating.includedWins, rating.sampleSize);
+    if (
+      includedRatio !== undefined
+    ) {
+      ratings[cardId.trim().toUpperCase()] = {
+        ...rating,
+        includedWinrate: roundPercent(includedRatio * 100),
+        deckImpact: roundPercent((includedRatio - overallRatio) * 100)
+      };
+    }
+  }
+
+  return {
+    source: "Firestone",
+    playerClass: classSlug,
+    version: value.version,
+    lastUpdated: value.lastUpdated,
+    overallWinrate,
+    overallWins,
+    overallGames,
+    ratings
+  };
+}
+
+function withFirestoneClass(
+  table: ArenaRatingTable,
+  source: FirestoneClassRatingSource
+): ArenaRatingTable {
+  return {
+    ...table,
+    firestoneClasses: {
+      ...table.firestoneClasses,
+      [source.playerClass]: source
+    }
+  };
+}
+
+function firestoneClassCardsUrl(classSlug: string) {
+  return `https://static.zerotoheroes.com/api/arena/stats/cards/arena-underground/last-patch/${classSlug}.gz.json?v=6`;
 }
 
 function parseFirestoneCache(value: unknown): FirestoneRatingSource | undefined {
@@ -568,11 +962,14 @@ function hasHearthArenaWebStats(source: HearthArenaWebRatingSource | undefined):
 }
 
 function ratioAsPercent(numerator: number | undefined, denominator: number | undefined): number | undefined {
-  if (numerator === undefined || denominator === undefined || denominator <= 0) {
-    return undefined;
-  }
+  const ratio = ratioValue(numerator, denominator);
+  return ratio === undefined ? undefined : roundPercent(ratio * 100);
+}
 
-  return roundPercent((numerator / denominator) * 100);
+function ratioValue(numerator: number | undefined, denominator: number | undefined): number | undefined {
+  return numerator === undefined || denominator === undefined || denominator <= 0 || numerator < 0 || numerator > denominator
+    ? undefined
+    : numerator / denominator;
 }
 
 function roundPercent(value: number): number {

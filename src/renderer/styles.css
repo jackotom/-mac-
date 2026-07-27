@@ -939,6 +939,158 @@ html body:not(:has(.overlay-shell)) .top-actions .primary-action:hover {
   background: #edc783;
 }
 
+html body:not(:has(.overlay-shell)) .top-actions .repair-action.is-recommended {
+  border-color: rgba(240, 208, 151, 0.74);
+  background: #3d3428;
+  color: #ffe0a6;
+  box-shadow: inset 0 0 0 1px rgba(240, 208, 151, 0.1);
+}
+
+html body:not(:has(.overlay-shell)) .top-actions .repair-action.is-recommended:hover {
+  border-color: #f0d097;
+  background: #4a3d2d;
+}
+
+html body:not(:has(.overlay-shell)) .settings-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 12px;
+  border: 1px solid #2b3b46;
+  border-radius: 7px;
+  background: #151d24;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+html body:not(:has(.overlay-shell)) .settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-header h1,
+html body:not(:has(.overlay-shell)) .settings-tracker-section h2 {
+  margin: 0;
+  color: #e8f0f3;
+}
+
+html body:not(:has(.overlay-shell)) .settings-header h1 {
+  font-size: 16px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-header button,
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button,
+html body:not(:has(.overlay-shell)) .settings-switches button {
+  border: 1px solid #3a4b56;
+  border-radius: 6px;
+  color: #dfe9ed;
+  background: #25323b;
+}
+
+html body:not(:has(.overlay-shell)) .settings-header button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+}
+
+html body:not(:has(.overlay-shell)) .settings-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button {
+  display: grid;
+  min-height: 46px;
+  align-content: center;
+  gap: 3px;
+  padding: 6px 9px;
+  text-align: left;
+}
+
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button span {
+  font-weight: 740;
+}
+
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button small {
+  color: #f0d097;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button.is-selected {
+  border-color: #d8ad67;
+  background: #3b3329;
+}
+
+html body:not(:has(.overlay-shell)) .settings-tracker-section {
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid #2f414c;
+  border-radius: 6px;
+  background: #18232b;
+}
+
+html body:not(:has(.overlay-shell)) .settings-tracker-section h2 {
+  font-size: 13px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-switches {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-switches button {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+html body:not(:has(.overlay-shell)) .settings-switches button strong {
+  flex: 0 0 auto;
+  color: #9fe6c2;
+  font-size: 12px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] strong {
+  color: #f0d097;
+}
+
+html body:not(:has(.overlay-shell)) .settings-header button:hover,
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button:hover,
+html body:not(:has(.overlay-shell)) .settings-switches button:hover {
+  border-color: #78909b;
+  background: #30414c;
+}
+
+html body:not(:has(.overlay-shell)) .settings-mode-tabs button:focus-visible,
+html body:not(:has(.overlay-shell)) .settings-switches button:focus-visible,
+html body:not(:has(.overlay-shell)) .settings-header button:focus-visible {
+  border-color: #f0d097;
+  outline: 2px solid rgba(240, 208, 151, 0.72);
+  outline-offset: 2px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-message {
+  margin: 8px 0 0;
+  color: #a9bac1;
+  font-size: 12px;
+}
+
+html body:not(:has(.overlay-shell)) .settings-message.is-error {
+  color: #ffb3a9;
+}
+
 html body:not(:has(.overlay-shell)) .dashboard-grid {
   grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.35fr) minmax(0, 0.9fr);
   gap: 8px;
@@ -1301,6 +1453,23 @@ html body:not(:has(.overlay-shell)) .arena-score {
   html body:not(:has(.overlay-shell)) .top-actions button svg {
     flex: 0 0 auto;
   }
+
+  html body:not(:has(.overlay-shell)) .top-actions .repair-action.is-recommended {
+    width: auto;
+    gap: 5px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 780px) {
+  html body:not(:has(.overlay-shell)) .top-actions .repair-action.is-recommended {
+    width: 31px;
+    gap: 0;
+    overflow: hidden;
+    padding: 0;
+    font-size: 0;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1335,5 +1504,904 @@ html body:not(:has(.overlay-shell)) .arena-score {
   html body:not(:has(.overlay-shell)) .card-thumb {
     width: 26px;
     height: 35px;
+  }
+}
+
+/* Main desktop only: the overlay routes never render .desktop-frame. */
+html body:has(.desktop-frame):not(:has(.overlay-shell)) {
+  min-width: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  color: #f0dfc2;
+  background: #080c10;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) #root {
+  min-height: 100vh;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+  --hearth-bg: #080c10;
+  --hearth-sidebar: #0b1117;
+  --hearth-surface: #17130f;
+  --hearth-panel: #211a14;
+  --hearth-panel-raised: #2a2017;
+  --hearth-line: rgba(168, 107, 46, 0.46);
+  --hearth-line-soft: rgba(203, 146, 74, 0.2);
+  --hearth-gold: #d6a353;
+  --hearth-gold-light: #f0ca83;
+  --hearth-blue: #2d78df;
+  --hearth-blue-light: #82bdff;
+  --hearth-text: #f0dfc2;
+  --hearth-muted: #aa967d;
+  display: grid;
+  grid-template-columns: clamp(184px, 14vw, 224px) minmax(0, 1fr);
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--hearth-text);
+  background: var(--hearth-bg);
+  font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-sidebar {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  padding: 18px 12px 14px;
+  overflow: hidden;
+  border-right: 1px solid rgba(170, 109, 48, 0.42);
+  background: var(--hearth-sidebar);
+  box-shadow: inset -10px 0 24px rgba(0, 0, 0, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 7px 17px;
+  border-bottom: 1px solid rgba(213, 163, 83, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > div,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > span:last-child {
+  min-width: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand strong,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand strong {
+  display: block;
+  color: var(--hearth-gold-light);
+  font-size: 14px;
+  letter-spacing: 0.03em;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > span:last-child {
+  display: block;
+  margin-top: 3px;
+  color: #7f8990;
+  font-size: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-mark,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border: 1px solid rgba(224, 170, 82, 0.7);
+  border-radius: 8px;
+  color: #acd6ff;
+  background: #16283a;
+  box-shadow: inset 0 0 0 3px rgba(35, 105, 181, 0.25), 0 0 15px rgba(27, 99, 177, 0.16);
+  margin: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 14px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4b3827 transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-group-label {
+  margin: 11px 8px 4px;
+  color: #7f7569;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #bca88c;
+  background: transparent;
+  font-size: 12.5px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button svg {
+  flex: 0 0 auto;
+  color: #a89273;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item:hover,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button:hover {
+  border-color: rgba(112, 139, 158, 0.24);
+  color: #e8dac4;
+  background: #121c24;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item.is-active,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item[aria-current="page"],
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button.is-active,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button[aria-current="page"] {
+  border-color: rgba(74, 151, 247, 0.7);
+  color: #eef7ff;
+  background: #1b4f91;
+  box-shadow: inset 3px 0 0 #6db2ff, 0 0 18px rgba(36, 110, 204, 0.22);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item.is-active svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item[aria-current="page"] svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button.is-active svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button[aria-current="page"] svg {
+  color: #b8ddff;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer {
+  min-width: 0;
+  margin-top: auto;
+  padding: 12px 8px 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(213, 163, 83, 0.16);
+  color: #71685f;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-shell {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0 12px 12px;
+  overflow: hidden;
+  background: #0b1015;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-bar {
+  min-height: 64px;
+  margin: 0 -12px;
+  padding: 10px 16px;
+  border-width: 0 0 1px;
+  border-color: rgba(174, 113, 51, 0.38);
+  border-radius: 0;
+  background: #0e1216;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.24);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .brand-mark {
+  border-color: rgba(218, 163, 80, 0.62);
+  color: var(--hearth-blue-light);
+  background: #16283a;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .brand-block h1,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel-heading h2 {
+  color: var(--hearth-text);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .brand-block p,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .status-strip span:last-child {
+  color: var(--hearth-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .status-strip,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-actions button {
+  border-color: var(--hearth-line-soft);
+  color: #e4d4bd;
+  background: #1b1713;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-actions button:hover {
+  border-color: rgba(214, 163, 83, 0.55);
+  background: #2a2118;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-actions .primary-action {
+  border-color: #dfad60;
+  color: #fff8e9;
+  background: #87561e;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .main-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .dashboard-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-card,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-stat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  min-width: 0;
+  min-height: 64px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 1px solid var(--hearth-line);
+  border-radius: 7px;
+  color: var(--hearth-text);
+  background: var(--hearth-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 221, 169, 0.04);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-card > svg,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-stat > svg {
+  grid-row: 1 / -1;
+  color: var(--hearth-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-card span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-stat span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-card small,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-stat small {
+  margin: 0;
+  color: var(--hearth-muted);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-card strong,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .overview-stat strong {
+  color: var(--hearth-gold-light);
+  font-size: 17px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .dashboard-grid {
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 0.84fr) minmax(0, 1.32fr) minmax(0, 0.9fr);
+  gap: 8px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .panel {
+  min-width: 0;
+  min-height: 0;
+  border-color: var(--hearth-line);
+  border-radius: 7px;
+  background: var(--hearth-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 218, 153, 0.035), 0 7px 18px rgba(0, 0, 0, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .arena-progress {
+  border-color: var(--hearth-line-soft);
+  background: var(--hearth-panel);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-card-row,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .played-list li,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .timeline-row article,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .arena-choices li,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .arena-deck li {
+  border-color: rgba(173, 113, 53, 0.24);
+  background: #1d1814;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .eyebrow,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .deck-summary strong {
+  color: var(--hearth-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .meter span {
+  background: var(--hearth-blue);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 9px;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 86px;
+  padding: 13px 16px;
+  border: 1px solid var(--hearth-line);
+  border-radius: 7px;
+  background: var(--hearth-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 223, 169, 0.05);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 13px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-block > div {
+  min-width: 0;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  border: 1px solid rgba(219, 164, 81, 0.7);
+  border-radius: 9px;
+  color: #b7dcff;
+  background: #153052;
+  box-shadow: inset 0 0 0 3px rgba(40, 111, 195, 0.18), 0 0 18px rgba(29, 105, 198, 0.14);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-eyebrow,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-heading span,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-heading span {
+  color: var(--hearth-gold);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header h1 {
+  margin: 1px 0 0;
+  color: var(--hearth-text);
+  font-size: 21px;
+  line-height: 1.25;
+  outline: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header p {
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: var(--hearth-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header > button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--hearth-line-soft);
+  border-radius: 6px;
+  color: #c4ad91;
+  background: #17130f;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header > button:hover {
+  border-color: rgba(220, 165, 84, 0.62);
+  color: #f6e1bd;
+  background: #2a2118;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: min(420px, 100%);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--hearth-line-soft);
+  border-radius: 6px;
+  color: #bca98f;
+  background: #17130f;
+  text-align: left;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button small {
+  color: #756d64;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button.is-selected {
+  border-color: rgba(86, 160, 255, 0.78);
+  color: #f4f9ff;
+  background: #1a4d8c;
+  box-shadow: inset 3px 0 0 #75b7ff, 0 0 16px rgba(34, 103, 192, 0.17);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button.is-selected small {
+  color: #c9e6ff;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.18fr) minmax(300px, 0.82fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-tracker-section,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview {
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--hearth-line);
+  border-radius: 7px;
+  background: var(--hearth-surface);
+  scrollbar-width: thin;
+  scrollbar-color: #59402a transparent;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-heading,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid rgba(213, 163, 83, 0.18);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-heading h2,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-heading h2 {
+  margin: 2px 0 0;
+  color: var(--hearth-text);
+  font-size: 15px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-section-heading > small {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid rgba(86, 160, 255, 0.4);
+  border-radius: 4px;
+  color: #aed7ff;
+  background: rgba(37, 102, 183, 0.2);
+  font-size: 10px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-heading > svg {
+  color: var(--hearth-gold);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches {
+  display: grid;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 70px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(177, 116, 56, 0.32);
+  border-radius: 6px;
+  color: var(--hearth-text);
+  background: var(--hearth-panel);
+  text-align: left;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button:hover:not(:disabled) {
+  border-color: rgba(218, 163, 81, 0.66);
+  background: var(--hearth-panel-raised);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(213, 163, 83, 0.34);
+  border-radius: 6px;
+  color: var(--hearth-gold-light);
+  background: #17130f;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-copy > span {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-copy > small {
+  overflow: hidden;
+  color: var(--hearth-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state {
+  display: grid;
+  grid-template-columns: auto 38px;
+  align-items: center;
+  gap: 7px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state strong {
+  color: #a8d3ff;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state > span {
+  position: relative;
+  width: 38px;
+  height: 21px;
+  border: 1px solid #296fc2;
+  border-radius: 999px;
+  background: var(--hearth-blue);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switch-state > span::after {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  content: "";
+  background: #f8f4ea;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] .settings-switch-state strong {
+  color: #897e71;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] .settings-switch-state > span {
+  border-color: #544b42;
+  background: #39332d;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button[aria-checked="false"] .settings-switch-state > span::after {
+  right: 19px;
+  background: #b7aa9a;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-message {
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(109, 159, 194, 0.26);
+  border-radius: 5px;
+  color: #b9cedc;
+  background: rgba(44, 90, 120, 0.12);
+  font-size: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-message.is-error {
+  border-color: rgba(217, 100, 82, 0.38);
+  color: #ffc0b6;
+  background: rgba(143, 52, 39, 0.16);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview {
+  display: flex;
+  flex-direction: column;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage {
+  position: relative;
+  min-height: 250px;
+  flex: 1 1 auto;
+  margin-top: 11px;
+  overflow: hidden;
+  border: 1px solid rgba(174, 114, 54, 0.36);
+  border-radius: 6px;
+  background: #0c1115;
+  box-shadow: inset 0 0 35px rgba(105, 66, 29, 0.2);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage::before,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage::after {
+  position: absolute;
+  content: "";
+  background: rgba(207, 148, 75, 0.13);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage::before {
+  top: 50%;
+  right: 10%;
+  left: 10%;
+  height: 1px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage::after {
+  top: 12%;
+  bottom: 12%;
+  left: 50%;
+  width: 1px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-mode {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 1;
+  padding: 4px 8px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(213, 163, 83, 0.34);
+  border-radius: 4px;
+  color: var(--hearth-gold-light);
+  background: #19140f;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  width: min(63%, 220px);
+  min-width: 150px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(217, 158, 79, 0.65);
+  border-radius: 5px;
+  color: #ebdbc1;
+  background: #171511;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.42);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window.is-friendly {
+  top: 24%;
+  left: 7%;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window.is-opponent {
+  right: 7%;
+  bottom: 17%;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window > svg {
+  color: #79b9ff;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window strong,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window strong {
+  font-size: 11px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window span {
+  color: #9a8872;
+  font-size: 9.5px;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4eb4ff;
+  box-shadow: 0 0 8px rgba(78, 180, 255, 0.65);
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window[data-enabled="false"] {
+  opacity: 0.42;
+  border-color: rgba(140, 114, 83, 0.38);
+  box-shadow: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-window[data-enabled="false"] .settings-preview-dot {
+  background: #786e63;
+  box-shadow: none;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview > p {
+  margin: 9px 0 0;
+  color: #82776a;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header > button:focus-visible,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-mode-tabs button:focus-visible,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button:focus-visible,
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item:focus-visible {
+  outline: 2px solid var(--hearth-blue-light);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1080px) {
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .desktop-frame {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-sidebar {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand {
+    justify-content: center;
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > div,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand > span:last-child,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-group-label,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item > span,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button > span,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-footer {
+    display: none;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button {
+    justify-content: center;
+    padding: 0;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .dashboard-grid {
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr) minmax(0, 0.88fr);
+    gap: 6px;
+  }
+}
+
+@media (max-width: 820px) {
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage {
+    min-height: 220px;
+  }
+}
+
+@media (max-height: 680px) {
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .app-sidebar {
+    padding-top: 10px;
+    padding-bottom: 8px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-brand {
+    padding-bottom: 9px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav {
+    padding-top: 7px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-item,
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .sidebar-nav > button {
+    min-height: 33px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .top-bar {
+    min-height: 52px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-header {
+    min-height: 72px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-title-icon {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-switches button {
+    min-height: 62px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  html body:has(.desktop-frame):not(:has(.overlay-shell)) .settings-preview-stage {
+    min-height: 200px;
   }
 }

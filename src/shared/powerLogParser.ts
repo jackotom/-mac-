@@ -1,6 +1,27 @@
-import type { EntitySnapshot, ParsedLogEvent, Zone } from "./types.js";
+import type { EntitySnapshot, MatchResult, ParsedLogEvent, Zone } from "./types.js";
 
 const KNOWN_ZONES = new Set(["DECK", "HAND", "PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SETASIDE", "SECRET"]);
+const START_OF_GAME_GLOBAL_EFFECT_CARD_IDS = new Set([
+  "GIL_692", "CORE_GIL_692",
+  "GIL_826", "CORE_GIL_826",
+  "SW_448", "CORE_SW_448",
+  "YOG_530", "EDR_845",
+  "REV_018", "CORE_REV_018",
+  "JAIL_397"
+]);
+const PLAYED_GLOBAL_EFFECT_CARD_IDS = new Set([
+  "BAR_539", "BAR_546", "BAR_881",
+  "BOT_257", "BT_002",
+  "CORE_CS3_029", "CS3_029",
+  "DMF_108", "DMF_534", "DRG_315",
+  "ETC_330", "ETC_417",
+  "GDB_467", "OG_118", "SCH_609",
+  "TLC_828", "TOY_805", "TOY_877",
+  "TSC_944", "YOG_505"
+]);
+const TRIGGERED_GLOBAL_EFFECT_CARD_IDS = new Map([
+  ["EDR_895E", "EDR_895"]
+]);
 
 export interface FriendlyDeckSnapshot {
   /** Total cards actually present in the local deck after game-start effects resolve. */
@@ -15,8 +36,18 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     return [];
   }
 
+  const playerIdentity = line.match(/\bPlayerID=(\d+),\s*PlayerName=(.+?)\s*$/i);
+  if (playerIdentity) {
+    return [{
+      type: "player-identity",
+      playerId: Number(playerIdentity[1]),
+      playerName: playerIdentity[2].trim(),
+      raw: line
+    }];
+  }
+
   if (isConstructedGameStartLine(line)) {
-    return [{ type: "game-start", raw: line }];
+    return [{ type: "game-start", timestamp: parseLogTimestamp(line), raw: line }];
   }
 
   if (isGameEndLine(line)) {
@@ -31,12 +62,47 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     return [{ type: "action-boundary", phase: "end", action: "other", raw: line }];
   }
 
+  if (/BLOCK_START\b.*BlockType=TRIGGER\b/.test(line)) {
+    const entity = parseEntity(line);
+    const normalizedCardId = entity.cardId?.toLocaleUpperCase();
+    if (
+      normalizedCardId &&
+      /TriggerKeyword=START_OF_GAME_KEYWORD\b/.test(line) &&
+      START_OF_GAME_GLOBAL_EFFECT_CARD_IDS.has(normalizedCardId)
+    ) {
+      return [{ type: "global-effect", source: "start-of-game", entity, raw: line }];
+    }
+    const sourceCardId = normalizedCardId
+      ? TRIGGERED_GLOBAL_EFFECT_CARD_IDS.get(normalizedCardId)
+      : undefined;
+    if (sourceCardId) {
+      return [{
+        type: "global-effect",
+        source: "played",
+        entity: { ...entity, cardId: sourceCardId },
+        raw: line
+      }];
+    }
+    return [];
+  }
+
   if (/BLOCK_START\b.*BlockType=PLAY\b/.test(line)) {
-    return [{ type: "action-boundary", phase: "start", action: "play", entity: parseEntity(line), raw: line }];
+    const entity = parseEntity(line);
+    const events: ParsedLogEvent[] = [
+      { type: "action-boundary", phase: "start", action: "play", entity, raw: line }
+    ];
+    if (entity.cardId && PLAYED_GLOBAL_EFFECT_CARD_IDS.has(entity.cardId.toLocaleUpperCase())) {
+      events.push({ type: "global-effect", source: "played", entity, raw: line });
+    }
+    return events;
   }
 
   const events: ParsedLogEvent[] = [];
   const entity = parseEntity(line);
+  const playerCounter = parsePlayerCounter(line, entity);
+  if (playerCounter) {
+    events.push(playerCounter);
+  }
 
   if (line.includes("FULL_ENTITY") || line.includes("SHOW_ENTITY")) {
     if (entity.id || entity.name || entity.cardId) {
@@ -72,6 +138,41 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
   if (attack !== undefined) events.push({ type: "attack-change", entityId: entity.id, attack, raw: line });
 
   return events;
+}
+
+function parsePlayerCounter(
+  line: string,
+  entity: EntitySnapshot
+): Extract<ParsedLogEvent, { type: "player-counter" }> | undefined {
+  const match = line.match(
+    /\bTAG_CHANGE\s+Entity=(.+?)\s+tag=(FATIGUE|CORPSES|NUM_SPELLS_PLAYED_THIS_GAME)\s+value=(-?\d+)\b/i
+  );
+  if (!match) {
+    return undefined;
+  }
+
+  const counter = match[2].toUpperCase() === "FATIGUE"
+    ? "fatigue"
+    : match[2].toUpperCase() === "CORPSES"
+      ? "corpses"
+      : "spells-played";
+  const rawEntity = match[1].trim();
+  const playerName = rawEntity.startsWith("[") || /^\d+$/.test(rawEntity) || rawEntity === "GameEntity"
+    ? undefined
+    : rawEntity;
+
+  return {
+    type: "player-counter",
+    playerId: entity.controller,
+    playerName,
+    counter,
+    value: Number(match[3]),
+    raw: line
+  };
+}
+
+function parseLogTimestamp(line: string) {
+  return line.match(/^\s*[A-Z]\s+([0-9:.]+)/)?.[1];
 }
 
 export function parseEntity(line: string): EntitySnapshot {
@@ -198,12 +299,37 @@ export function isGameEndLine(line: string) {
   );
 }
 
+export function parseMatchResultLine(
+  line: string,
+  friendlyController?: number,
+  friendlyPlayerName?: string
+): MatchResult | undefined {
+  const playState = line.match(/tag=PLAYSTATE\s+value=(WON|LOST|TIED|CONCEDED)\b/i)?.[1]?.toUpperCase();
+  const entity = parseEntity(line);
+  const isFriendly = entity.controller !== undefined
+    ? entity.controller === friendlyController
+    : Boolean(friendlyPlayerName && entity.name === normalizeName(friendlyPlayerName));
+  if (!playState || !isFriendly) {
+    return undefined;
+  }
+
+  if (playState === "WON") return "win";
+  if (playState === "TIED") return "tie";
+  return "loss";
+}
+
 export function selectCurrentPowerGameText(content: string): string {
   const lines = content.split(/\r?\n/);
   let start = -1;
+  let startTimestamp: string | undefined;
   lines.forEach((line, index) => {
     if (line.includes("CREATE_GAME")) {
+      const timestamp = line.match(/^\s*[A-Z]\s+([0-9:.]+)/)?.[1];
+      if (timestamp && timestamp === startTimestamp) {
+        return;
+      }
       start = index;
+      startTimestamp = timestamp;
     }
   });
   return start >= 0 ? lines.slice(start).join("\n") : content;
@@ -223,13 +349,33 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
   const initialDeckEntityIds = new Set<string>();
   const generatedDeckEntityIds = new Set<string>();
   let setupComplete = false;
+  let pendingEntityDetail: EntitySnapshot | undefined;
 
   for (const line of selectCurrentPowerGameText(content).split(/\r?\n/)) {
     if (/tag=(?:STEP|NEXT_STEP)\s+value=(?:MAIN_READY|MAIN_ACTION)/i.test(line)) {
       setupComplete = true;
     }
 
-    const entity = parseEntity(line);
+    const parsedEntity = parseEntity(line);
+    const startsEntityDetail = /(?:FULL_ENTITY|SHOW_ENTITY)\s+-\s+Updating\b/.test(line) && Boolean(parsedEntity.id);
+    const continuesEntityDetail = /-\s+tag=[A-Z_]+\s+value=/i.test(line);
+    if (startsEntityDetail) {
+      pendingEntityDetail = parsedEntity;
+    } else if (!continuesEntityDetail) {
+      pendingEntityDetail = undefined;
+    }
+
+    if (continuesEntityDetail && pendingEntityDetail) {
+      const controller = parseTagValueNumber(line, "CONTROLLER");
+      if (controller !== undefined) {
+        pendingEntityDetail = { ...pendingEntityDetail, controller };
+      }
+    }
+
+    const entity = parsedEntity.id ? parsedEntity : pendingEntityDetail;
+    if (!entity) {
+      continue;
+    }
     if (!entity.id || entity.controller !== friendlyController) {
       continue;
     }
@@ -241,6 +387,9 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
     }
 
     zones.set(entity.id, zone);
+    if (pendingEntityDetail?.id === entity.id && zoneChange) {
+      pendingEntityDetail = { ...pendingEntityDetail, zone };
+    }
     if (!setupComplete && zone === "DECK") {
       initialDeckEntityIds.add(entity.id);
     }

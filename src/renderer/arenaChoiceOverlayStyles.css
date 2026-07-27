@@ -28,6 +28,7 @@ body:has(.arena-choice-overlay-shell),
   min-width: 0;
   align-items: flex-start;
   justify-content: center;
+  pointer-events: none;
 }
 
 .arena-choice-overlay-shell .arena-choice-overlay-metrics {
@@ -38,6 +39,7 @@ body:has(.arena-choice-overlay-shell),
   gap: 4px;
   margin: 0;
   padding: 0;
+  pointer-events: none;
 }
 
 .arena-choice-overlay-shell .arena-choice-metric {

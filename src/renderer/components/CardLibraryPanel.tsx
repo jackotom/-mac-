@@ -129,6 +129,7 @@ export function CardLibraryPanel({
       <div className="card-library-results">
         {loading && cards.length === 0 ? <LoadingState /> : error && cards.length === 0 ? <ErrorState error={error} /> : cards.length === 0 ? <EmptyState /> : (
           <>
+            {error ? <StaleResultsWarning error={error} /> : null}
             <div className="card-library-grid" aria-label="卡牌搜索结果">
               {cards.map((card) => (
                 <CardLibraryTile
@@ -250,6 +251,15 @@ function ErrorState({ error }: { error: string }) {
       <Database aria-hidden="true" size={20} />
       <strong>卡牌数据库读取失败</strong>
       <span>{error}</span>
+    </div>
+  );
+}
+
+function StaleResultsWarning({ error }: { error: string }) {
+  return (
+    <div className="card-library-stale-warning" role="alert">
+      <Database aria-hidden="true" size={16} />
+      <span>刷新失败，已保留上次结果：{error}</span>
     </div>
   );
 }

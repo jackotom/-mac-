@@ -33,4 +33,12 @@ describe("opponent secret overlay visibility", () => {
     expect(visibility.update(1)).toBe(false);
     expect(visibility.update(0)).toBe(false);
   });
+
+  it("requests a show when a new entity replaces an old slot at the same count", () => {
+    const visibility = new OpponentSecretOverlayVisibility();
+
+    expect(visibility.update([{ entityId: "secret-1" }])).toBe(true);
+    expect(visibility.update([{ entityId: "secret-2" }])).toBe(true);
+    expect(visibility.update([{ entityId: "secret-2" }])).toBe(false);
+  });
 });

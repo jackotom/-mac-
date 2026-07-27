@@ -10,6 +10,10 @@ import "./cardHoverStyles.css";
 import "./opponentOverlayStyles.css";
 import "./boardAttackOverlayStyles.css";
 import "./ladderDeckRecommendationStyles.css";
+import "./matchHistoryStyles.css";
+import "./desktopReplicaStyles.css";
+import "./homeNewsStyles.css";
+import "./arenaHeroRankingStyles.css";
 
 const rootElement = document.getElementById("root");
 const isBoardAttackOverlay = new URLSearchParams(window.location.search).get("board-attack-overlay") === "1";

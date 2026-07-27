@@ -2,17 +2,20 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { detectHearthstoneInstallation, type HearthstoneInstallationResult } from "./hearthstoneInstallation.js";
+import { parseHsguruDecks } from "./hsguruDeckSource.js";
 import { parseLadderDeckRecommendations, selectTopLadderDeck, type LadderDeckRecommendation, type LadderDeckRecommendationResult, type LadderMode } from "../shared/ladderDeckRecommendation.js";
 
-const DEFAULT_MIN_GAMES = 100;
+const DEFAULT_MIN_GAMES = 800;
 const DEFAULT_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_STALE_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_HSGURU_BASE_URL = "https://www.hsguru.com/decks";
 
 interface ServiceOptions {
   readonly sourceUrl?: string; readonly cachePath?: string; readonly fetcher?: typeof fetch; readonly minGames?: number;
   readonly cacheMaxAgeMs?: number; readonly staleMaxAgeMs?: number; readonly timeoutMs?: number; readonly now?: () => number;
   readonly installationDetector?: () => Promise<HearthstoneInstallationResult>;
+  readonly hsguruBaseUrl?: string | null;
 }
 interface CachePayload {
   readonly schemaVersion: 1; readonly patch: string; readonly mode: LadderMode; readonly fetchedAt: string;
@@ -21,13 +24,14 @@ interface CachePayload {
 interface CacheFile { readonly schemaVersion: 1; readonly entries: readonly CachePayload[] }
 
 export class LadderDeckRecommendationService {
-  private readonly sourceUrl: string | undefined; private readonly cachePath: string; private readonly fetcher: typeof fetch;
+  private readonly sourceUrl: string | undefined; private readonly hsguruBaseUrl: string | undefined; private readonly cachePath: string; private readonly fetcher: typeof fetch;
   private readonly minGames: number; private readonly cacheMaxAgeMs: number; private readonly staleMaxAgeMs: number;
   private readonly timeoutMs: number; private readonly now: () => number; private readonly installationDetector: () => Promise<HearthstoneInstallationResult>;
   private writeChain: Promise<void> = Promise.resolve();
   constructor(options: ServiceOptions = {}) {
     this.sourceUrl = options.sourceUrl ?? process.env.HEARTHSTONE_CN_LADDER_DECK_SOURCE_URL;
-    this.cachePath = options.cachePath ?? path.join(os.homedir(), "Library", "Application Support", "hearthstone-mac-tracker", "cn-ladder-decks.json");
+    this.hsguruBaseUrl = options.hsguruBaseUrl === null ? undefined : options.hsguruBaseUrl ?? DEFAULT_HSGURU_BASE_URL;
+    this.cachePath = options.cachePath ?? path.join(os.homedir(), "Library", "Application Support", "hearthstone-mac-tracker", "ladder-decks.json");
     this.fetcher = options.fetcher ?? fetch; this.minGames = options.minGames ?? DEFAULT_MIN_GAMES;
     this.cacheMaxAgeMs = options.cacheMaxAgeMs ?? DEFAULT_CACHE_MAX_AGE_MS; this.staleMaxAgeMs = options.staleMaxAgeMs ?? DEFAULT_STALE_MAX_AGE_MS;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS; this.now = options.now ?? Date.now;
@@ -42,34 +46,59 @@ export class LadderDeckRecommendationService {
       const recommendation = this.select(cached.recommendations, installation.patch, mode);
       if (recommendation) return { status: "ready", recommendation, stale: false, gameVersion: installation.fullVersion };
     }
-    if (!this.sourceUrl) {
+    if (!this.sourceUrl && !this.hsguruBaseUrl) {
       const stale = cached && this.age(cached) <= this.staleMaxAgeMs && this.select(cached.recommendations, installation.patch, mode);
-      if (stale) return { status: "ready", recommendation: stale, stale: true, gameVersion: installation.fullVersion, message: "暂无已配置的国服实时来源，显示本地缓存" };
-      return { status: "unavailable", errorCode: "source-unconfigured", gameVersion: installation.fullVersion, message: "暂无经过验证的国服公开统计接口" };
+      if (stale) return { status: "ready", recommendation: stale, stale: true, gameVersion: installation.fullVersion, message: "暂无可用的实时来源，显示本地缓存" };
+      return { status: "unavailable", errorCode: "source-unconfigured", gameVersion: installation.fullVersion, message: "暂无已配置的天梯排行来源" };
     }
     try {
-      const recommendations = await this.fetchRecommendations(installation.patch);
+      const recommendations = await this.fetchRecommendations(installation.patch, mode);
       const recommendation = this.select(recommendations, installation.patch, mode);
-      if (!recommendation) return { status: "unavailable", errorCode: "patch-unavailable", gameVersion: installation.fullVersion, message: `国服${mode === "standard" ? "标准" : "狂野"}数据中没有当前版本且达到最低场次的卡组` };
+      if (!recommendation) return { status: "unavailable", errorCode: "patch-unavailable", gameVersion: installation.fullVersion, message: `${mode === "standard" ? "标准" : "狂野"}数据中没有当前版本且达到最低场次的卡组` };
       await this.writeCache({ schemaVersion: 1, patch: installation.patch, mode, fetchedAt: new Date(this.now()).toISOString(), recommendations });
       return { status: "ready", recommendation, stale: false, gameVersion: installation.fullVersion };
     } catch (error) {
       const recommendation = cached && this.age(cached) <= this.staleMaxAgeMs && this.select(cached.recommendations, installation.patch, mode);
-      if (recommendation) return { status: "ready", recommendation, stale: true, gameVersion: installation.fullVersion, message: `国服数据更新失败，显示本地缓存：${formatError(error)}` };
-      return { status: "unavailable", errorCode: error instanceof FeedError ? "feed-invalid" : "network-failed", gameVersion: installation.fullVersion, message: `国服卡组统计读取失败：${formatError(error)}` };
+      if (recommendation) return { status: "ready", recommendation, stale: true, gameVersion: installation.fullVersion, message: `天梯数据更新失败，显示本地缓存：${formatError(error)}` };
+      return { status: "unavailable", errorCode: error instanceof FeedError ? "feed-invalid" : "network-failed", gameVersion: installation.fullVersion, message: `卡组排行读取失败：${formatError(error)}` };
     }
   }
   private select(items: readonly LadderDeckRecommendation[], patch: string, mode: LadderMode) { return selectTopLadderDeck(items.filter((item) => item.patch === patch), mode, this.minGames); }
   private age(cache: CachePayload) { return this.now() - Date.parse(cache.fetchedAt); }
-  private async fetchRecommendations(expectedPatch: string): Promise<LadderDeckRecommendation[]> {
+  private async fetchRecommendations(expectedPatch: string, mode: LadderMode): Promise<LadderDeckRecommendation[]> {
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetcher(this.sourceUrl!, { signal: controller.signal, headers: { accept: "application/json" } });
+      if (!this.sourceUrl) {
+        const sourceUrl = this.hsguruUrl(mode);
+        const response = await this.fetcher(sourceUrl, {
+          signal: controller.signal,
+          headers: { accept: "text/html,application/xhtml+xml", "user-agent": "Mozilla/5.0 HearthstoneMacTracker/0.1" }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        try {
+          return parseHsguruDecks(await response.text(), {
+            mode,
+            expectedPatch,
+            updatedAt: new Date(this.now()).toISOString(),
+            sourceUrl
+          });
+        } catch (error) { throw new FeedError(formatError(error)); }
+      }
+      const response = await this.fetcher(this.sourceUrl, { signal: controller.signal, headers: { accept: "application/json" } });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
       if (!isRecord(payload) || payload.patch !== expectedPatch) throw new FeedError("数据版本与炉石当前版本不一致");
       try { return parseLadderDeckRecommendations(payload, { now: this.now }); } catch (error) { throw new FeedError(formatError(error)); }
     } finally { clearTimeout(timeout); }
+  }
+  private hsguruUrl(mode: LadderMode): string {
+    const url = new URL(this.hsguruBaseUrl!);
+    url.searchParams.set("format", mode === "standard" ? "2" : "1");
+    url.searchParams.set("rank", "diamond_to_legend");
+    url.searchParams.set("period", "past_week");
+    url.searchParams.set("min_games", String(DEFAULT_MIN_GAMES));
+    url.searchParams.set("order_by", "winrate");
+    return url.toString();
   }
   private async readCache(patch: string, mode: LadderMode): Promise<CachePayload | undefined> {
     try {

@@ -83,9 +83,21 @@ export function configureBoardAttackOverlayWindow(window: BoardAttackOverlayWind
   window.setIgnoreMouseEvents(true, { forward: true });
 }
 
-export function getBoardAttackOverlayQuery(qaDemo: boolean): Record<string, string> {
+export function getBoardAttackOverlayQuery(
+  qaDemo: boolean,
+  visibility: { showFriendly?: boolean; showOpponent?: boolean } = {}
+): Record<string, string> {
+  const effectiveVisibility = qaDemo
+    ? { showFriendly: true, showOpponent: true }
+    : visibility;
   return {
     "board-attack-overlay": "1",
+    ...(effectiveVisibility.showFriendly === undefined
+      ? {}
+      : { "show-friendly-attack": effectiveVisibility.showFriendly ? "1" : "0" }),
+    ...(effectiveVisibility.showOpponent === undefined
+      ? {}
+      : { "show-opponent-attack": effectiveVisibility.showOpponent ? "1" : "0" }),
     ...(qaDemo ? { "qa-opponent-demo": "1" } : {})
   };
 }

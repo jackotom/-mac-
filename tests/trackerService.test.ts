@@ -3,7 +3,7 @@ import { promises as nodeFs } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
   app: {
@@ -14,14 +14,79 @@ vi.mock("electron", () => ({
 
 const tempDirs: string[] = [];
 
+beforeEach(() => {
+  vi.doMock("../src/main/cardDataService.js", () => ({
+    CardDataService: class CardDataService {
+      async loadCardDatabase() {
+        return { warnings: [] };
+      }
+    }
+  }));
+  vi.doMock("../src/main/arenaRatingService.js", () => ({
+    ArenaRatingService: class ArenaRatingService {
+      async loadRatings() {
+        return { warnings: [] };
+      }
+    }
+  }));
+  vi.doMock("../src/main/arenaScreenRecognition.js", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../src/main/arenaScreenRecognition.js")>();
+    return {
+      ...actual,
+      ArenaScreenRecognizer: class ArenaScreenRecognizer {
+        async recognize() {
+          return { status: "ok" as const, texts: [] };
+        }
+      }
+    };
+  });
+});
+
 afterEach(async () => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.doUnmock("../src/main/logDiscovery.js");
   vi.resetModules();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 describe("TrackerService log selection", () => {
+  it("keeps reading until the complete appended log range is consumed", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService { async loadCardDatabase() { return { warnings: [] }; } }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(powerLog, "D 09:59:59 initial\n", "utf8");
+    const service = new TrackerService(undefined, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: powerLog });
+
+    const originalOpen = nodeFs.open.bind(nodeFs);
+    const openSpy = vi.spyOn(nodeFs, "open").mockImplementation(async (...args) => {
+      const handle = await originalOpen(...args);
+      return {
+        stat: handle.stat.bind(handle),
+        close: handle.close.bind(handle),
+        read: (buffer: Buffer, targetOffset: number, length: number, position: number) =>
+          handle.read(buffer, targetOffset, Math.min(length, 7), position)
+      } as Awaited<ReturnType<typeof nodeFs.open>>;
+    });
+
+    await appendFile(
+      powerLog,
+      "D 10:00:00 GameState.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED\n",
+      "utf8"
+    );
+    await vi.waitFor(() => expect(service.getState().gameActive).toBe(true));
+
+    openSpy.mockRestore();
+    await service.dispose();
+  });
+
   it("returns to watching after a transient appended-log read error", async () => {
     vi.resetModules();
     vi.doMock("../src/main/cardDataService.js", () => ({ CardDataService: class { async loadCardDatabase() { return { warnings: [] }; } } }));
@@ -121,6 +186,7 @@ describe("TrackerService log selection", () => {
 
     expect(service.getState().deckName).toBe("竞技场牌库");
     expect(service.getState().arena?.status).toBe("complete");
+    expect(service.getState().trackerMode).toBe("arena");
     await service.dispose();
   });
 
@@ -165,6 +231,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
 
     expect(resolveAutomaticOverlayContext(state)).toBe("constructed-game:waiting");
+    expect(state.trackerMode).toBe("ladder");
     expect(state.error).toContain("对局已开始");
     expect(state.error).toContain("Power.log");
     expect(state.deck).toEqual([]);
@@ -316,10 +383,96 @@ describe("TrackerService log selection", () => {
     await service.dispose();
 
     expect(recognizer.recognize).toHaveBeenCalledWith({
-      requireHearthstoneFrontmost: false,
+      requireHearthstoneFrontmost: true,
       profile: "constructed"
     });
     expect(state.constructedScreenMode).toBe("standard");
+  });
+
+  it("enriches a recognized collection deck with cached card details before Power.log exists", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return {
+            database: {
+              "1": {
+                dbfId: 1,
+                name: "暴风雪",
+                cardId: "CS2_028",
+                manaCost: 6,
+                cardTypeId: 5,
+                cardType: "法术",
+                imageUrl: "https://example.test/cards/CS2_028.png"
+              }
+            },
+            warnings: []
+          };
+        }
+      }
+    }));
+    vi.doMock("../src/main/arenaRatingService.js", () => ({
+      ArenaRatingService: class ArenaRatingService {
+        async loadRatings() {
+          return { warnings: [] };
+        }
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const decksLog = join(sessionDir, "Decks.log");
+    const loadingScreenLog = join(sessionDir, "LoadingScreen.log");
+    await writeFile(decksLog, "I 10:49:48.000 Deck Contents Received:\n", "utf8");
+    await writeFile(
+      loadingScreenLog,
+      "D 10:49:49.000 LoadingScreen.OnSceneLoaded() - currMode=TOURNAMENT\n",
+      "utf8"
+    );
+    const selectedDeck = {
+      id: "selected-standard-with-details",
+      name: "冰霜法师",
+      format: "标准",
+      cards: [{ name: "暴风雪", cardId: "CS2_028", count: 2 }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-24T00:00:00.000Z",
+      warnings: []
+    };
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => ({
+        status: "ok" as const,
+        decks: [selectedDeck]
+      }))
+    };
+    const recognizer = {
+      recognize: vi.fn(async () => ({
+        status: "ok" as const,
+        texts: [
+          { text: "标准对战", confidence: 0.9, x: 0.32, y: 0.91, width: 0.06, height: 0.02 },
+          { text: "冰霜法师", confidence: 1, x: 0.72, y: 0.34, width: 0.06, height: 0.02 }
+        ]
+      }))
+    };
+    const service = new TrackerService(scanner, recognizer);
+
+    const state = await service.start({ logPath: sessionDir });
+    await service.dispose();
+
+    expect(state).toMatchObject({
+      status: "watching",
+      constructedScreenMode: "standard",
+      deckName: "冰霜法师"
+    });
+    expect(state.deck).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "暴风雪",
+        cardId: "CS2_028",
+        details: expect.objectContaining({
+          manaCost: 6,
+          imageUrl: "https://example.test/cards/CS2_028.png"
+        })
+      })
+    ]));
   });
 
   it("does not publish the same public state twice", async () => {
@@ -533,6 +686,60 @@ describe("TrackerService log selection", () => {
     expect(state.summary).toMatchObject({ totalCards: 1, remainingCards: 0, drawnCards: 1 });
   });
 
+  it("restores the real hand from a duplicate CREATE_GAME dump with one privacy-hidden opponent", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return {
+            database: {
+              "1001": { dbfId: 1001, name: "火羽精灵", cardId: "CORE_UNG_809", type: "MINION" }
+            },
+            warnings: []
+          };
+        }
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(
+      powerLog,
+      [
+        "D 20:00:14.3904530 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 20:00:14.3904530 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+        "D 20:00:14.3904530 GameState.DebugPrintGame() - PlayerID=2, PlayerName=昏沉的幽灵#511319",
+        "D 20:00:14.3904530 PowerTaskList.DebugPrintPower() - CREATE_GAME",
+        "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=37 zone=DECK zonePos=0 cardId= player=2] CardID=CORE_UNG_809",
+        "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - tag=CONTROLLER value=2",
+        "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - tag=ZONE value=HAND"
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const service = new TrackerService();
+    service.setCollectionDecks([
+      {
+        id: "real-log-deck",
+        name: "法术法师",
+        cards: [{ name: "火羽精灵", count: 1, cardId: "CORE_UNG_809" }],
+        rawText: "1x 火羽精灵",
+        sourcePath: "/tmp/Decks.log",
+        updatedAt: "2026-07-21T00:00:00.000Z",
+        warnings: []
+      }
+    ]);
+
+    const state = await service.start({ logPath: powerLog });
+    await service.dispose();
+
+    expect(state.friendlyHand).toEqual([
+      expect.objectContaining({ name: "火羽精灵", count: 1, cardId: "CORE_UNG_809" })
+    ]);
+    expect(state.deckName).toBe("法术法师");
+    expect(state.summary).toMatchObject({ totalCards: 1, remainingCards: 0, drawnCards: 1 });
+  });
+
   it("uses the current game's local player slot when it changes between games", async () => {
     const { TrackerService } = await import("../src/main/trackerService.js");
     const sessionDir = await createSessionDir();
@@ -715,7 +922,158 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
-  it("clears stale card state when the newest Hearthstone session has no Power.log", async () => {
+  it("does not restart and replay when the active Power.log mtime increases", async () => {
+    const root = await mkdtemp(join(os.tmpdir(), "hearthstone-tracker-service-same-session-"));
+    tempDirs.push(root);
+    const sessionDir = join(root, "active-session");
+    await mkdir(sessionDir);
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(
+      powerLog,
+      [
+        "D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 12:00:00.000 GameState.DebugPrintGame() - GameType=GT_RANKED"
+      ].join("\n"),
+      "utf8"
+    );
+    let modifiedAtMs = 1;
+    vi.resetModules();
+    vi.doMock("../src/main/logDiscovery.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../src/main/logDiscovery.js")>();
+      return {
+        ...actual,
+        resolveBestLogTarget: vi.fn(async () => ({
+          root,
+          sessionDir,
+          powerLogPath: powerLog,
+          modifiedAtMs
+        }))
+      };
+    });
+
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const service = new TrackerService();
+    await service.start({ logPath: powerLog });
+    modifiedAtMs = 2;
+    const restart = vi.spyOn(service, "start").mockResolvedValue(service.getState());
+    const internal = service as unknown as {
+      monitoringGeneration: number;
+      followNewestSession(generation: number): Promise<void>;
+    };
+
+    await internal.followNewestSession(internal.monitoringGeneration);
+
+    expect(restart).not.toHaveBeenCalled();
+    restart.mockRestore();
+    await service.dispose();
+  });
+
+  it.each(["TOURNAMENT", "HUB", "DRAFT"])(
+    "keeps waiting without a missing-log warning while LoadingScreen is in %s",
+    async (mode) => {
+      vi.resetModules();
+      vi.doMock("../src/main/cardDataService.js", () => ({
+        CardDataService: class CardDataService {
+          async loadCardDatabase() {
+            return { warnings: [] };
+          }
+        }
+      }));
+      const root = await mkdtemp(join(os.tmpdir(), "hearthstone-tracker-service-pregame-"));
+      tempDirs.push(root);
+      const sessionDir = join(root, "Hearthstone_2026_07_23_20_31_45");
+      await mkdir(sessionDir);
+      const decksLog = join(sessionDir, "Decks.log");
+      const loadingScreenLog = join(sessionDir, "LoadingScreen.log");
+      await writeFile(decksLog, "I 20:31:46.000 Deck Contents Received:\n", "utf8");
+      await writeFile(
+        loadingScreenLog,
+        `D 20:32:23.000 LoadingScreen.OnSceneLoaded() - currMode=${mode}\n`,
+        "utf8"
+      );
+      const scanAndImportDecks = vi.fn(async () => ({
+        status: "ok" as const,
+        decks: []
+      }));
+
+      const { TrackerService } = await import("../src/main/trackerService.js");
+      const service = new TrackerService(
+        { scanAndImportDecks },
+        {
+          recognize: vi.fn(async () => ({
+            status: "window-not-found" as const,
+            message: "炉石窗口仍在启动。",
+            texts: []
+          }))
+        }
+      );
+      const state = await service.start({ logPath: root });
+
+      expect(state.status).toBe("watching");
+      expect(state.error).toContain("已识别炉石");
+      expect(state.error).toContain("等待开局");
+      expect(scanAndImportDecks).toHaveBeenCalledWith({ logPath: decksLog });
+      await service.dispose();
+    }
+  );
+
+  it("keeps waiting when a pregame session has Player.log but no Power.log", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { warnings: [] };
+        }
+      }
+    }));
+    const root = await mkdtemp(join(os.tmpdir(), "hearthstone-tracker-service-player-pregame-"));
+    tempDirs.push(root);
+    const sessionDir = join(root, "Hearthstone_2026_07_23_20_31_45");
+    await mkdir(sessionDir);
+    const playerLog = join(sessionDir, "Player.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    const loadingScreenLog = join(sessionDir, "LoadingScreen.log");
+    await writeFile(playerLog, "D 20:31:45.000 PlayerManager - initialized\n", "utf8");
+    await writeFile(decksLog, "I 20:31:46.000 Deck Contents Received:\n", "utf8");
+    await writeFile(
+      loadingScreenLog,
+      [
+        "D 20:32:23.000 LoadingScreen.OnSceneLoaded() - currMode=TOURNAMENT",
+        "D 20:32:24.000 LoadingScreen.OnSceneLoaded() - nextMode=GAMEPLAY"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const service = new TrackerService(
+      { scanAndImportDecks: vi.fn(async () => ({ status: "ok" as const, decks: [] })) },
+      {
+        recognize: vi.fn(async () => ({
+          status: "window-not-found" as const,
+          message: "炉石窗口仍在启动。",
+          texts: []
+        }))
+      }
+    );
+    const state = await service.start({ logPath: root });
+    await service.dispose();
+
+    expect(state.status).toBe("watching");
+    expect(state.logPath).toBe(playerLog);
+    expect(state.error).toContain("已识别炉石");
+    expect(state.error).toContain("等待开局");
+    expect(state.error).not.toContain("修复日志");
+  });
+
+  it("clears stale card state after LoadingScreen enters GAMEPLAY without Power.log", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { warnings: [] };
+        }
+      }
+    }));
     const root = await mkdtemp(join(os.tmpdir(), "hearthstone-tracker-service-current-missing-power-"));
     tempDirs.push(root);
     const staleSessionDir = join(root, "Hearthstone_2026_07_11_12_18_34");
@@ -723,6 +1081,7 @@ describe("TrackerService log selection", () => {
     await Promise.all([mkdir(staleSessionDir), mkdir(currentSessionDir)]);
     const stalePowerLog = join(staleSessionDir, "Power.log");
     const currentDecksLog = join(currentSessionDir, "Decks.log");
+    const currentLoadingScreenLog = join(currentSessionDir, "LoadingScreen.log");
     await writeFile(
       stalePowerLog,
       [
@@ -732,6 +1091,11 @@ describe("TrackerService log selection", () => {
       "utf8"
     );
     await writeFile(currentDecksLog, "I 17:29:00.000 Deck Contents Received:\n", "utf8");
+    await writeFile(
+      currentLoadingScreenLog,
+      "D 17:29:01.000 LoadingScreen.OnSceneLoaded() - currMode=GAMEPLAY\n",
+      "utf8"
+    );
 
     const staleTime = new Date("2026-07-11T12:18:34.000Z");
     const currentTime = new Date("2026-07-11T17:29:00.000Z");
@@ -739,6 +1103,7 @@ describe("TrackerService log selection", () => {
       utimes(stalePowerLog, staleTime, staleTime),
       utimes(staleSessionDir, staleTime, staleTime),
       utimes(currentDecksLog, currentTime, currentTime),
+      utimes(currentLoadingScreenLog, currentTime, currentTime),
       utimes(currentSessionDir, currentTime, currentTime)
     ]);
 
@@ -755,19 +1120,91 @@ describe("TrackerService log selection", () => {
     expect(state.summary).toMatchObject({ totalCards: 0, remainingCards: 0, drawnCards: 0 });
   });
 
+  it("keeps polling from an empty log root and connects when a session appears", async () => {
+    const root = await mkdtemp(join(os.tmpdir(), "hearthstone-tracker-service-empty-root-"));
+    tempDirs.push(root);
+    const sessionDir = join(root, "Hearthstone_2026_07_23_20_31_45");
+    const powerLog = join(sessionDir, "Power.log");
+    const readySession = { root, sessionDir, powerLogPath: powerLog, modifiedAtMs: 1 };
+    let logsAvailable = false;
+
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { warnings: [] };
+        }
+      }
+    }));
+    vi.doMock("../src/main/logDiscovery.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../src/main/logDiscovery.js")>();
+      return {
+        ...actual,
+        resolveBestLogTarget: vi.fn(async () => logsAvailable ? readySession : undefined)
+      };
+    });
+
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const service = new TrackerService();
+    const initial = await service.start({ logPath: root });
+    expect(initial.status).toBe("missing-log");
+
+    await mkdir(sessionDir);
+    await writeFile(
+      powerLog,
+      "D 20:35:22.000 GameState.DebugPrintPower() - CREATE_GAME\nD 20:35:22.000 GameState.DebugPrintGame() - GameType=GT_RANKED\n",
+      "utf8"
+    );
+    logsAvailable = true;
+
+    await vi.waitFor(() => expect(service.getState().logPath).toBe(powerLog), {
+      timeout: 3_000,
+      interval: 50
+    });
+    expect(service.getState().status).toBe("watching");
+    expect(service.getState().gameActive).toBe(true);
+    await service.dispose();
+  });
+
   it("automatically resumes when Power.log appears in the current session", async () => {
     const root = await mkdtemp(join(os.tmpdir(), "hearthstone-tracker-service-power-appears-"));
     tempDirs.push(root);
     const sessionDir = join(root, "Hearthstone_2026_07_12_10_49_37");
     await mkdir(sessionDir);
     const decksLog = join(sessionDir, "Decks.log");
+    const loadingScreenLog = join(sessionDir, "LoadingScreen.log");
     const powerLog = join(sessionDir, "Power.log");
     await writeFile(decksLog, "I 10:49:48.000 Deck Contents Received:\n", "utf8");
+    await writeFile(
+      loadingScreenLog,
+      "D 10:49:49.000 LoadingScreen.OnSceneLoaded() - currMode=TOURNAMENT\n",
+      "utf8"
+    );
 
     let powerAvailable = false;
-    const missingSession = { root, sessionDir, decksLogPath: decksLog, modifiedAtMs: 1 };
-    const readySession = { root, sessionDir, decksLogPath: decksLog, powerLogPath: powerLog, modifiedAtMs: 2 };
+    const missingSession = {
+      root,
+      sessionDir,
+      decksLogPath: decksLog,
+      loadingScreenLogPath: loadingScreenLog,
+      modifiedAtMs: 1
+    };
+    const readySession = {
+      root,
+      sessionDir,
+      decksLogPath: decksLog,
+      loadingScreenLogPath: loadingScreenLog,
+      powerLogPath: powerLog,
+      modifiedAtMs: 1
+    };
     vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { warnings: [] };
+        }
+      }
+    }));
     vi.doMock("../src/main/logDiscovery.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../src/main/logDiscovery.js")>();
       return {
@@ -784,15 +1221,22 @@ describe("TrackerService log selection", () => {
     const { TrackerService } = await import("../src/main/trackerService.js");
     const service = new TrackerService();
     const initial = await service.start({ logPath: decksLog });
-    expect(initial.status).toBe("missing-log");
+    expect(initial.status).toBe("watching");
+    expect(initial.error).toContain("等待开局");
 
     await writeFile(powerLog, "D 10:55:22.000 GameState.DebugPrintPower() - CREATE_GAME\nD 10:55:22.000 GameState.DebugPrintGame() - GameType=GT_RANKED\n", "utf8");
     powerAvailable = true;
 
-    await vi.waitFor(() => expect(service.getState().status).toBe("watching"), {
-      timeout: 3_000,
-      interval: 50
-    });
+    await vi.waitFor(
+      () => {
+        expect(service.getState().status).toBe("watching");
+        expect(service.getState().logPath).toBe(powerLog);
+      },
+      {
+        timeout: 3_000,
+        interval: 50
+      }
+    );
     expect(service.getState().logPath).toBe(powerLog);
     expect(service.getState().gameActive).toBe(true);
     await service.dispose();
@@ -863,21 +1307,20 @@ describe("TrackerService log selection", () => {
         }
       }
     }));
+    const loadRatings = vi.fn(async () => ({
+      table: {
+        source: "test ratings",
+        version: 1,
+        fetchedAt: "2026-07-11T00:00:00.000Z",
+        ratings: {
+          Neutral: { TEST_001: 88, TEST_002: 61, TEST_003: 72 }
+        }
+      },
+      warnings: []
+    }));
     vi.doMock("../src/main/arenaRatingService.js", () => ({
       ArenaRatingService: class ArenaRatingService {
-        async loadRatings() {
-          return {
-            table: {
-              source: "test ratings",
-              version: 1,
-              fetchedAt: "2026-07-11T00:00:00.000Z",
-              ratings: {
-                Neutral: { TEST_001: 88, TEST_002: 61, TEST_003: 72 }
-              }
-            },
-            warnings: []
-          };
-        }
+        loadRatings = loadRatings;
       }
     }));
     const { TrackerService } = await import("../src/main/trackerService.js");
@@ -920,6 +1363,7 @@ describe("TrackerService log selection", () => {
     };
     const service = new TrackerService(scanner, recognizer);
     const state = await service.start({ logPath: arenaLog });
+    expect(loadRatings).toHaveBeenCalledWith("Druid");
     await service.dispose();
 
     expect(state.status).toBe("watching");
@@ -935,7 +1379,759 @@ describe("TrackerService log selection", () => {
     ]);
   });
 
-  it("keeps a completed Arena deck when Power.log declares the Arena game type after CREATE_GAME", async () => {
+  it("waits for an in-flight screen recognition before disposal completes", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 15:58:16.7116490 DraftManager.OnChoicesAndContents - Draft Deck ID: 9455810772, Hero Card = HERO_06",
+      "D 15:58:16.7116490 SetDraftMode - DRAFTING"
+    ].join("\n"), "utf8");
+
+    let finishRecognition: ((result: { status: "ok"; texts: [] }) => void) | undefined;
+    const pendingRecognition = new Promise<{ status: "ok"; texts: [] }>((resolve) => {
+      finishRecognition = resolve;
+    });
+    const recognizer = {
+      recognize: vi.fn()
+        .mockResolvedValueOnce({ status: "ok" as const, texts: [] })
+        .mockImplementationOnce(() => pendingRecognition)
+    };
+    const service = new TrackerService(undefined, recognizer);
+    await service.start({ logPath: arenaLog });
+    await vi.waitFor(() => expect(recognizer.recognize).toHaveBeenCalledTimes(2), {
+      timeout: 1_500,
+      interval: 25
+    });
+
+    let disposed = false;
+    const disposal = service.dispose().then(() => { disposed = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(disposed).toBe(false);
+
+    finishRecognition?.({ status: "ok", texts: [] });
+    await disposal;
+    expect(disposed).toBe(true);
+  });
+
+  it("keeps every redraft pick when completion arrives in the same appended chunk", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      )
+    ].join("\n") + "\n", "utf8");
+
+    const service = new TrackerService(undefined, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: arenaLog });
+
+    await appendFile(arenaLog, [
+      "D 16:54:01.000 Client chooses: [TEST_002]",
+      "D 16:54:02.000 Client chooses: [TEST_002]",
+      "D 16:54:03.000 Client chooses: [TEST_003]",
+      "D 16:54:04.000 Client chooses: [TEST_001]",
+      "D 16:54:05.000 Client chooses: [TEST_003]",
+      "D 16:54:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "complete",
+        draftCount: 29,
+        unresolvedCount: 1
+      });
+    }, { timeout: 2_000, interval: 50 });
+    expect(service.getState().arena?.picks).toHaveLength(29);
+    expect(service.getState().arena?.deck.reduce((total, card) => total + card.count, 0)).toBe(29);
+    expect(service.getState().summary).toMatchObject({ totalCards: 30, remainingCards: 30 });
+    expect(service.getState().deck).toEqual(expect.arrayContaining([
+      expect.objectContaining({ unresolved: true, count: 1 })
+    ]));
+    await service.dispose();
+  });
+
+  it("adopts an exact Arena deck when Decks.log appears after tracking starts", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 Arena.SetDraftMode - REDRAFTING",
+      "D 12:00:00.250 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 12:00:00.500 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 12:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 12:00:${String(index + 1).padStart(2, "0")}.000 Client chooses: [TEST_001]`
+      ),
+      "D 12:01:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+
+    const exactArenaDeck = {
+      id: "late-arena-deck",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Exact Arena Card", count: 30, cardId: "TEST_EXACT" }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      warnings: []
+    };
+    let exactAvailable = false;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => exactAvailable
+        ? { status: "ok" as const, decks: [exactArenaDeck], activeDeck: exactArenaDeck }
+        : { status: "missing-log" as const, decks: [] })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.arena).toMatchObject({ status: "complete", draftCount: 29, unresolvedCount: 1 });
+
+    exactAvailable = true;
+    await writeFile(decksLog, "I 17:00:00.000 Starting Arena Game With Deck\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "complete",
+        draftCount: 30,
+        unresolvedCount: 0
+      });
+      expect(service.getState().deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_EXACT", count: 30 })
+      ]);
+    }, { timeout: 2_000, interval: 50 });
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2);
+    await service.dispose();
+  });
+
+  it("refreshes the active Arena deck from a matching Finished Editing Deck snapshot", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 05:07:31.0726660 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466953270, Hero Card = HERO_09",
+      "D 05:07:31.0726660 DraftManager.OnChoicesAndContents - Draft deck contains card REV_015",
+      ...Array.from(
+        { length: 29 },
+        () => "D 05:07:31.0726660 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_KEEP"
+      ),
+      "D 05:07:31.0726660 SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await writeFile(decksLog, "I 05:07:13.7249790 Deck Contents Received:\n", "utf8");
+
+    const editedDeck = {
+      id: "edited-arena-deck",
+      deckId: "9466953270",
+      cards: [
+        { name: "Replacement", count: 1, cardId: "MAW_022" },
+        { name: "Kept Card", count: 29, cardId: "TEST_KEEP" }
+      ],
+      rawText: [
+        "I 05:08:02.7521140 Finished Editing Deck:",
+        "I 05:08:02.7521140 ### ",
+        "I 05:08:02.7521140 # Deck ID: 9466953270",
+        "I 05:08:02.7521140 SANITIZED_DECK_STRING"
+      ].join("\n"),
+      sourcePath: decksLog,
+      updatedAt: "2026-07-23T05:08:02.752+08:00",
+      warnings: []
+    };
+    let scanCount = 0;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => {
+        scanCount += 1;
+        return scanCount === 1
+          ? { status: "ok" as const, decks: [] }
+          : { status: "ok" as const, decks: [editedDeck] };
+      })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.deck).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: "REV_015", count: 1 })
+    ]));
+
+    await appendFile(decksLog, `${editedDeck.rawText}\n`, "utf8");
+    await vi.waitFor(() => {
+      expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2);
+      expect(service.getState().deck).toEqual(expect.arrayContaining([
+        expect.objectContaining({ cardId: "MAW_022", count: 1 })
+      ]));
+    }, { timeout: 2_000, interval: 50 });
+    expect(service.getState().deck.map((card) => card.cardId)).not.toContain("REV_015");
+    await service.dispose();
+  });
+
+  it("applies the exact Decks.log snapshot that arrives before redraft completion", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 Arena.SetDraftMode - REDRAFTING",
+      "D 12:00:00.250 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 12:00:00.500 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 12:00:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      )
+    ].join("\n") + "\n", "utf8");
+
+    const exactArenaDeck = {
+      id: "redraft-exact-arena",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Sample Singleton", count: 30, cardId: "TEST_001" }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      warnings: []
+    };
+    let exactAvailable = false;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => exactAvailable
+        ? { status: "ok" as const, decks: [exactArenaDeck], activeDeck: exactArenaDeck }
+        : { status: "missing-log" as const, decks: [] })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.arena).toMatchObject({ status: "redrafting", draftCount: 0, unresolvedCount: 30 });
+
+    exactAvailable = true;
+    await writeFile(decksLog, "I 12:00:30.000 Starting Arena Game With Deck\n", "utf8");
+    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2));
+    expect(service.getState().arena).toMatchObject({ status: "redrafting", draftCount: 0, unresolvedCount: 30 });
+
+    await appendFile(arenaLog, [
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 12:00:${String(index + 31).padStart(2, "0")}.000 Client chooses: [TEST_001]`
+      ),
+      "D 12:01:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({ draftCount: 30, unresolvedCount: 0 });
+      expect(["complete", "playing"]).toContain(service.getState().arena?.status);
+      expect(service.getState().deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_001", count: 30 })
+      ]);
+    }, { timeout: 2_000, interval: 50 });
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2);
+    await service.dispose();
+  });
+
+  it("reapplies a newer exact Decks snapshot when its event is observed before the redraft chunk", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 11:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 11:00:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 11:00:02.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+
+    const exactArenaDeck = {
+      id: "pre-redraft-observed-exact",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Sample Multi", count: 30, cardId: "TEST_003" }],
+      rawText: "D 00:00:07.001 Decks - # Deck ID: 9466340632",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T12:00:07.001Z",
+      warnings: []
+    };
+    let exactAvailable = false;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => exactAvailable
+        ? { status: "ok" as const, decks: [exactArenaDeck], activeDeck: exactArenaDeck }
+        : { status: "missing-log" as const, decks: [] })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: arenaLog });
+
+    exactAvailable = true;
+    await writeFile(decksLog, "I 00:00:07.000 Starting Arena Game With Deck\n", "utf8");
+    await utimes(decksLog, new Date(2026, 6, 22, 0, 0, 8), new Date(2026, 6, 22, 0, 0, 8));
+    await vi.waitFor(() => {
+      expect(service.getState().arena?.deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_003", count: 30 })
+      ]);
+    });
+
+    await appendFile(arenaLog, [
+      "D 23:59:59.000 Arena.SetDraftMode - REDRAFTING",
+      "D 23:59:59.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 23:59:59.500 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 00:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 00:00:0${index + 1}.000 Client chooses: [TEST_001]`
+      ),
+      "D 00:00:06.500 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await utimes(arenaLog, new Date(2026, 6, 22, 0, 0, 7), new Date(2026, 6, 22, 0, 0, 7));
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "complete",
+        redraftGenerationId: "9466340633",
+        draftCount: 30,
+        unresolvedCount: 0
+      });
+      expect(service.getState().arena?.deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_003", count: 30 })
+      ]);
+    }, { timeout: 2_000, interval: 50 });
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2);
+    await service.dispose();
+  });
+
+  it("does not carry a pre-redraft Decks event into a newer redraft generation", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 11:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 11:00:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 11:00:02.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    const oldArenaDeck = {
+      id: "pre-redraft-old-exact",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Sample Multi", count: 30, cardId: "TEST_003" }],
+      rawText: "D 23:59:59.001 Decks - # Deck ID: 9466340632",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T11:59:00.001Z",
+      warnings: []
+    };
+    let exactAvailable = false;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => exactAvailable
+        ? { status: "ok" as const, decks: [oldArenaDeck], activeDeck: oldArenaDeck }
+        : { status: "missing-log" as const, decks: [] })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: arenaLog });
+
+    exactAvailable = true;
+    await writeFile(decksLog, "I 23:59:59.000 Starting Arena Game With Deck\n", "utf8");
+    await utimes(decksLog, new Date(2026, 6, 22, 0, 0, 1), new Date(2026, 6, 22, 0, 0, 1));
+    await vi.waitFor(() => {
+      expect(service.getState().arena?.deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_003", count: 30 })
+      ]);
+    });
+
+    await appendFile(arenaLog, [
+      "D 00:00:10.000 Arena.SetDraftMode - REDRAFTING",
+      "D 00:00:10.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 00:00:10.500 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 00:00:11.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 00:00:${index + 12}.000 Client chooses: [TEST_001]`
+      ),
+      "D 00:00:17.500 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await utimes(arenaLog, new Date(2026, 6, 22, 0, 0, 20), new Date(2026, 6, 22, 0, 0, 20));
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "complete",
+        redraftGenerationId: "9466340633",
+        draftCount: 29,
+        unresolvedCount: 1
+      });
+    }, { timeout: 2_000, interval: 50 });
+    expect(service.getState().arena?.deck.some((card) => card.cardId === "TEST_003")).toBe(false);
+    await service.dispose();
+  });
+
+  it("finishes startup with the exact deck when Decks.log appears during startup", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 Arena.SetDraftMode - REDRAFTING",
+      "D 12:00:00.250 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 12:00:00.500 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 12:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 12:00:${String(index + 1).padStart(2, "0")}.000 Client chooses: [TEST_001]`
+      ),
+      "D 12:01:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    const exactArenaDeck = {
+      id: "startup-arena-deck",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Exact Arena Card", count: 30, cardId: "TEST_EXACT" }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      warnings: []
+    };
+    let finishInitialScan: () => void = () => undefined;
+    const initialScanGate = new Promise<void>((resolve) => {
+      finishInitialScan = resolve;
+    });
+    let scanCount = 0;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => {
+        scanCount += 1;
+        if (scanCount === 1) {
+          await initialScanGate;
+          return { status: "missing-log" as const, decks: [] };
+        }
+        return { status: "ok" as const, decks: [exactArenaDeck], activeDeck: exactArenaDeck };
+      })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+
+    const started = service.start({ logPath: arenaLog });
+    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(1));
+    await writeFile(decksLog, "I 17:00:00.000 Starting Arena Game With Deck\n", "utf8");
+    finishInitialScan();
+
+    const state = await started;
+    expect(state.arena).toMatchObject({ status: "complete", draftCount: 30, unresolvedCount: 0 });
+    expect(state.deck).toEqual([
+      expect.objectContaining({ cardId: "TEST_EXACT", count: 30 })
+    ]);
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2);
+    await service.dispose();
+  });
+
+  it("rejects an older Decks.log snapshot until it changes after the redraft", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(decksLog, "I 16:02:00.000 Starting Arena Game With Deck\n", "utf8");
+    await writeFile(arenaLog, [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:24.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 16:54:0${index + 1}.000 Client chooses: [TEST_002]`
+      ),
+      "D 16:54:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    const oldTime = new Date("2026-07-21T08:02:00.000Z");
+    const redraftTime = new Date("2026-07-21T08:54:06.000Z");
+    await utimes(decksLog, oldTime, oldTime);
+    await utimes(arenaLog, redraftTime, redraftTime);
+
+    const exactArenaDeck = {
+      id: "arena-deck",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Exact Arena Card", count: 30, cardId: "TEST_EXACT" }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T08:02:00.000Z",
+      warnings: []
+    };
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => ({
+        status: "ok" as const,
+        decks: [exactArenaDeck],
+        activeDeck: exactArenaDeck
+      }))
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.arena).toMatchObject({
+      deckId: "9466340632",
+      redraftGenerationId: "9466340633",
+      draftCount: 29,
+      unresolvedCount: 1
+    });
+    expect(initial.deck.some((card) => card.cardId === "TEST_EXACT")).toBe(false);
+
+    await appendFile(decksLog, "I 17:00:00.000 Starting Arena Game With Deck\n", "utf8");
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({ draftCount: 30, unresolvedCount: 0 });
+      expect(service.getState().deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_EXACT", count: 30 })
+      ]);
+    }, { timeout: 2_000, interval: 50 });
+    await service.dispose();
+  });
+
+  it("serializes Decks.log and Arena.log updates so an older exact deck cannot win a redraft race", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 16:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 16:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 16:00:01.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await writeFile(decksLog, "I 16:00:02.000 Deck Contents Received:\n", "utf8");
+
+    const oldExactDeck = {
+      id: "old-exact-arena",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Old Exact Card", count: 30, cardId: "TEST_OLD_EXACT" }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T08:00:02.000Z",
+      warnings: []
+    };
+    let scanCount = 0;
+    let resolveDelayedScan: (value: {
+      status: "ok";
+      decks: typeof oldExactDeck[];
+      activeDeck: typeof oldExactDeck;
+    }) => void = () => undefined;
+    const delayedScan = new Promise<{
+      status: "ok";
+      decks: typeof oldExactDeck[];
+      activeDeck: typeof oldExactDeck;
+    }>((resolve) => {
+      resolveDelayedScan = resolve;
+    });
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => {
+        scanCount += 1;
+        return scanCount === 1
+          ? { status: "ok" as const, decks: [oldExactDeck] }
+          : delayedScan;
+      })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: arenaLog });
+
+    await appendFile(decksLog, "I 16:53:23.000 Starting Arena Game With Deck\n", "utf8");
+    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2));
+    await appendFile(arenaLog, [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:24.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 16:53:26.000 Client chooses: [TEST_002]"
+    ].join("\n") + "\n", "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    resolveDelayedScan({ status: "ok", decks: [oldExactDeck], activeDeck: oldExactDeck });
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "redrafting",
+        redraftGenerationId: "9466340633",
+        draftCount: 25,
+        unresolvedCount: 5
+      });
+    }, { timeout: 2_000, interval: 50 });
+    expect(service.getState().deck.some((card) => card.cardId === "TEST_OLD_EXACT")).toBe(false);
+    await service.dispose();
+  });
+
+  it("rebuilds Arena state from scratch when Arena.log is truncated", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 16:53:26.000 Client chooses: [TEST_002]"
+    ].join("\n") + "\n", "utf8");
+    const service = new TrackerService(undefined, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.arena).toMatchObject({ status: "redrafting", draftCount: 25 });
+
+    await writeFile(arenaLog, "D 17:00:00.000 Client chooses: [TEST_003]\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "inactive",
+        draftCount: 0,
+        unresolvedCount: 0,
+        picks: []
+      });
+    }, { timeout: 2_000, interval: 50 });
+    expect(service.getState().deckName).toBeUndefined();
+    await service.dispose();
+  });
+
+  it("rebuilds Arena state when a truncated log is quickly rewritten past the old offset", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const original = [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 16:53:26.000 Client chooses: [TEST_002]"
+    ].join("\n") + "\n";
+    await writeFile(arenaLog, original, "utf8");
+    const service = new TrackerService(undefined, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.arena).toMatchObject({ status: "redrafting", draftCount: 25 });
+
+    const replacement = [
+      "D 17:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 17:00:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_003`
+      ),
+      "D 17:00:02.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK",
+      ...Array.from({ length: 30 }, (_value, index) => `D 17:00:03.${String(index).padStart(3, "0")} harmless padding`)
+    ].join("\n") + "\n";
+    expect(Buffer.byteLength(replacement)).toBeGreaterThanOrEqual(Buffer.byteLength(original));
+    await writeFile(arenaLog, replacement, "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({ status: "complete", draftCount: 30, unresolvedCount: 0 });
+      expect(service.getState().arena?.deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_003", count: 30 })
+      ]);
+    }, { timeout: 3_000, interval: 25 });
+    await service.dispose();
+  });
+
+  it("replaces the previous exact Arena deck with an explicit pending state for 31 redraft candidates", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 16:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 16:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 16:00:01.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    const service = new TrackerService(undefined, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    const initial = await service.start({ logPath: arenaLog });
+    expect(initial.deckName).toBe("竞技场牌库");
+    expect(initial.summary.totalCards).toBe(30);
+
+    await appendFile(arenaLog, [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:24.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9466340633",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 26 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      ...Array.from(
+        { length: 5 },
+        (_value, index) => `D 16:54:0${index + 1}.000 Client chooses: [TEST_002]`
+      ),
+      "D 16:54:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState().arena).toMatchObject({
+        status: "complete",
+        draftCount: 30,
+        unresolvedCount: 30
+      });
+      expect(service.getState().arena?.picks).toHaveLength(31);
+      expect(service.getState().deckName).toBe("竞技场牌库");
+      expect(service.getState().summary.totalCards).toBe(30);
+      expect(service.getState().deck).toEqual([
+        expect.objectContaining({ unresolved: true, count: 30 })
+      ]);
+    }, { timeout: 2_000, interval: 50 });
+    await service.dispose();
+  });
+
+  it("keeps processing an Arena game while class ratings load in the background", async () => {
     vi.resetModules();
     vi.doMock("../src/main/cardDataService.js", () => ({
       CardDataService: class CardDataService {
@@ -951,14 +2147,39 @@ describe("TrackerService log selection", () => {
         }
       }
     }));
+    const ratingResult = {
+      table: {
+        source: "test ratings",
+        version: 1,
+        fetchedAt: "2026-07-11T00:00:00.000Z",
+        ratings: {},
+        firestone: {
+          source: "Firestone" as const,
+          version: "test",
+          lastUpdated: "2026-07-11T00:00:00.000Z",
+          ratings: { TEST_001: { pickRate: 42, highWinPickRate: 51 } }
+        },
+        firestoneClasses: {
+          druid: {
+            source: "Firestone" as const,
+            playerClass: "druid",
+            version: "test",
+            lastUpdated: "2026-07-11T00:00:00.000Z",
+            overallWinrate: 50,
+            ratings: { TEST_001: { includedWinrate: 56.3, sampleSize: 1000, deckImpact: 6.3 } }
+          }
+        }
+      },
+      warnings: []
+    };
+    let releaseRatings: (result: typeof ratingResult) => void = () => undefined;
+    const delayedRatings = new Promise<typeof ratingResult>((resolve) => {
+      releaseRatings = resolve;
+    });
+    const loadRatings = vi.fn(() => delayedRatings);
     vi.doMock("../src/main/arenaRatingService.js", () => ({
       ArenaRatingService: class ArenaRatingService {
-        async loadRatings() {
-          return {
-            table: { source: "test ratings", version: 1, fetchedAt: "2026-07-11T00:00:00.000Z", ratings: {} },
-            warnings: []
-          };
-        }
+        loadRatings = loadRatings;
       }
     }));
     const { TrackerService } = await import("../src/main/trackerService.js");
@@ -967,22 +2188,587 @@ describe("TrackerService log selection", () => {
     const powerLog = join(sessionDir, "Power.log");
     await writeFile(
       arenaLog,
-      [
-        "D 17:39:59.6202750 DraftManager.OnChoicesAndContents - Draft Deck ID: 9455810772, Hero Card = HERO_06",
-        "D 17:39:59.6202750 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001",
-        "D 17:39:59.6202750 DraftManager.OnChoicesAndContents - Draft deck contains card TEST_002",
-        "D 17:40:02.0000000 SetDraftMode - ACTIVE_DRAFT_DECK"
+        [
+          "D 17:39:59.6202750 DraftManager.OnChoicesAndContents - Draft Deck ID: 9455810772, Hero Card = HERO_06",
+          ...Array.from(
+            { length: 30 },
+            (_value, index) => `D 17:39:59.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+          ),
+          "D 17:40:02.0000000 SetDraftMode - ACTIVE_DRAFT_DECK"
       ].join("\n"),
       "utf8"
     );
     await writeFile(
       powerLog,
+      "",
+      "utf8"
+    );
+
+    const service = new TrackerService();
+    let startReturned = false;
+    const startPromise = service.start({ logPath: powerLog }).then((state) => {
+      startReturned = true;
+      return state;
+    });
+    await vi.waitFor(() => expect(loadRatings).toHaveBeenCalledWith("Druid"));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const returnedBeforeRatings = startReturned;
+    if (!returnedBeforeRatings) {
+      releaseRatings(ratingResult);
+    }
+    const initial = await startPromise;
+    expect(returnedBeforeRatings).toBe(true);
+    expect(initial.arena?.status).toBe("complete");
+    expect(initial.summary).toMatchObject({ totalCards: 30, remainingCards: 30 });
+
+    await appendFile(powerLog, [
+      "D 17:41:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 17:41:00.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 17:41:00.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 17:41:00.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 17:41:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Sample Singleton id=64 zone=DECK zonePos=1 cardId=TEST_001 player=2] tag=ZONE value=HAND"
+    ].join("\n") + "\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState()).toMatchObject({
+        gameActive: true,
+        arena: { status: "playing" },
+        summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
+      });
+    }, { timeout: 2_000, interval: 25 });
+
+    releaseRatings(ratingResult);
+    await vi.waitFor(() => {
+      expect(service.getState().arena?.deck[0]).toMatchObject({ pickRate: 42, deckImpact: 6.3 });
+    });
+    const state = service.getState();
+    await service.dispose();
+
+    expect(state.status).toBe("watching");
+    expect(state.logPath).toBe(powerLog);
+    expect(state.arena?.status).toBe("playing");
+    expect(state.gameActive).toBe(true);
+    expect(state.arena).toMatchObject({ draftCount: 30, unresolvedCount: 0 });
+    expect(state.deckName).toBe("竞技场牌库");
+    expect(state.summary).toMatchObject({ totalCards: 30, remainingCards: 29, drawnCards: 1 });
+    expect(state.deck).toEqual([expect.objectContaining({ cardId: "TEST_001", remaining: 29 })]);
+  });
+
+  it("loads Paladin ratings for HERO_04bh and scores OCR Arena choices", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return {
+            database: {
+              "700": { dbfId: 700, name: "候选一", cardId: "MIS_700", collectible: true },
+              "918": { dbfId: 918, name: "候选二", cardId: "MIS_918", collectible: true },
+              "848": { dbfId: 848, name: "候选三", cardId: "UNG_848", collectible: true }
+            },
+            warnings: []
+          };
+        }
+      }
+    }));
+    const loadRatings = vi.fn(async (className: string) => ({
+      table: {
+        source: "test ratings",
+        version: 1,
+        fetchedAt: "2026-07-24T00:00:00.000Z",
+        ratings: {
+          Paladin: {
+            MIS_700: 70,
+            MIS_918: 80,
+            UNG_848: 90
+          }
+        },
+        firestone: {
+          source: "Firestone" as const,
+          version: "test",
+          lastUpdated: "2026-07-24T00:00:00.000Z",
+          ratings: {
+            MIS_700: { pickRate: 40 },
+            MIS_918: { pickRate: 50 },
+            UNG_848: { pickRate: 60 }
+          }
+        },
+        firestoneClasses: {
+          paladin: {
+            source: "Firestone" as const,
+            playerClass: "paladin",
+            version: "paladin-test",
+            lastUpdated: "2026-07-24T00:00:00.000Z",
+            overallWinrate: 50,
+            ratings: {
+              MIS_700: { includedWinrate: 51, sampleSize: 100, deckImpact: 1 },
+              MIS_918: { includedWinrate: 52, sampleSize: 100, deckImpact: 2 },
+              UNG_848: { includedWinrate: 53, sampleSize: 100, deckImpact: 3 }
+            }
+          }
+        }
+      },
+      warnings: [],
+      firestoneClassCacheStatus: "fresh" as const,
+      requestedClass: className
+    }));
+    vi.doMock("../src/main/arenaRatingService.js", () => ({
+      ArenaRatingService: class ArenaRatingService {
+        loadRatings = loadRatings;
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 Arena.SetDraftMode - DRAFTING",
+      "D 12:00:01.000 DraftManager.OnChosen(): hero=HERO_04bh"
+    ].join("\n") + "\n", "utf8");
+    const recognizer = {
+      recognize: vi.fn(async () => ({
+        status: "ok" as const,
+        texts: [
+          { text: "候选一", confidence: 1, x: 0.2, y: 0.6, width: 0.05, height: 0.02 },
+          { text: "候选二", confidence: 1, x: 0.39, y: 0.6, width: 0.05, height: 0.02 },
+          { text: "候选三", confidence: 1, x: 0.58, y: 0.6, width: 0.05, height: 0.02 }
+        ]
+      }))
+    };
+    const service = new TrackerService(undefined, recognizer);
+
+    await service.start({ logPath: arenaLog });
+    try {
+      await vi.waitFor(() => {
+        expect(loadRatings).toHaveBeenCalledWith("Paladin");
+        expect(service.getState().arena?.currentChoices).toEqual([
+          expect.objectContaining({
+            cardId: "MIS_700",
+            score: 70,
+            rating: expect.objectContaining({ hearthArena: 70, pickRate: 40, deckImpact: 1 })
+          }),
+          expect.objectContaining({
+            cardId: "MIS_918",
+            score: 80,
+            rating: expect.objectContaining({ hearthArena: 80, pickRate: 50, deckImpact: 2 })
+          }),
+          expect.objectContaining({
+            cardId: "UNG_848",
+            score: 90,
+            rating: expect.objectContaining({ hearthArena: 90, pickRate: 60, deckImpact: 3 })
+          })
+        ]);
+      });
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  it("loads the completed Arena deck before replaying a current game on cold start", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { database: { "1001": { dbfId: 1001, name: "Sample Singleton", cardId: "TEST_001" } }, warnings: [] };
+        }
+      }
+    }));
+    vi.doMock("../src/main/arenaRatingService.js", () => ({
+      ArenaRatingService: class ArenaRatingService {
+        async loadRatings() {
+          return { table: { source: "test", version: 1, fetchedAt: "2026-07-22T00:00:00.000Z", ratings: {} }, warnings: [] };
+        }
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 1, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 12:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 12:00:01.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await writeFile(powerLog, [
+      "D 12:01:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 12:01:00.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 12:01:00.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 12:01:00.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 12:01:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Sample Singleton id=65 zone=DECK zonePos=1 cardId=TEST_001 player=2] tag=ZONE value=HAND"
+    ].join("\n") + "\n", "utf8");
+
+    const service = new TrackerService();
+    const state = await service.start({ logPath: powerLog });
+    await service.dispose();
+
+    expect(state).toMatchObject({
+      gameActive: true,
+      arena: { status: "playing" },
+      summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
+    });
+    expect(state.deck).toEqual([expect.objectContaining({ cardId: "TEST_001", remaining: 29, drawn: 1 })]);
+  });
+
+  it("shows stale class ratings but retries them on the next log update", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { database: { "1001": { dbfId: 1001, name: "Sample Singleton", cardId: "TEST_001" } }, warnings: [] };
+        }
+      }
+    }));
+    const baseTable = {
+      source: "test ratings",
+      version: 1,
+      fetchedAt: "2026-07-11T00:00:00.000Z",
+      ratings: {},
+      firestone: {
+        source: "Firestone" as const,
+        version: "test",
+        lastUpdated: "2026-07-11T00:00:00.000Z",
+        ratings: { TEST_001: { pickRate: 42, highWinPickRate: 51 } }
+      }
+    };
+    const staleClass = {
+      source: "Firestone" as const,
+      playerClass: "hunter",
+      version: "stale",
+      lastUpdated: "2026-07-10T00:00:00.000Z",
+      overallWinrate: 50,
+      ratings: { TEST_001: { includedWinrate: 54, sampleSize: 100, deckImpact: 4 } }
+    };
+    const loadRatings = vi.fn()
+      .mockResolvedValueOnce({
+        table: { ...baseTable, firestoneClasses: { hunter: staleClass } },
+        warnings: ["Firestone hunter 卡组影响更新失败，继续使用本地缓存"],
+        firestoneClassCacheStatus: "stale"
+      })
+      .mockResolvedValueOnce({
+        table: {
+          ...baseTable,
+          firestoneClasses: {
+            hunter: {
+              source: "Firestone" as const,
+              playerClass: "hunter",
+              version: "test",
+              lastUpdated: "2026-07-11T00:00:00.000Z",
+              overallWinrate: 50,
+              ratings: { TEST_001: { includedWinrate: 55, sampleSize: 100, deckImpact: 5 } }
+            }
+          }
+        },
+        warnings: [],
+        firestoneClassCacheStatus: "fresh"
+      });
+    vi.doMock("../src/main/arenaRatingService.js", () => ({
+      ArenaRatingService: class ArenaRatingService { loadRatings = loadRatings; }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 1, Hero Card = HERO_05",
+      ...Array.from({ length: 30 }, (_value, index) =>
+        `D 12:00:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`),
+      "D 12:00:02.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    const service = new TrackerService();
+    await service.start({ logPath: arenaLog });
+    await vi.waitFor(() => expect(loadRatings).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(service.getState().arena?.error).toContain("继续使用本地缓存"));
+    expect(service.getState().arena?.deck[0]).toMatchObject({ pickRate: 42, deckImpact: 4 });
+
+    await appendFile(arenaLog, "D 12:00:03.000 harmless update\n", "utf8");
+    await vi.waitFor(() => expect(loadRatings).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => {
+      expect(service.getState().arena?.deck[0]).toMatchObject({ pickRate: 42, deckImpact: 5 });
+    });
+    await service.dispose();
+  });
+
+  it("ignores an old session rating result without clearing the new session request", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return { database: { "1001": { dbfId: 1001, name: "Sample Singleton", cardId: "TEST_001" } }, warnings: [] };
+        }
+      }
+    }));
+    type RatingResult = {
+      table: {
+        source: string;
+        version: number;
+        fetchedAt: string;
+        ratings: Record<string, Record<string, number>>;
+        firestoneClasses: Record<string, {
+          source: "Firestone";
+          playerClass: string;
+          version: string;
+          lastUpdated: string;
+          overallWinrate: number;
+          ratings: Record<string, { includedWinrate: number; sampleSize: number; deckImpact: number }>;
+        }>;
+      };
+      warnings: string[];
+    };
+    const resolvers = new Map<string, (result: RatingResult) => void>();
+    const loadRatings = vi.fn((className: string) => new Promise<RatingResult>((resolve) => {
+      resolvers.set(className, resolve);
+    }));
+    vi.doMock("../src/main/arenaRatingService.js", () => ({
+      ArenaRatingService: class ArenaRatingService { loadRatings = loadRatings; }
+    }));
+    const makeResult = (classSlug: string, deckImpact: number, includeDruid = false): RatingResult => ({
+      table: {
+        source: "test ratings",
+        version: 1,
+        fetchedAt: "2026-07-11T00:00:00.000Z",
+        ratings: {},
+        firestoneClasses: {
+          [classSlug]: {
+            source: "Firestone",
+            playerClass: classSlug,
+            version: "test",
+            lastUpdated: "2026-07-11T00:00:00.000Z",
+            overallWinrate: 50,
+            ratings: { TEST_001: { includedWinrate: 50 + deckImpact, sampleSize: 100, deckImpact } }
+          },
+          ...(includeDruid ? {
+            druid: {
+              source: "Firestone" as const,
+              playerClass: "druid",
+              version: "stale",
+              lastUpdated: "2026-07-11T00:00:00.000Z",
+              overallWinrate: 50,
+              ratings: { TEST_001: { includedWinrate: 99, sampleSize: 100, deckImpact: 99 } }
+            }
+          } : {})
+        }
+      },
+      warnings: []
+    });
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const hunterSession = await createSessionDir();
+    const druidSession = await createSessionDir();
+    const hunterArenaLog = join(hunterSession, "Arena.log");
+    const druidArenaLog = join(druidSession, "Arena.log");
+    const arenaText = (hero: string) => [
+      `D 12:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 1, Hero Card = ${hero}`,
+      ...Array.from({ length: 30 }, (_value, index) =>
+        `D 12:00:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`),
+      "D 12:00:02.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n";
+    await writeFile(hunterArenaLog, arenaText("HERO_05"), "utf8");
+    await writeFile(druidArenaLog, arenaText("HERO_06"), "utf8");
+
+    const service = new TrackerService();
+    await service.start({ logPath: hunterArenaLog });
+    await vi.waitFor(() => expect(loadRatings).toHaveBeenCalledWith("Hunter"));
+    await service.start({ logPath: druidArenaLog });
+    await vi.waitFor(() => expect(loadRatings).toHaveBeenCalledWith("Druid"));
+
+    resolvers.get("Hunter")?.(makeResult("hunter", 10, true));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(service.getState().arena?.hero?.className).toBe("Druid");
+    expect(service.getState().arena?.deck[0]?.deckImpact).toBeUndefined();
+    await appendFile(druidArenaLog, "D 12:00:03.000 harmless update\n", "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(loadRatings).toHaveBeenCalledTimes(2);
+
+    resolvers.get("Druid")?.(makeResult("druid", 2));
+    await vi.waitFor(() => expect(service.getState().arena?.deck[0]?.deckImpact).toBe(2));
+    await service.dispose();
+  });
+
+  it("does not treat an older Arena game as the match after a newer redraft", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(arenaLog, [
+      "D 20:01:20.000 Arena.SetDraftMode - REDRAFTING",
+      "D 20:01:21.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 20:01:21.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 20:01:45.377 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await writeFile(powerLog, [
+      "D 19:44:49.835 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 19:44:49.835 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 19:44:49.836 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 19:44:49.837 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 19:44:50.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=TEST_001 id=64 zone=DECK zonePos=1 cardId=TEST_001 player=2] tag=ZONE value=HAND"
+    ].join("\n") + "\n", "utf8");
+    const observedAt = new Date(2026, 6, 22, 20, 2, 0);
+    await Promise.all([
+      utimes(arenaLog, observedAt, observedAt),
+      utimes(powerLog, observedAt, observedAt)
+    ]);
+
+    const service = new TrackerService();
+    const waiting = await service.start({ logPath: powerLog });
+    expect(waiting.arena?.status).toBe("complete");
+    expect(waiting.gameActive).not.toBe(true);
+    expect(waiting.summary).toMatchObject({ totalCards: 30, remainingCards: 30, drawnCards: 0 });
+
+    await appendFile(powerLog, [
+      "D 20:05:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 20:05:00.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 20:05:00.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 20:05:00.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 20:05:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=TEST_001 id=65 zone=DECK zonePos=1 cardId=TEST_001 player=2] tag=ZONE value=HAND"
+    ].join("\n") + "\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState()).toMatchObject({
+        gameActive: true,
+        arena: { status: "playing" },
+        summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
+      });
+    }, { timeout: 2_000, interval: 25 });
+    await service.dispose();
+  });
+
+  it("accepts a live Arena game by arrival order when its clock looks older than the current deck", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(arenaLog, [
+      "D 20:01:20.000 Arena.SetDraftMode - REDRAFTING",
+      "D 20:01:21.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 20:01:21.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 20:01:45.377 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await writeFile(powerLog, "", "utf8");
+    const observedAt = new Date(2026, 6, 22, 20, 2, 0);
+    await Promise.all([
+      utimes(arenaLog, observedAt, observedAt),
+      utimes(powerLog, observedAt, observedAt)
+    ]);
+
+    const service = new TrackerService();
+    const waiting = await service.start({ logPath: powerLog });
+    expect(waiting.arena?.status).toBe("complete");
+    expect(waiting.gameActive).not.toBe(true);
+
+    // Log clock/date inference can be wrong across a long overnight session.
+    // A line observed as a live append is authoritative even if its clock looks older.
+    await appendFile(powerLog, [
+      "D 19:59:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 19:59:00.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 19:59:00.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 19:59:00.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 19:59:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=TEST_001 id=65 zone=DECK zonePos=1 cardId=TEST_001 player=2] tag=ZONE value=HAND"
+    ].join("\n") + "\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState()).toMatchObject({
+        gameActive: true,
+        arena: { status: "playing" },
+        summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
+      });
+    }, { timeout: 2_000, interval: 25 });
+    await service.dispose();
+  });
+
+  it("enters playing when live Power.log starts before Arena redraft completion", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(arenaLog, [
+      "D 20:01:20.000 Arena.SetDraftMode - REDRAFTING",
+      "D 20:01:21.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 20:01:21.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      )
+    ].join("\n") + "\n", "utf8");
+    await writeFile(powerLog, "", "utf8");
+
+    const service = new TrackerService();
+    const waiting = await service.start({ logPath: powerLog });
+    expect(waiting.arena).toMatchObject({ status: "redrafting", draftCount: 0 });
+
+    await appendFile(powerLog, [
+      "D 20:01:44.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 20:01:44.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 20:01:44.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 20:01:44.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 20:01:44.400 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=TEST_001 id=65 zone=DECK zonePos=1 cardId=TEST_001 player=2] tag=ZONE value=HAND"
+    ].join("\n") + "\n", "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(service.getState().arena?.status).toBe("redrafting");
+
+    await appendFile(arenaLog, "D 20:01:45.377 Arena.SetDraftMode - ACTIVE_DRAFT_DECK\n", "utf8");
+
+    await vi.waitFor(() => {
+      expect(service.getState()).toMatchObject({
+        gameActive: true,
+        arena: { status: "playing" },
+        summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
+      });
+      expect(service.getState().deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_001", count: 30, remaining: 29, drawn: 1 })
+      ]);
+    }, { timeout: 2_000, interval: 25 });
+    await service.dispose();
+  });
+
+  it("冷启动回放竞技场 Power.log 时恢复星空投影球的本局法术", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return {
+            database: {
+              "103354": { dbfId: 103354, name: "星空投影球", cardId: "TOY_378", type: "SPELL", cost: 10 },
+              "1": { dbfId: 1, name: "寒冰箭", cardId: "CORE_CS2_024", type: "SPELL", cost: 2 },
+              "2": { dbfId: 2, name: "死神之躯", cardId: "REV_840", type: "SPELL", cost: 6 }
+            },
+            warnings: []
+          };
+        }
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const powerLog = join(sessionDir, "Power.log");
+    await writeFile(
+      powerLog,
       [
-        "D 17:41:00.000 GameState.DebugPrintPower() - CREATE_GAME",
-        "D 17:41:00.001 GameState.DebugPrintPower() -     GameEntity EntityID=1",
-        "D 17:41:00.500 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
-        "D 17:41:00.600 PowerTaskList.DebugPrintPower() -     CREATE_GAME"
-      ].join("\n"),
+        "D 08:18:06.3615000 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 08:18:06.3615000 GameState.DebugPrintPower() -     TAG_CHANGE Entity=GameEntity tag=GT value=7",
+        "D 08:18:06.3615000 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+        "D 08:18:06.3615000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+        "D 08:18:06.3615000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+        "D 08:18:06.3615000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=4 zone=DECK zonePos=0 cardId= player=1] CardID=",
+        "D 08:18:06.3615000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=5 zone=DECK zonePos=0 cardId= player=1] CardID=",
+        "D 08:18:06.3615000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=6 zone=DECK zonePos=0 cardId= player=1] CardID=",
+        "D 08:18:06.3615000 PowerTaskList.DebugPrintPower() - CREATE_GAME",
+        "D 08:18:07.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=4 zone=DECK zonePos=0 cardId= player=1] tag=ZONE value=HAND",
+        "D 08:18:32.0537060 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星空投影球 id=60 zone=DECK zonePos=0 cardId=TOY_378 player=2] tag=ZONE value=HAND",
+        "D 08:20:53.4861770 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1",
+        "D 08:20:53.4861770 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=寒冰箭 id=51 zone=HAND zonePos=7 cardId=CORE_CS2_024 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1",
+        "D 08:21:39.5040300 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=死神之躯 id=85 zone=HAND zonePos=5 cardId=REV_840 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1",
+        "D 08:21:39.5040300 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=死神之躯 id=85 zone=HAND zonePos=5 cardId=REV_840 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1"
+      ].join("\n") + "\n",
       "utf8"
     );
 
@@ -990,13 +2776,104 @@ describe("TrackerService log selection", () => {
     const state = await service.start({ logPath: powerLog });
     await service.dispose();
 
-    expect(state.status).toBe("watching");
-    expect(state.logPath).toBe(powerLog);
-    expect(state.arena?.status).toBe("playing");
-    expect(state.arena?.draftCount).toBe(30);
+    expect(state.friendlyHand).toContainEqual(
+      expect.objectContaining({
+        cardId: "TOY_378",
+        details: expect.objectContaining({
+          playedSpellsThisGame: [
+            expect.objectContaining({ name: "寒冰箭", cardId: "CORE_CS2_024" }),
+            expect.objectContaining({ name: "死神之躯", cardId: "REV_840" })
+          ]
+        })
+      })
+    );
+    expect(state.opponentDeck).toEqual([]);
+    expect(state.opponentDeckCount).toBe(2);
+  });
+
+  it("replaces temporary legendary-team cards with the exact active Arena deck only after completion", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return {
+            database: {
+              "2001": { dbfId: 2001, name: "传说核心", cardId: "JAIL_851", rarity: "LEGENDARY" },
+              "2002": { dbfId: 2002, name: "传说预览", cardId: "TIME_064", rarity: "LEGENDARY" },
+              "3001": { dbfId: 3001, name: "普通选牌", cardId: "TEST_NORMAL", rarity: "COMMON" },
+              "4001": { dbfId: 4001, name: "精确附带甲", cardId: "TEST_BONUS_1", rarity: "COMMON" },
+              "4002": { dbfId: 4002, name: "精确附带乙", cardId: "TEST_BONUS_2", rarity: "COMMON" },
+              "4003": { dbfId: 4003, name: "精确附带丙", cardId: "TEST_BONUS_3", rarity: "COMMON" }
+            },
+            warnings: []
+          };
+        }
+      }
+    }));
+    vi.doMock("../src/main/arenaRatingService.js", () => ({
+      ArenaRatingService: class ArenaRatingService {
+        async loadRatings() {
+          return { table: { source: "test", version: 1, fetchedAt: "2026-07-18T00:00:00.000Z", ratings: {} }, warnings: [] };
+        }
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 SetDraftMode - DRAFTING",
+      "D 12:00:01.000 DraftManager.OnChosen(): hero=HERO_04",
+      "D 12:00:02.000 Client chooses: 传说核心 (JAIL_851)",
+      "D 12:00:03.000 Client chooses: 传说预览 (TIME_064)",
+      "D 12:00:04.000 Client chooses: 传说核心 (JAIL_851)",
+      ...Array.from({ length: 26 }, (_value, index) => `D 12:01:${String(index).padStart(2, "0")}.000 Client chooses: 普通选牌 (TEST_NORMAL)`),
+      "D 12:02:00.000 SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n"), "utf8");
+    const exactArenaDeck = {
+      id: "arena-deck",
+      deckId: "9463305273",
+      mode: "arena",
+      cards: [
+        { name: "传说核心", count: 1, cardId: "JAIL_851" },
+        { name: "精确附带甲", count: 1, cardId: "TEST_BONUS_1" },
+        { name: "精确附带乙", count: 1, cardId: "TEST_BONUS_2" },
+        { name: "精确附带丙", count: 1, cardId: "TEST_BONUS_3" },
+        { name: "普通选牌", count: 26, cardId: "TEST_NORMAL" }
+      ],
+      rawText: "",
+      sourcePath: join(sessionDir, "Decks.log"),
+      updatedAt: "2026-07-18T00:00:00.000Z",
+      warnings: []
+    };
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => ({ status: "ok" as const, decks: [exactArenaDeck], activeDeck: exactArenaDeck }))
+    };
+
+    const service = new TrackerService(scanner, { recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] })) });
+    const state = await service.start({ logPath: arenaLog });
+    await service.dispose();
+
+    expect(state.arena).toMatchObject({ status: "complete", draftCount: 30 });
     expect(state.deckName).toBe("竞技场牌库");
-    expect(state.summary).toMatchObject({ totalCards: 30, remainingCards: 30, drawnCards: 0 });
-    expect(state.deck.map((card) => card.cardId ?? card.name).sort()).toEqual(["TEST_001", "TEST_002", "日志缺失的竞技场牌"]);
+    expect(state.summary).toMatchObject({ totalCards: 30, remainingCards: 30 });
+    expect(state.deck).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: "TEST_BONUS_1", count: 1 }),
+      expect.objectContaining({ cardId: "TEST_BONUS_2", count: 1 }),
+      expect.objectContaining({ cardId: "TEST_BONUS_3", count: 1 })
+    ]));
+    expect(state.deck.map((card) => card.name)).not.toEqual(expect.arrayContaining(["传说团队附带牌", "日志缺失的竞技场牌"]));
+
+    await writeFile(arenaLog, [
+      "D 13:00:00.000 SetDraftMode - DRAFTING",
+      "D 13:00:01.000 DraftManager.OnChosen(): hero=HERO_04",
+      "D 13:00:02.000 Client chooses: 普通选牌 (TEST_NORMAL)"
+    ].join("\n"), "utf8");
+    const draftingService = new TrackerService(scanner, { recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] })) });
+    const draftingState = await draftingService.start({ logPath: arenaLog });
+    await draftingService.dispose();
+
+    expect(draftingState.arena).toMatchObject({ status: "drafting", draftCount: 1 });
+    expect(draftingState.deckName).toBeUndefined();
   });
 
   it("keeps the constructed deck preview when Arena.log updates after returning to Standard deck select", async () => {
@@ -1082,7 +2959,7 @@ describe("TrackerService log selection", () => {
     expect(state.deckName).toBe("偷取牌库");
     expect(state.autoMatchedDeckId).toBe("standard-deck");
     expect(recognizer.recognize).toHaveBeenCalledWith({
-      requireHearthstoneFrontmost: false,
+      requireHearthstoneFrontmost: true,
       profile: "constructed"
     });
 
@@ -1221,7 +3098,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
 
     expect(recognizer.recognize).toHaveBeenCalledWith({
-      requireHearthstoneFrontmost: false,
+      requireHearthstoneFrontmost: true,
       profile: "constructed"
     });
     expect(state.constructedScreenMode).toBe("standard");
