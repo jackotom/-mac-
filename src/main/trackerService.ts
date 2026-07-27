@@ -90,6 +90,7 @@ export class TrackerService {
   private pendingExactArenaDeck: PendingExactArenaDeck | undefined;
   private latestExactArenaDeckObservation: ExactArenaDeckObservation | undefined;
   private constructedScreenMode: "standard" | "wild" | undefined;
+  private collectionDeckPreviewSource: "decks-log" | "screen" | undefined;
   private activeTrackerMode: TrackerMode | undefined;
   private pendingPowerGameText = "";
   private activeArenaGame = false;
@@ -340,7 +341,7 @@ export class TrackerService {
     this.activeLogPath = logPath;
     this.syncArenaDeckToTracker();
     if (!session?.powerLogPath && selectedCollectionDeck && this.arena.getState().status === "inactive") {
-      this.previewCollectionDeck(selectedCollectionDeck);
+      this.previewCollectionDeck(selectedCollectionDeck, "decks-log");
     }
 
     const watchedPaths = [logPath];
@@ -553,7 +554,7 @@ export class TrackerService {
             this.deferExactArenaDeck(selectedCollectionDeck);
           }
         } else if (selectedCollectionDeck && this.arena.getState().status === "inactive" && !this.activeArenaGame) {
-          this.previewCollectionDeck(selectedCollectionDeck);
+          this.previewCollectionDeck(selectedCollectionDeck, "decks-log");
         }
       } else if (this.isPlayerLog(logPath)) {
         const playerEvents = parsePlayerLog(text);
@@ -642,6 +643,7 @@ export class TrackerService {
     this.stopSessionRefresh();
     this.stopArenaScreenRecognition();
     this.constructedScreenMode = undefined;
+    this.collectionDeckPreviewSource = undefined;
     this.pendingPowerGameText = "";
     this.waitingForFirstPowerLog = false;
     this.pendingExactArenaDeck = undefined;
@@ -810,7 +812,7 @@ export class TrackerService {
               this.arena.reset();
               this.lastArenaDeckSignature = undefined;
               this.resetPendingArenaExit();
-              this.previewCollectionDeck(inspection.selectedDeck);
+              this.previewCollectionDeck(inspection.selectedDeck, "screen");
             }
           } else {
             this.resetPendingArenaExit();
@@ -844,11 +846,11 @@ export class TrackerService {
           this.lastArenaDeckSignature = undefined;
 
           if (inspection.selectedDeck) {
-            this.previewCollectionDeck(inspection.selectedDeck);
+            this.previewCollectionDeck(inspection.selectedDeck, "screen");
             return;
           }
 
-          this.engine.clearCollectionDeckPreview();
+          this.clearCollectionDeckPreview();
           this.engine.clearArenaDeck();
           this.pushState();
           return;
@@ -871,7 +873,7 @@ export class TrackerService {
           return;
         }
         const message = result.message ?? constructedScreenRecognitionFailureMessage(result.status);
-        this.engine.clearCollectionDeckPreview();
+        this.clearCollectionDeckPreview({ preserveDecksLog: true });
         if (result.status === "permission-denied" && arenaState.status === "complete") {
           this.arena.reset();
           this.lastArenaDeckSignature = undefined;
@@ -1207,6 +1209,7 @@ export class TrackerService {
     }
     if (startsArenaGame || startsConstructedGame) {
       this.constructedScreenMode = undefined;
+      this.collectionDeckPreviewSource = undefined;
     }
     if (startsConstructedGame && this.arena.getState().status !== "inactive") {
       this.arena.reset();
@@ -1493,16 +1496,36 @@ export class TrackerService {
     return this.applyExactArenaDeck(deck);
   }
 
-  private previewCollectionDeck(deck: CollectionDeck) {
+  private previewCollectionDeck(deck: CollectionDeck, source: "decks-log" | "screen") {
     this.arena.reset();
+    const previousState = this.engine.getState();
     if (!this.engine.previewCollectionDeck(deck.id, { expectedSize: getConstructedExpectedDeckSize(deck) })) {
       return false;
     }
 
+    const keepsAuthoritativeSource =
+      source === "screen" &&
+      this.collectionDeckPreviewSource === "decks-log" &&
+      previousState.autoMatchedDeckId === deck.id;
+    this.collectionDeckPreviewSource = keepsAuthoritativeSource ? "decks-log" : source;
     this.constructedScreenMode = getConstructedMode(deck) ?? this.constructedScreenMode;
     this.lastArenaDeckSignature = undefined;
     this.pushState();
     return true;
+  }
+
+  private clearCollectionDeckPreview(options: { preserveDecksLog?: boolean } = {}) {
+    if (
+      options.preserveDecksLog &&
+      this.collectionDeckPreviewSource === "decks-log" &&
+      this.engine.getState().autoMatchedDeckId
+    ) {
+      return false;
+    }
+
+    const cleared = this.engine.clearCollectionDeckPreview();
+    this.collectionDeckPreviewSource = undefined;
+    return cleared;
   }
 
   private resetPendingArenaExit() {

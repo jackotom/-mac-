@@ -82,9 +82,34 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
   }, [activeCard, activeCardId]);
   const handCount = countCards(handCards);
   const otherCount = countCards(otherCards);
+  const remainingDeckCount = view.summary.remainingCards;
+  const isRecognizingDeck = /正在识别|识别中/u.test(
+    `${view.deckIdentity?.name ?? ""} ${view.deckIdentity?.detail ?? ""}`
+  );
+  const hasObservedFriendlyCards = handCount + otherCount > 0;
+  const isUnknownDeckCount =
+    remainingDeckCount === undefined ||
+    (
+      remainingDeckCount === 0 &&
+      deckIdentity.tone === "waiting" &&
+      remainingDeck.length === 0 &&
+      (hasObservedFriendlyCards || isRecognizingDeck || view.status.tone === "error")
+    );
+  const unknownDeckCountLabel = view.status.tone === "error"
+    ? "不可用"
+    : isRecognizingDeck
+      ? "识别中"
+      : "待识别";
+  const unknownDeckEmptyLabel = unknownDeckCountLabel === "不可用"
+    ? "牌库数据不可用"
+    : unknownDeckCountLabel === "识别中"
+      ? "正在识别牌库"
+      : "牌库数量待识别";
   const hasMissingDeckDetails =
     view.deckIdentity?.status !== "arena" &&
-    view.summary.remainingCards > 0 &&
+    !isUnknownDeckCount &&
+    remainingDeckCount !== undefined &&
+    remainingDeckCount > 0 &&
     remainingDeck.length === 0;
   const hasImplausibleOtherCount = otherCount > MAX_REASONABLE_OTHER_CARD_COUNT;
   const hasDataIntegrityWarning = hasMissingDeckDetails || hasImplausibleOtherCount;
@@ -94,13 +119,17 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
   const deckCountLabel = unresolvedCount > 0
     ? `已确认 ${confirmedCount}，总计 ${confirmedCount + unresolvedCount}`
     : deckTotal === undefined
-    ? "牌库剩余"
-    : `牌库剩余 ${view.summary.remainingCards}，总计 ${deckTotal}`;
+      ? isUnknownDeckCount
+        ? `牌库剩余${unknownDeckCountLabel}`
+        : "牌库剩余"
+      : `牌库剩余 ${remainingDeckCount ?? "待识别"}，总计 ${deckTotal}`;
   const deckCountText = unresolvedCount > 0
     ? `${confirmedCount}/${confirmedCount + unresolvedCount}`
     : deckTotal === undefined
-    ? String(view.summary.remainingCards)
-    : `${view.summary.remainingCards}/${deckTotal}`;
+      ? isUnknownDeckCount
+        ? "?"
+        : String(remainingDeckCount)
+      : `${remainingDeckCount ?? "?"}/${deckTotal}`;
 
   return (
     <div className="overlay-normal">
@@ -149,9 +178,9 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
         />
         <CollapsibleCardGroup
           label="牌库中"
-          count={view.summary.remainingCards}
+          count={isUnknownDeckCount ? unknownDeckCountLabel : remainingDeckCount ?? "待识别"}
           items={remainingDeck}
-          emptyLabel="牌库中暂无卡牌"
+          emptyLabel={isUnknownDeckCount ? unknownDeckEmptyLabel : "牌库中暂无卡牌"}
           activeCard={activeCard}
           onActiveCardChange={handleActiveCardChange}
         />
@@ -186,7 +215,7 @@ export function CollapsibleCardGroup({
   onActiveCardChange
 }: {
   label: string;
-  count: number;
+  count: number | string;
   items: readonly OverlayCardItem[];
   emptyLabel: string;
   children?: ReactNode;
@@ -195,7 +224,7 @@ export function CollapsibleCardGroup({
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const contentId = useId();
-  const accessibleLabel = `${label} ${count} 张`;
+  const accessibleLabel = typeof count === "number" ? `${label} ${count} 张` : `${label} ${count}`;
 
   return (
     <section className="overlay-card-group" aria-label={accessibleLabel} data-expanded={isExpanded ? "true" : "false"}>

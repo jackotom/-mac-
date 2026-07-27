@@ -8,11 +8,13 @@ function trackerState({
   deck = [],
   friendlyHand = [],
   friendlyOther = [],
+  totalCards = 30,
   remainingCards = 18
 }: {
   readonly deck?: PublicTrackerState["deck"];
   readonly friendlyHand?: readonly TrackerZoneCard[];
   readonly friendlyOther?: readonly TrackerZoneCard[];
+  readonly totalCards?: number;
   readonly remainingCards?: number;
 } = {}): PublicTrackerState {
   return {
@@ -24,9 +26,9 @@ function trackerState({
     opponentPlayed: [],
     events: [],
     summary: {
-      totalCards: 30,
+      totalCards,
       remainingCards,
-      drawnCards: 30 - remainingCards,
+      drawnCards: totalCards - remainingCards,
       opponentPlayedCount: 0
     }
   };
@@ -83,6 +85,66 @@ describe("overlay view data integrity", () => {
     }))} />);
 
     expect(screen.getByRole("region", { name: "手牌中 5 张" })).toHaveTextContent("手牌中 (5)");
+  });
+
+  it("does not present an unknown active deck count as zero", () => {
+    const view = toOverlayPanelViewModel(trackerState({
+      totalCards: 0,
+      remainingCards: 0,
+      friendlyHand: [{ name: "已知手牌", count: 1 }],
+      friendlyOther: [{ name: "已知其他区牌", count: 1 }]
+    }));
+
+    expect(view.deckIdentity.status).toBe("waiting");
+    expect(view.summary.remainingCards).toBeUndefined();
+
+    render(<OverlayPanel view={view} />);
+
+    expect(screen.getByLabelText("牌库剩余待识别")).toHaveTextContent("?");
+    expect(screen.getByRole("region", { name: "牌库中 待识别" })).toHaveTextContent("牌库中 (待识别)");
+    expect(screen.getByRole("region", { name: "牌库中 待识别" })).toHaveTextContent("牌库数量待识别");
+    expect(screen.queryByText("牌库中暂无卡牌")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "牌库中 0 张" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "手牌中 1 张" })).toHaveTextContent("已知手牌");
+    expect(screen.getByRole("region", { name: "其他 1 张" })).toHaveTextContent("已知其他区牌");
+  });
+
+  it("keeps a recognized empty deck as a real zero", () => {
+    const state = trackerState({
+      deck: [{ name: "已抽空牌库", count: 30, remaining: 0, drawn: 30, played: 0 }],
+      totalCards: 30,
+      remainingCards: 0
+    });
+    state.autoMatchedDeckId = "recognized-empty-deck";
+    state.deckName = "已识别套牌";
+
+    render(<OverlayPanel view={toOverlayPanelViewModel(state)} />);
+
+    expect(screen.getByLabelText("牌库剩余")).toHaveTextContent("0");
+    expect(screen.getByRole("region", { name: "牌库中 0 张" })).toHaveTextContent("牌库中 (0)");
+    expect(screen.getByText("牌库中暂无卡牌")).toBeInTheDocument();
+  });
+
+  it("labels constructed recognition and recognition errors without claiming zero cards", () => {
+    const recognizingState = trackerState({ totalCards: 0, remainingCards: 0 });
+    recognizingState.gameActive = false;
+    recognizingState.constructedScreenMode = "standard";
+    const { rerender } = render(<OverlayPanel view={toOverlayPanelViewModel(recognizingState)} />);
+
+    expect(screen.getByLabelText("牌库剩余识别中")).toHaveTextContent("?");
+    expect(screen.getByRole("region", { name: "牌库中 识别中" })).toHaveTextContent("正在识别牌库");
+
+    rerender(
+      <OverlayPanel
+        view={toOverlayPanelViewModel({
+          ...recognizingState,
+          error: "请允许录制屏幕"
+        })}
+      />
+    );
+
+    expect(screen.getByLabelText("牌库剩余不可用")).toHaveTextContent("?");
+    expect(screen.getByRole("region", { name: "牌库中 不可用" })).toHaveTextContent("牌库数据不可用");
   });
 
   it("does not invent or filter deck rows when the summary and source rows disagree", () => {

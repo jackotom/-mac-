@@ -1123,6 +1123,18 @@ body:has(.overlay-shell) {
   text-align: right;
 }
 
+.overlay-summary-count[aria-label="牌库剩余待识别"] strong {
+  color: #f2c66f;
+}
+
+.overlay-summary-count[aria-label="牌库剩余识别中"] strong {
+  color: #78c9ea;
+}
+
+.overlay-summary-count[aria-label="牌库剩余不可用"] strong {
+  color: #ff928c;
+}
+
 .overlay-card-groups {
   min-width: 0;
   min-height: 0;
@@ -1199,6 +1211,33 @@ body:has(.overlay-shell) {
   font-weight: 720;
   line-height: 1;
   white-space: nowrap;
+}
+
+.overlay-card-group[aria-label="牌库中 待识别"] .overlay-card-group-toggle {
+  box-shadow: inset 2px 0 0 rgba(242, 198, 111, 0.82);
+}
+
+.overlay-card-group[aria-label="牌库中 待识别"] .overlay-card-group-toggle em,
+.overlay-card-group[aria-label="牌库中 待识别"] .overlay-card-group-empty {
+  color: #f2c66f;
+}
+
+.overlay-card-group[aria-label="牌库中 识别中"] .overlay-card-group-toggle {
+  box-shadow: inset 2px 0 0 rgba(120, 201, 234, 0.82);
+}
+
+.overlay-card-group[aria-label="牌库中 识别中"] .overlay-card-group-toggle em,
+.overlay-card-group[aria-label="牌库中 识别中"] .overlay-card-group-empty {
+  color: #78c9ea;
+}
+
+.overlay-card-group[aria-label="牌库中 不可用"] .overlay-card-group-toggle {
+  box-shadow: inset 2px 0 0 rgba(255, 146, 140, 0.88);
+}
+
+.overlay-card-group[aria-label="牌库中 不可用"] .overlay-card-group-toggle em,
+.overlay-card-group[aria-label="牌库中 不可用"] .overlay-card-group-empty {
+  color: #ff928c;
 }
 
 .overlay-compact-card-list {
@@ -1872,6 +1911,23 @@ body:has(.overlay-shell) {
 @media (max-width: 120px) {
   .overlay-shell {
     overflow-x: hidden;
+  }
+
+  .overlay-card-group:is(
+    [aria-label="牌库中 待识别"],
+    [aria-label="牌库中 识别中"],
+    [aria-label="牌库中 不可用"]
+  ) .overlay-card-group-toggle > span {
+    padding-left: 3px;
+    font-size: 8.5px;
+  }
+
+  .overlay-card-group:is(
+    [aria-label="牌库中 待识别"],
+    [aria-label="牌库中 识别中"],
+    [aria-label="牌库中 不可用"]
+  ) .overlay-card-group-toggle em {
+    font-size: 8px;
   }
 
   .overlay-normal:has(.overlay-public-counters) {

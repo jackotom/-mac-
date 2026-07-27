@@ -140,7 +140,7 @@ export interface OverlayStatusView {
 
 export interface OverlayDeckSummary {
   totalCards: number;
-  remainingCards: number;
+  remainingCards?: number;
   drawnCards: number;
 }
 

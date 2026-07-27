@@ -821,6 +821,102 @@ describe("TrackerService log selection", () => {
     });
   });
 
+  it("keeps a Decks.log-selected preview when screen capture fails before the next game", async () => {
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const powerLog = join(sessionDir, "Power.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(
+      powerLog,
+      [
+        "D 15:00:00.000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+        "D 15:00:00.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#0000",
+        "D 15:00:01.000 PowerTaskList.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED",
+        "D 15:10:00.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=3 zone=PLAY player=2] tag=PLAYSTATE value=WON"
+      ].join("\n") + "\n",
+      "utf8"
+    );
+    await writeFile(decksLog, "I 15:00:00.000 Deck Contents Received:\n", "utf8");
+
+    const selectedDeck = {
+      id: "selected-between-games",
+      deckId: "selected-deck-id",
+      name: "已选套牌",
+      format: "标准",
+      cards: [
+        { name: "Observed Card", count: 1, cardId: "OBSERVED_001" },
+        { name: "Selected Filler", count: 29, cardId: "SELECTED_FILLER" }
+      ],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      warnings: []
+    };
+    const ambiguousDeck = {
+      ...selectedDeck,
+      id: "ambiguous-alternative",
+      deckId: "alternative-deck-id",
+      name: "相似套牌",
+      cards: [
+        { name: "Observed Card", count: 1, cardId: "OBSERVED_001" },
+        { name: "Alternative Filler", count: 29, cardId: "ALTERNATIVE_FILLER" }
+      ]
+    };
+    let scanCount = 0;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => {
+        scanCount += 1;
+        return {
+          status: "ok" as const,
+          decks: [selectedDeck, ambiguousDeck],
+          activeDeck: scanCount >= 2 ? selectedDeck : undefined
+        };
+      })
+    };
+    const recognizer = {
+      recognize: vi.fn(async () => ({
+        status: "window-not-found" as const,
+        message: "匿名窗口不可用",
+        texts: []
+      }))
+    };
+    const service = new TrackerService(scanner, recognizer);
+    await service.start({ logPath: powerLog });
+
+    await appendFile(decksLog, "I 15:39:24.000 Finding Game With Deck:\n", "utf8");
+    await vi.waitFor(
+      () => {
+        expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2);
+        expect(recognizer.recognize.mock.calls.length).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 2_000, interval: 25 }
+    );
+
+    await appendFile(
+      powerLog,
+      [
+        "D 15:39:40.000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+        "D 15:39:40.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#0000",
+        "D 15:39:41.000 PowerTaskList.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED",
+        "D 15:39:42.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Observed Card id=64 zone=DECK zonePos=1 cardId=OBSERVED_001 player=2] tag=ZONE value=HAND"
+      ].join("\n") + "\n",
+      "utf8"
+    );
+    await vi.waitFor(
+      () => expect((service.getState().friendlyHand ?? []).reduce((total, card) => total + card.count, 0)).toBe(1),
+      { timeout: 2_000, interval: 25 }
+    );
+    const state = service.getState();
+    await service.dispose();
+
+    expect(state).toMatchObject({
+      gameActive: true,
+      autoMatchedDeckId: "selected-between-games",
+      deckName: "已选套牌",
+      summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
+    });
+  });
+
   it("uses Hearthstone's selected deck even when Power.log does not expose the local player name", async () => {
     const { TrackerService } = await import("../src/main/trackerService.js");
     const sessionDir = await createSessionDir();

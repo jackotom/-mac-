@@ -9,6 +9,13 @@ function read(relativePath: string) {
 }
 
 describe("release verification entrypoint", () => {
+  it("keeps the visible app version aligned with package metadata", () => {
+    const packageJson = JSON.parse(read("package.json")) as { version: string };
+    const appSource = read("src/renderer/App.tsx");
+
+    expect(appSource).toContain(`<small>v${packageJson.version}</small>`);
+  });
+
   it("exposes one command for the complete release gate", () => {
     const packageJson = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
 

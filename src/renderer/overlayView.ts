@@ -39,6 +39,14 @@ export function toOverlayPanelViewModel(
   const logIssueStatus = toLogIssueStatus(state);
   const isRecognizingConstructedDeck = Boolean(state.constructedScreenMode && !state.autoMatchedDeckId);
   const shouldClearTrackedData = Boolean(logIssueStatus || isRecognizingConstructedDeck);
+  const isUnknownActiveDeckCount =
+    !shouldClearTrackedData &&
+    state.gameActive === true &&
+    !state.autoMatchedDeckId &&
+    (!state.arena || state.arena.status === "inactive") &&
+    state.deck.length === 0 &&
+    state.summary.totalCards === 0 &&
+    state.summary.remainingCards === 0;
   const constructedRecognitionStatus = isRecognizingConstructedDeck && state.error
     ? { tone: "error" as const, label: "识别失败" }
     : undefined;
@@ -57,7 +65,11 @@ export function toOverlayPanelViewModel(
   return {
     summary: {
       totalCards: shouldClearTrackedData ? 0 : state.summary.totalCards,
-      remainingCards: shouldClearTrackedData ? 0 : state.summary.remainingCards,
+      remainingCards: isUnknownActiveDeckCount
+        ? undefined
+        : shouldClearTrackedData
+          ? 0
+          : state.summary.remainingCards,
       drawnCards: shouldClearTrackedData ? 0 : state.summary.drawnCards
     },
     deckIdentity: toDeckIdentity(state),
