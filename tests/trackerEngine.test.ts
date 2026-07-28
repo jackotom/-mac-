@@ -407,6 +407,41 @@ D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=�
     );
   });
 
+  it("replays the reported Power.log death order for Endgame and ignores duplicate and opponent deaths", () => {
+    const richDb = createCardDatabase([
+      { id: 106652, cardId: "TOY_886", name: "决胜时刻", type: "SPELL", text: "复活上一个死亡的你的恶魔。" },
+      { id: 124073, cardId: "JAIL_906", name: "摩拉格", type: "MINION", minion_type_id: 15 },
+      { id: 125917, cardId: "JAIL_399", name: "小鬼马仔", type: "MINION", minion_type_id: 15 },
+      { id: 200001, cardId: "OPPONENT_DEMON", name: "对手恶魔", type: "MINION", minion_type_id: 15 }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 20:07:57.0409600 GameState.DebugPrintPower() - CREATE_GAME
+D 20:08:00.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=决胜时刻 id=49 zone=DECK zonePos=0 cardId=TOY_886 player=2] tag=ZONE value=HAND
+D 20:13:43.9477010 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=摩拉格 id=55 zone=PLAY zonePos=1 cardId=JAIL_906 player=2] tag=ZONE value=GRAVEYARD
+D 20:13:45.7896170 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=摩拉格 id=55 zone=PLAY zonePos=1 cardId=JAIL_906 player=2] tag=ZONE value=GRAVEYARD
+D 20:14:00.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=对手恶魔 id=155 zone=PLAY zonePos=1 cardId=OPPONENT_DEMON player=1] tag=ZONE value=GRAVEYARD
+D 20:14:19.9741080 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=小鬼马仔 id=42 zone=PLAY zonePos=2 cardId=JAIL_399 player=2] tag=ZONE value=GRAVEYARD
+D 20:14:22.9982780 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=小鬼马仔 id=42 zone=PLAY zonePos=2 cardId=JAIL_399 player=2] tag=ZONE value=GRAVEYARD
+`);
+
+    expect(engine.getState().friendlyHand).toContainEqual(
+      expect.objectContaining({
+        cardId: "TOY_886",
+        details: expect.objectContaining({
+          gameContextSections: [
+            expect.objectContaining({
+              key: "dead-minions",
+              title: "将复活",
+              cards: [expect.objectContaining({ cardId: "JAIL_399", name: "小鬼马仔" })]
+            })
+          ]
+        })
+      })
+    );
+  });
+
   it("reports known opponent cards in deck, hand, and other current zones", () => {
     const richDb = createCardDatabase([
       { id: 1, cardId: "OPP_DECK", name: "对手牌库牌", type: "SPELL" },
@@ -808,6 +843,119 @@ D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
     expect(engine.getState().deck[0]).toMatchObject({ name: "Fireball", remaining: 1, drawn: 0 });
     expect(engine.getState().friendlyHand).toEqual([]);
     expect(engine.getState().friendlyOther).toEqual([]);
+  });
+
+  it("adds generated cards created directly in the friendly deck exactly once", () => {
+    const richDb = createCardDatabase([
+      { id: 105539, cardId: "MIS_707", name: "批量生产", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ deckText: "1x 批量生产", cardDatabase: richDb });
+    engine.setFriendlyController(1);
+
+    const generatedCopies = `
+D 20:28:30.7028510 GameState.DebugPrintPower() -             FULL_ENTITY - Creating ID=234 CardID=
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=ZONE value=DECK
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=CONTROLLER value=1
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=ENTITY_ID value=234
+D 20:28:30.7028510 GameState.DebugPrintPower() -             TAG_CHANGE Entity=234 tag=DISPLAYED_CREATOR value=219
+D 20:28:30.7028510 GameState.DebugPrintPower() -             SHOW_ENTITY - Updating Entity=234 CardID=MIS_707
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=CONTROLLER value=1
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=CARDTYPE value=SPELL
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=ZONE value=DECK
+D 20:28:30.7028510 GameState.DebugPrintPower() -             FULL_ENTITY - Creating ID=235 CardID=
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=ZONE value=DECK
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=CONTROLLER value=1
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=ENTITY_ID value=235
+D 20:28:30.7028510 GameState.DebugPrintPower() -             TAG_CHANGE Entity=235 tag=DISPLAYED_CREATOR value=219
+D 20:28:30.7028510 GameState.DebugPrintPower() -             SHOW_ENTITY - Updating Entity=235 CardID=MIS_707
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=CONTROLLER value=1
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=CARDTYPE value=SPELL
+D 20:28:30.7028510 GameState.DebugPrintPower() -                 tag=ZONE value=DECK
+`;
+
+    engine.applyLine("D 20:28:00.0000000 GameState.DebugPrintPower() - CREATE_GAME");
+    engine.setFriendlyDeckSnapshot({ initialDeckSize: 30, remainingDeckSize: 30 });
+    engine.applyLine(
+      "D 20:28:20.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION"
+    );
+    engine.applyText(`
+${generatedCopies}
+${generatedCopies.replaceAll("GameState", "PowerTaskList")}
+`);
+
+    expect(engine.getState().deck.find((card) => card.cardId === "MIS_707")).toMatchObject({
+      count: 3,
+      remaining: 3,
+      drawn: 0
+    });
+    expect(engine.getState().summary).toMatchObject({
+      totalCards: 32,
+      remainingCards: 32,
+      drawnCards: 0
+    });
+  });
+
+  it("keeps an unidentified inserted entity as one placeholder when it leaves and returns", () => {
+    const engine = new TrackerEngine({ deckText: "1x Fireball" });
+    engine.setFriendlyController(1);
+    engine.applyLine("D 20:28:00.0000000 GameState.DebugPrintPower() - CREATE_GAME");
+    engine.setFriendlyDeckSnapshot({ initialDeckSize: 30, remainingDeckSize: 30 });
+    engine.applyText(`
+D 20:28:20.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+D 20:28:30.7028510 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=234 CardID=
+D 20:28:30.7028510 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:30.7028510 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:30.7028510 GameState.DebugPrintPower() - TAG_CHANGE Entity=234 tag=DISPLAYED_CREATOR value=219
+D 20:28:31.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=234 tag=ZONE value=HAND
+D 20:28:32.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=234 tag=ZONE value=DECK
+D 20:28:32.0000000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=234 tag=ZONE value=DECK
+`);
+
+    expect(engine.getState().deck.find((card) => card.name === "被塞入的未知牌")).toMatchObject({
+      count: 1,
+      remaining: 1,
+      drawn: 0
+    });
+    expect(engine.getState().deck.some((card) => card.name === "234")).toBe(false);
+    expect(engine.getState().summary).toMatchObject({
+      totalCards: 31,
+      remainingCards: 31,
+      drawnCards: 0
+    });
+  });
+
+  it("does not count setup-generated deck entities twice before the first action", () => {
+    const engine = new TrackerEngine({
+      collectionDecks: [
+        createCollectionDeck("base-deck", "开局生成牌套牌", [
+          { name: "Sample Singleton", count: 30, cardId: "TEST_001" }
+        ])
+      ]
+    });
+    engine.setFriendlyController(1);
+    engine.applyLine("D 20:28:00.0000000 GameState.DebugPrintPower() - CREATE_GAME");
+    engine.setFriendlyDeckSnapshot({ initialDeckSize: 32, remainingDeckSize: 32, baseDeckSize: 30 });
+    expect(engine.activateCollectionDeck("base-deck")).toBe(true);
+
+    engine.applyText(`
+D 20:28:10.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=234 CardID=
+D 20:28:10.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:10.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:10.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=234 tag=DISPLAYED_CREATOR value=64
+D 20:28:10.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=234 CardID=TEST_002
+D 20:28:10.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:20.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+`);
+
+    expect(engine.getState().summary).toMatchObject({
+      totalCards: 32,
+      remainingCards: 32,
+      drawnCards: 0
+    });
+    expect(engine.getState().deck.find((card) => card.name === "对局生成的未知牌")).toMatchObject({
+      count: 2,
+      remaining: 2
+    });
   });
 
   it("moves an unresolved Arena card out of and back into the deck for an unknown mulligan card", () => {

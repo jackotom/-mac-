@@ -71,7 +71,10 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
   const globalEffects = view.globalEffects ?? [];
   const handCards = view.handCards ?? [];
   const otherCards = view.otherCards ?? [];
-  const remainingDeck = view.remainingDeck.filter((item) => !isUnresolvedCard(item));
+  const remainingDeck = view.deckIdentity?.status === "arena"
+    ? view.remainingDeck.filter((item) => !isUnresolvedCard(item))
+    : view.remainingDeck;
+  const identifiedRemainingDeck = remainingDeck.filter((item) => !isUnresolvedCard(item));
   const activeCard = [...globalEffects, ...remainingDeck, ...handCards, ...otherCards]
     .find((item) => item.id === activeCardId);
   const handleActiveCardChange = (card: OverlayCardItem | undefined) => setActiveCardId(card?.id);
@@ -83,6 +86,10 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
   const handCount = countCards(handCards);
   const otherCount = countCards(otherCards);
   const remainingDeckCount = view.summary.remainingCards;
+  const visibleRemainingDeckCount = countCards(identifiedRemainingDeck);
+  const remainingDeckDifference = remainingDeckCount === undefined
+    ? 0
+    : remainingDeckCount - visibleRemainingDeckCount;
   const isRecognizingDeck = /正在识别|识别中/u.test(
     `${view.deckIdentity?.name ?? ""} ${view.deckIdentity?.detail ?? ""}`
   );
@@ -112,7 +119,18 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
     remainingDeckCount > 0 &&
     remainingDeck.length === 0;
   const hasImplausibleOtherCount = otherCount > MAX_REASONABLE_OTHER_CARD_COUNT;
-  const hasDataIntegrityWarning = hasMissingDeckDetails || hasImplausibleOtherCount;
+  const hasRemainingDeckDifference =
+    view.deckIdentity?.status !== "arena" &&
+    remainingDeckDifference !== 0;
+  const hasDataIntegrityWarning =
+    hasMissingDeckDetails ||
+    hasImplausibleOtherCount ||
+    hasRemainingDeckDifference;
+  const deckIntegrityDetail = hasRemainingDeckDifference && remainingDeckDifference > 0
+    ? `；还有 ${remainingDeckDifference} 张未识别或未显示`
+    : hasRemainingDeckDifference && remainingDeckDifference < 0
+      ? `；明细比摘要多 ${Math.abs(remainingDeckDifference)} 张`
+      : "";
   const deckTotal = view.arena?.deckCount;
   const unresolvedCount = view.arena?.unresolvedCount ?? 0;
   const confirmedCount = view.arena?.confirmedCount ?? 0;
@@ -159,7 +177,7 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
           aria-label="牌库数据异常"
           title="当前计数仅供排障，不会被隐藏或自动改写"
         >
-          牌库数据异常，正在重新识别
+          牌库数据异常，正在重新识别{deckIntegrityDetail}
         </p>
       ) : unresolvedCount > 0 ? (
         <p className="overlay-unresolved-warning" role="status" aria-label="牌库完整度">
@@ -293,9 +311,11 @@ export function CompactCardList({
                 {item.thumbnailUrl ? (
                   <img className="overlay-card-art-image" src={item.thumbnailUrl} alt="" loading="lazy" />
                 ) : null}
-                <strong title={item.name}>{item.name}</strong>
+                <strong title={item.name}>
+                  {item.unresolved ? `${item.name} ×${count}` : item.name}
+                </strong>
               </span>
-              {count > 1 ? (
+              {count > 1 && !item.unresolved ? (
                 <span className="overlay-card-quantity" aria-label={`数量 ${count}`}>
                   {count}
                 </span>

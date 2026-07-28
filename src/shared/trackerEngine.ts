@@ -44,6 +44,7 @@ interface FriendlyObservation {
 
 const GENERATED_DECK_ROW_NAME = "对局生成的未知牌";
 const MISSING_COLLECTION_DECK_ROW_NAME = "日志缺失的收藏牌";
+const INSERTED_UNKNOWN_DECK_ROW_NAME = "被塞入的未知牌";
 const UNRESOLVED_HAND_CARD_NAME = "未识别手牌";
 const GALACTIC_PROJECTION_ORB_CARD_ID = "toy_378";
 const FRIENDLY_HAND_ZONES = new Set<Zone>(["HAND"]);
@@ -79,6 +80,7 @@ export class TrackerEngine {
   private eventCounter = 0;
   private status: PublicTrackerState["status"] = "idle";
   private gameActive = false;
+  private gameSetupComplete = false;
   private logPath: string | undefined;
   private error: string | undefined;
   private friendlyController: number | undefined;
@@ -90,6 +92,8 @@ export class TrackerEngine {
   private cardDatabase: CardDatabase | undefined;
   private pendingControllerEvents: ParsedLogEvent[] = [];
   private unresolvedDrawEntityIds = new Set<string>();
+  private generatedEntityIds = new Set<string>();
+  private insertedDeckEntityRowKeys = new Map<string, string>();
   private pendingEntityDetail: EntitySnapshot | undefined;
   private playerIdByName = new Map<string, number>();
   private playerIdentityIds = new Set<number>();
@@ -165,11 +169,14 @@ export class TrackerEngine {
     this.friendlyObservations = [];
     this.pendingControllerEvents = [];
     this.unresolvedDrawEntityIds.clear();
+    this.generatedEntityIds.clear();
+    this.insertedDeckEntityRowKeys.clear();
     this.pendingEntityDetail = undefined;
     this.clearMatchCounters();
     this.clearMatchCardHistory();
     this.eventCounter = 0;
     this.gameActive = false;
+    this.gameSetupComplete = false;
     this.error = imported.warnings[0];
     this.addEvent("info", "unknown", {
       cardName: imported.cards.length ? `已导入 ${imported.cards.length} 种卡牌` : "未导入卡牌列表"
@@ -243,6 +250,7 @@ export class TrackerEngine {
     this.usingUnmatchedDeckSnapshot = false;
     this.error = undefined;
     this.gameActive = false;
+    this.gameSetupComplete = false;
     return true;
   }
 
@@ -302,8 +310,11 @@ export class TrackerEngine {
     this.deckRows = new Map(createEmptyDeckRows(this.deckCards).map((row) => [deckCardKey(row), row]));
     this.rebuildDeckCardIdIndex();
     this.unresolvedDrawEntityIds.clear();
+    this.generatedEntityIds.clear();
+    this.insertedDeckEntityRowKeys.clear();
     this.error = undefined;
     this.gameActive = false;
+    this.gameSetupComplete = false;
   }
 
   clearArenaDeck() {
@@ -318,6 +329,8 @@ export class TrackerEngine {
     this.deckRows.clear();
     this.deckRowsByCardId.clear();
     this.unresolvedDrawEntityIds.clear();
+    this.generatedEntityIds.clear();
+    this.insertedDeckEntityRowKeys.clear();
     this.clearMatchCardHistory();
     this.gameActive = false;
   }
@@ -333,12 +346,15 @@ export class TrackerEngine {
     this.friendlyObservations = [];
     this.pendingControllerEvents = [];
     this.unresolvedDrawEntityIds.clear();
+    this.generatedEntityIds.clear();
+    this.insertedDeckEntityRowKeys.clear();
     this.pendingEntityDetail = undefined;
     this.clearMatchCounters();
     this.clearMatchCardHistory();
     this.eventCounter = 0;
     this.friendlyController = this.configuredFriendlyController;
     this.gameActive = true;
+    this.gameSetupComplete = false;
     this.friendlyDeckSnapshot = undefined;
     this.usingUnmatchedDeckSnapshot = false;
     this.lastGameStartTimestamp = undefined;
@@ -360,12 +376,15 @@ export class TrackerEngine {
     this.friendlyObservations = [];
     this.pendingControllerEvents = [];
     this.unresolvedDrawEntityIds.clear();
+    this.generatedEntityIds.clear();
+    this.insertedDeckEntityRowKeys.clear();
     this.pendingEntityDetail = undefined;
     this.clearMatchCounters();
     this.clearMatchCardHistory();
     this.eventCounter = 0;
     this.friendlyController = this.configuredFriendlyController;
     this.gameActive = false;
+    this.gameSetupComplete = false;
     this.error = undefined;
     this.friendlyDeckSnapshot = undefined;
     this.usingUnmatchedDeckSnapshot = false;
@@ -414,11 +433,18 @@ export class TrackerEngine {
       opponentPlayedCount: opponentPlayed.reduce((total, row) => total + row.played, 0)
     };
     const snapshot = this.deckRows.size > 0 ? this.friendlyDeckSnapshot : undefined;
+    const insertedDeckSize = this.insertedDeckEntityRowKeys.size;
+    const insertedDeckRemaining = [...this.insertedDeckEntityRowKeys.keys()].filter(
+      (entityId) => this.entities.get(entityId)?.zone === "DECK"
+    ).length;
     const summary = snapshot
       ? {
-          totalCards: snapshot.initialDeckSize,
-          remainingCards: snapshot.remainingDeckSize,
-          drawnCards: Math.max(0, snapshot.initialDeckSize - snapshot.remainingDeckSize),
+          totalCards: snapshot.initialDeckSize + insertedDeckSize,
+          remainingCards: snapshot.remainingDeckSize + insertedDeckRemaining,
+          drawnCards: Math.max(
+            0,
+            snapshot.initialDeckSize + insertedDeckSize - snapshot.remainingDeckSize - insertedDeckRemaining
+          ),
           opponentPlayedCount: calculatedSummary.opponentPlayedCount
         }
       : calculatedSummary;
@@ -472,6 +498,11 @@ export class TrackerEngine {
       return;
     }
 
+    if (event.type === "game-setup-complete") {
+      this.gameSetupComplete = true;
+      return;
+    }
+
     if (event.type === "player-identity") {
       this.rememberPlayerIdentity(event.playerId, event.playerName);
       return;
@@ -495,9 +526,20 @@ export class TrackerEngine {
       return;
     }
 
+    if (event.type === "generated-entity") {
+      if (this.gameSetupComplete && event.entityId) {
+        this.generatedEntityIds.add(event.entityId);
+        this.reconcileInsertedDeckEntity(event.entityId);
+      }
+      return;
+    }
+
     if (event.type === "entity") {
       const existing = event.entity.id ? this.entities.get(event.entity.id) : undefined;
       const merged = this.mergeEntity(existing?.zone ? { ...event.entity, zone: existing.zone } : event.entity);
+      if (merged?.id) {
+        this.reconcileInsertedDeckEntity(merged.id);
+      }
       const info = event.entity.cardId ? this.cardInfoByCardId.get(normalizeCardId(event.entity.cardId)) : undefined;
       if (this.isKnownOpponentController(event.entity.controller) && info?.cardType === "英雄") {
         this.secretTracker.setOpponentClass(info.heroClasses?.[0]);
@@ -533,7 +575,10 @@ export class TrackerEngine {
     }
 
     if (event.type === "controller") {
-      this.mergeEntity({ id: event.entityId, controller: event.controller });
+      const merged = this.mergeEntity({ id: event.entityId, controller: event.controller });
+      if (merged?.id) {
+        this.reconcileInsertedDeckEntity(merged.id);
+      }
       return;
     }
 
@@ -541,7 +586,9 @@ export class TrackerEngine {
     const cardId = event.cardId ?? existing?.cardId;
     const cardName = this.resolveCardName(event.cardName ?? existing?.name, cardId);
     const controller = event.controller ?? existing?.controller;
-    const fromZone = event.fromZone ?? existing?.zone;
+    const fromZone = existing?.zone === event.toZone
+      ? existing.zone
+      : event.fromZone ?? existing?.zone;
 
     if (event.entityId && event.toZone === "HAND" && fromZone !== "HAND") {
       this.recordedCardPlayEntityIds.delete(event.entityId);
@@ -552,13 +599,16 @@ export class TrackerEngine {
     }
 
     if (event.entityId) {
-      this.mergeEntity({
+      const merged = this.mergeEntity({
         id: event.entityId,
         name: cardName,
         cardId,
         zone: event.toZone,
         controller
       });
+      if (merged?.id) {
+        this.reconcileInsertedDeckEntity(merged.id);
+      }
     }
 
     const deckRow = this.resolveDeckRow(cardName, cardId) ?? this.resolveDeckRow(event.cardName ?? existing?.name, cardId);
@@ -590,9 +640,23 @@ export class TrackerEngine {
       }
     }
 
-    if (!cardName) return;
+    const insertedDeckRow = event.entityId ? this.getInsertedDeckRow(event.entityId) : undefined;
+    if (!this.insertedDeckEntityRowKeys.has(event.entityId ?? "")) {
+      this.updateFriendlyDeckSnapshot(isFriendly, fromZone, event.toZone);
+    }
 
-    this.updateFriendlyDeckSnapshot(isFriendly, fromZone, event.toZone);
+    if (!cardName) {
+      if (insertedDeckRow && fromZone !== event.toZone) {
+        if (fromZone === "DECK") {
+          decrementRemaining(insertedDeckRow);
+          insertedDeckRow.drawn += 1;
+        } else if (event.toZone === "DECK") {
+          insertedDeckRow.remaining = Math.min(insertedDeckRow.count, insertedDeckRow.remaining + 1);
+          insertedDeckRow.drawn = Math.max(0, insertedDeckRow.drawn - 1);
+        }
+      }
+      return;
+    }
 
     if (deckRow && isFriendly && cardId && !deckRow.cardId) {
       deckRow.cardId = cardId;
@@ -982,6 +1046,87 @@ export class TrackerEngine {
 
   private getUnresolvedDeckRow() {
     return [...this.deckRows.values()].find((row) => row.unresolved);
+  }
+
+  private getInsertedDeckRow(entityId: string) {
+    const rowKey = this.insertedDeckEntityRowKeys.get(entityId);
+    return rowKey ? this.deckRows.get(rowKey) : undefined;
+  }
+
+  private reconcileInsertedDeckEntity(entityId: string) {
+    if (!this.gameActive || !this.generatedEntityIds.has(entityId)) {
+      return;
+    }
+
+    const entity = this.entities.get(entityId);
+    if (!entity || entity.zone !== "DECK" || !this.isFriendlyController(entity.controller)) {
+      return;
+    }
+
+    const resolvedName = this.resolveCardName(entity.name, entity.cardId);
+    const targetRow = this.resolveDeckRow(resolvedName, entity.cardId);
+    const targetName = targetRow?.name ?? resolvedName ?? INSERTED_UNKNOWN_DECK_ROW_NAME;
+    const targetCardId = targetRow?.cardId ?? entity.cardId;
+    const targetKey = targetRow
+      ? deckCardKey(targetRow)
+      : deckCardKey({ name: targetName, cardId: targetCardId });
+    const currentKey = this.insertedDeckEntityRowKeys.get(entityId);
+
+    if (!currentKey) {
+      const row = targetRow ?? {
+        name: targetName,
+        count: 0,
+        remaining: 0,
+        drawn: 0,
+        played: 0,
+        cardId: targetCardId
+      };
+      row.count += 1;
+      row.remaining += 1;
+      if (!targetRow) {
+        this.deckRows.set(targetKey, row);
+        if (row.cardId) {
+          this.deckRowsByCardId.set(normalizeCardId(row.cardId), row);
+        }
+      }
+      this.insertedDeckEntityRowKeys.set(entityId, targetKey);
+      return;
+    }
+
+    if (currentKey === targetKey) {
+      const row = this.deckRows.get(currentKey);
+      if (row && row.name === INSERTED_UNKNOWN_DECK_ROW_NAME && resolvedName) {
+        row.name = resolvedName;
+      }
+      return;
+    }
+
+    const currentRow = this.deckRows.get(currentKey);
+    if (currentRow) {
+      currentRow.count = Math.max(0, currentRow.count - 1);
+      currentRow.remaining = Math.max(0, currentRow.remaining - 1);
+      if (currentRow.count === 0) {
+        this.deckRows.delete(currentKey);
+      }
+    }
+
+    const row = targetRow ?? {
+      name: targetName,
+      count: 0,
+      remaining: 0,
+      drawn: 0,
+      played: 0,
+      cardId: targetCardId
+    };
+    row.count += 1;
+    row.remaining += 1;
+    if (!targetRow) {
+      this.deckRows.set(targetKey, row);
+      if (row.cardId) {
+        this.deckRowsByCardId.set(normalizeCardId(row.cardId), row);
+      }
+    }
+    this.insertedDeckEntityRowKeys.set(entityId, targetKey);
   }
 
   private updateFriendlyDeckSnapshot(isFriendly: boolean, fromZone: Zone | undefined, toZone: Zone) {

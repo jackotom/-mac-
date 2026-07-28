@@ -167,4 +167,55 @@ describe("overlay view data integrity", () => {
       expect.objectContaining({ name: "已知牌库牌", count: 18, detail: "剩 18/18" })
     ]);
   });
+
+  it("reports unresolved cards inserted into a partially visible deck", () => {
+    render(<OverlayPanel view={toOverlayPanelViewModel(trackerState({
+      deck: [
+        {
+          name: "原始牌",
+          cardId: "TEST_DECK_001",
+          count: 1,
+          remaining: 1,
+          drawn: 0,
+          played: 0
+        },
+        {
+          name: "未知塞入牌",
+          count: 2,
+          remaining: 2,
+          drawn: 0,
+          played: 0,
+          unresolved: true
+        }
+      ],
+      totalCards: 3,
+      remainingCards: 3
+    }))} />);
+
+    expect(screen.getByRole("alert", { name: "牌库数据异常" })).toHaveTextContent(
+      "还有 2 张未识别或未显示"
+    );
+    expect(screen.getByText("原始牌")).toBeInTheDocument();
+    expect(screen.getByText("未知塞入牌 ×2")).toBeInTheDocument();
+  });
+
+  it("reports deck rows omitted by the overlay row limit", () => {
+    const deck = Array.from({ length: 45 }, (_, index) => ({
+      name: `塞入牌 ${index + 1}`,
+      count: 1,
+      remaining: 1,
+      drawn: 0,
+      played: 0
+    }));
+
+    render(<OverlayPanel view={toOverlayPanelViewModel(trackerState({
+      deck,
+      totalCards: 45,
+      remainingCards: 45
+    }), { maxDeckRows: 40 })} />);
+
+    expect(screen.getByRole("alert", { name: "牌库数据异常" })).toHaveTextContent(
+      "还有 5 张未识别或未显示"
+    );
+  });
 });

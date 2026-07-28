@@ -374,6 +374,12 @@ export interface EntityLogEvent {
   raw: string;
 }
 
+export interface GeneratedEntityLogEvent {
+  type: "generated-entity";
+  entityId?: string;
+  raw: string;
+}
+
 export interface ControllerLogEvent {
   type: "controller";
   entityId?: string;
@@ -384,6 +390,11 @@ export interface ControllerLogEvent {
 export interface GameStartLogEvent {
   type: "game-start";
   timestamp?: string;
+  raw: string;
+}
+
+export interface GameSetupCompleteLogEvent {
+  type: "game-setup-complete";
   raw: string;
 }
 
@@ -418,10 +429,12 @@ export interface PlayerCounterLogEvent {
 export type ParsedLogEvent =
   | ZoneChangeLogEvent
   | EntityLogEvent
+  | GeneratedEntityLogEvent
   | ControllerLogEvent
   | AttackLogEvent
   | ActionBoundaryLogEvent
   | GameStartLogEvent
+  | GameSetupCompleteLogEvent
   | GameEndLogEvent
   | GlobalEffectLogEvent
   | PlayerIdentityLogEvent

@@ -59,6 +59,18 @@ describe("release verification entrypoint", () => {
     expect(script).toContain("launched_pid=$!");
   });
 
+  it("always reaps the exact QA Electron process and rejects visible CSS source", () => {
+    const script = read("scripts/verify-release.sh");
+
+    expect(script).toContain("cleanup_active_qa_process");
+    expect(script).toContain("trap cleanup_active_qa_process EXIT");
+    expect(script).toContain("active_qa_pid=$!");
+    expect(script).toContain('wait "$active_qa_pid"');
+    expect(script).toContain('kill -9 "$pid"');
+    expect(script).not.toContain("pkill");
+    expect(script).toContain('/\\.card-detail-(?:copy|heading|image)\\s*\\{/');
+  });
+
   it("keeps release evidence while packaging and supports the system Bash 3 empty array", () => {
     const packageScript = read("scripts/package-mac-arm64.sh");
     const releaseScript = read("scripts/verify-release.sh");

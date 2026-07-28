@@ -529,6 +529,47 @@ describe("CardHoverPreview", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("本局还没有施放过法术");
   });
 
+  it("shows the exact demon that Moment of Glory will resurrect", () => {
+    const momentOfGloryDetails: CardDetails = {
+      dbfId: 106652,
+      cardId: "TOY_886",
+      name: "决胜时刻",
+      manaCost: 2,
+      cardType: "法术",
+      text: "复活上一个死亡的你的恶魔。",
+      isSpell: true,
+      relatedCards: [],
+      gameContextSections: [
+        {
+          key: "dead-minions",
+          title: "将复活",
+          emptyText: "暂未确认将复活的恶魔",
+          cards: [
+            {
+              dbfId: 125917,
+              cardId: "JAIL_399",
+              name: "小鬼马仔",
+              manaCost: 3,
+              cardType: "随从"
+            }
+          ]
+        }
+      ]
+    };
+
+    render(
+      <CardHoverPreview details={momentOfGloryDetails}>
+        <button type="button">决胜时刻</button>
+      </CardHoverPreview>
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "决胜时刻" }));
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("将复活（1）");
+    expect(within(tooltip).getByText("小鬼马仔")).toBeInTheDocument();
+  });
+
   it("keeps the in-page tooltip outside overlay mode", () => {
     render(
       <CardHoverPreview details={cardDetails}>

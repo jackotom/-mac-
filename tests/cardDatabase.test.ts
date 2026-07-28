@@ -55,6 +55,34 @@ describe("card database details", () => {
     });
   });
 
+  it("maps official minion_type_id values to race names without waiting for a cache refresh", () => {
+    const types = [
+      [2, "DRAENEI"],
+      [11, "UNDEAD"],
+      [14, "MURLOC"],
+      [15, "DEMON"],
+      [17, "MECHANICAL"],
+      [18, "ELEMENTAL"],
+      [20, "BEAST"],
+      [21, "TOTEM"],
+      [23, "PIRATE"],
+      [24, "DRAGON"],
+      [26, "ALL"],
+      [43, "QUILBOAR"],
+      [92, "NAGA"]
+    ] as const;
+    const database = createCardDatabase(types.map(([minionTypeId], index) => ({
+      id: 3000 + index,
+      cardId: minionTypeId === 15 ? "JAIL_399" : `TYPE_${minionTypeId}`,
+      name: minionTypeId === 15 ? "小鬼马仔" : `类型 ${minionTypeId}`,
+      card_type_id: 4,
+      minion_type_id: minionTypeId
+    })));
+
+    expect(types.map(([minionTypeId]) => getCardInfo(database, 3000 + types.findIndex(([id]) => id === minionTypeId))?.races))
+      .toEqual(types.map(([, race]) => [race]));
+  });
+
   it("infers bidirectional complementary synergies through a full real card name", () => {
     const database = createCardDatabase([
       {

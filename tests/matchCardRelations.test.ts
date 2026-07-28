@@ -67,6 +67,38 @@ describe("match card relations", () => {
     expect(sections[0].cards.map((candidate) => candidate.cardId)).toEqual(["UNDEAD_5"]);
   });
 
+  it("shows the last friendly Demon for Endgame even though its text omits the current-game phrase", () => {
+    const endgame = card(1, "TOY_886", "决胜时刻", "法术", {
+      text: "复活上一个死亡的你的恶魔。"
+    });
+    const earlierDemon = card(2, "JAIL_906", "摩拉格", "随从", { races: ["DEMON"] });
+    const opponentDemon = card(3, "OPPONENT_DEMON", "对手恶魔", "随从", { races: ["DEMON"] });
+    const latestDemon = card(4, "JAIL_399", "小鬼马仔", "随从", { races: ["DEMON"] });
+
+    const sections = resolveMatchCardRelations(endgame, {
+      ...emptyHistory,
+      friendlyDeadMinions: [earlierDemon, latestDemon],
+      opponentDeadMinions: [opponentDemon]
+    });
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        key: "dead-minions",
+        title: "将复活",
+        emptyText: "暂未确认将复活的恶魔",
+        cards: [expect.objectContaining({ cardId: "JAIL_399", name: "小鬼马仔" })]
+      })
+    ]);
+
+    expect(resolveMatchCardRelations(endgame, emptyHistory)).toEqual([
+      expect.objectContaining({
+        title: "将复活",
+        emptyText: "暂未确认将复活的恶魔",
+        cards: []
+      })
+    ]);
+  });
+
   it("uses only known opponent cards for opponent-history effects", () => {
     const mixtape = card(1, "ETC_074", "串烧磁带", "法术", {
       text: "发现一张你的对手在本局对战中使用过的牌的复制。"

@@ -58,6 +58,10 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     return [];
   }
 
+  if (/tag=(?:STEP|NEXT_STEP)\s+value=(?:MAIN_READY|MAIN_ACTION)\b/i.test(line)) {
+    return [{ type: "game-setup-complete", raw: line }];
+  }
+
   if (/BLOCK_END\b/.test(line)) {
     return [{ type: "action-boundary", phase: "end", action: "other", raw: line }];
   }
@@ -108,6 +112,14 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     if (entity.id || entity.name || entity.cardId) {
       events.push({ type: "entity", entity, raw: line });
     }
+  }
+
+  if (parseTagValueNumber(line, "DISPLAYED_CREATOR") !== undefined) {
+    events.push({
+      type: "generated-entity",
+      entityId: entity.id,
+      raw: line
+    });
   }
 
   const controller = parseTagValueNumber(line, "CONTROLLER");
@@ -182,13 +194,13 @@ export function parseEntity(line: string): EntitySnapshot {
       ? sourceWithBrackets.slice(1, -1)
       : sourceWithBrackets;
 
-  const id = firstMatch(source, [/\bid=(\d+)/, /\bID=(\d+)/, /\bEntity=(\d+)/]);
+  const id = firstMatch(source, [/\bid=(\d+)/, /\bID=(\d+)/, /\bEntity=(\d+)/, /^\s*(\d+)\s*$/]);
   const rawName = firstMatch(source, [/\bentityName=(.+?)\s+id=/, /^\s*([^\s=]+(?:\s+[^\s=]+)*)\s*$/]);
   const cardId = firstMatch(line, [/\bCardID=([A-Za-z0-9_]+)/, /\bcardId=([A-Za-z0-9_]+)/]);
   const rawZone = firstMatch(source, [/\bzone=([A-Z]+)/]);
   const rawController = firstMatch(source, [/\bcontroller=(\d+)/, /\bplayer=(\d+)/]);
 
-  const name = normalizeName(rawName);
+  const name = rawName === id ? undefined : normalizeName(rawName);
   return {
     id,
     name,
@@ -265,7 +277,7 @@ function firstMatch(input: string, patterns: RegExp[]): string | undefined {
 }
 
 function normalizeName(name?: string): string | undefined {
-  if (!name || name.startsWith("UNKNOWN ENTITY") || name === "GameEntity") {
+  if (!name || /^\d+$/.test(name) || name.startsWith("UNKNOWN ENTITY") || name === "GameEntity") {
     return undefined;
   }
   return name.replace(/\s+/g, " ").trim();
@@ -348,6 +360,7 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
   const zones = new Map<string, Zone>();
   const initialDeckEntityIds = new Set<string>();
   const generatedDeckEntityIds = new Set<string>();
+  const runtimeGeneratedEntityIds = new Set<string>();
   let setupComplete = false;
   let pendingEntityDetail: EntitySnapshot | undefined;
 
@@ -357,6 +370,13 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
     }
 
     const parsedEntity = parseEntity(line);
+    if (
+      setupComplete &&
+      parsedEntity.id &&
+      /tag=DISPLAYED_CREATOR\s+value=/i.test(line)
+    ) {
+      runtimeGeneratedEntityIds.add(parsedEntity.id);
+    }
     const startsEntityDetail = /(?:FULL_ENTITY|SHOW_ENTITY)\s+-\s+Updating\b/.test(line) && Boolean(parsedEntity.id);
     const continuesEntityDetail = /-\s+tag=[A-Z_]+\s+value=/i.test(line);
     if (startsEntityDetail) {
@@ -404,7 +424,9 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
     return undefined;
   }
 
-  const remainingDeckSize = [...zones.values()].filter((zone) => zone === "DECK").length;
+  const remainingDeckSize = [...zones.entries()].filter(
+    ([entityId, zone]) => zone === "DECK" && !runtimeGeneratedEntityIds.has(entityId)
+  ).length;
   const baseDeckSize = initialDeckSize - generatedDeckEntityIds.size;
   return {
     initialDeckSize,

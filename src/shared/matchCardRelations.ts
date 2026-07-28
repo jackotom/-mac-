@@ -30,15 +30,14 @@ export function resolveMatchCardRelations(
   history: MatchCardHistory
 ): readonly GameContextSection[] {
   const text = normalizeText(card.text);
-  if (!text.includes("本局对战中")) {
-    return [];
-  }
-
-  if (text.includes("死亡") || /复活.*消灭的随从/.test(text)) {
+  if (
+    (text.includes("本局对战中") && (text.includes("死亡") || /复活.*消灭的随从/.test(text))) ||
+    /复活上一个死亡的你的/.test(text)
+  ) {
     return resolveDeathRelations(text, history);
   }
 
-  if (isUsedCardRelation(text)) {
+  if (text.includes("本局对战中") && isUsedCardRelation(text)) {
     return [resolveUsedCardRelation(card, text, history)];
   }
 
@@ -55,17 +54,22 @@ function resolveDeathRelations(text: string, history: MatchCardHistory): readonl
 
   const isFriendlyOnly = /友方|你的/.test(text);
   const isOpponentOnly = /敌人死亡|敌方.*死亡/.test(text);
+  const isLatestFriendlyResurrection = /复活上一个死亡的你的/.test(text);
   const source = isFriendlyOnly
     ? history.friendlyDeadMinions
     : isOpponentOnly
       ? history.opponentDeadMinions
       : [...history.friendlyDeadMinions, ...history.opponentDeadMinions];
-  const title = isFriendlyOnly
+  const title = isLatestFriendlyResurrection
+    ? "将复活"
+    : isFriendlyOnly
     ? "本局符合条件的友方死亡随从"
     : isOpponentOnly
       ? "本局符合条件的敌方死亡随从"
       : "本局符合条件的死亡随从";
-  const emptyText = isFriendlyOnly
+  const emptyText = isLatestFriendlyResurrection
+    ? "暂未确认将复活的恶魔"
+    : isFriendlyOnly
     ? "本局还没有符合条件的友方死亡随从"
     : isOpponentOnly
       ? "本局还没有符合条件的敌方死亡随从"
@@ -153,7 +157,7 @@ function filterByCardText(
     if (text.includes("过载牌") && !hasMechanic(card, "OVERLOAD")) {
       return false;
     }
-    if (race && !(card.races ?? []).includes(race)) {
+    if (race && !(card.races ?? []).some((candidateRace) => candidateRace === race || candidateRace === "ALL")) {
       return false;
     }
     if (manaCost !== undefined && card.manaCost !== manaCost) {

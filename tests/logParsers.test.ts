@@ -111,4 +111,34 @@ D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=S
 
     expect(snapshot).toEqual({ initialDeckSize: 3, remainingDeckSize: 2, baseDeckSize: 2 });
   });
+
+  it("excludes cards inserted after setup from the original deck snapshot remaining count", () => {
+    const snapshot = inspectFriendlyDeckSnapshot(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating [entityName=UNKNOWN ENTITY [cardType=INVALID] id=4 zone=DECK zonePos=0 cardId= player=1] CardID=
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating [entityName=UNKNOWN ENTITY [cardType=INVALID] id=5 zone=DECK zonePos=0 cardId= player=1] CardID=
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating [entityName=UNKNOWN ENTITY [cardType=INVALID] id=6 zone=DECK zonePos=0 cardId= player=1] CardID=
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Sample Singleton id=4 zone=DECK zonePos=0 cardId=TEST_001 player=1] tag=ZONE value=HAND
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Creating ID=234 CardID=
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=234 tag=DISPLAYED_CREATOR value=219
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=234 CardID=MIS_707
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Creating ID=235 CardID=
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=235 tag=DISPLAYED_CREATOR value=219
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=235 CardID=MIS_707
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+`, 1);
+
+    expect(snapshot).toEqual({
+      initialDeckSize: 3,
+      remainingDeckSize: 2
+    });
+  });
 });

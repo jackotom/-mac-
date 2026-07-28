@@ -12,6 +12,32 @@ redraft_source_dir="$root_dir/fixtures/logs/arena-redraft-session"
 redraft_partial_fixture="outputs/release-verification/fixtures/arena-redraft-partial"
 redraft_exact_fixture="outputs/release-verification/fixtures/arena-redraft-exact"
 arena_playing_fixture="outputs/release-verification/fixtures/arena-playing"
+active_qa_pid=""
+
+cleanup_active_qa_process() {
+  local pid="${active_qa_pid:-}"
+  active_qa_pid=""
+  if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+    return
+  fi
+
+  kill "$pid" 2>/dev/null || true
+  for _ in {1..20}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" 2>/dev/null || true
+      return
+    fi
+    sleep 0.1
+  done
+
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+trap cleanup_active_qa_process EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "$screenshots_dir" "$inspections_dir"
 rm -f "$screenshots_dir"/*.png "$inspections_dir"/*.json "$metrics_file"
@@ -82,7 +108,7 @@ run_capture() {
       QA_SCREENSHOT_PATH="$screenshot" \
       QA_INSPECT_PATH="$inspection" \
       "$qa_flag"=1 \
-      "$app_executable"
+      "$app_executable" &
   else
     env \
       HEARTHSTONE_LOG_DIR="$root_dir/$fixture" \
@@ -95,7 +121,15 @@ run_capture() {
       QA_EXIT_AFTER_SCREENSHOT=1 \
       QA_SCREENSHOT_PATH="$screenshot" \
       QA_INSPECT_PATH="$inspection" \
-      "$app_executable"
+      "$app_executable" &
+  fi
+  active_qa_pid=$!
+  local qa_status=0
+  wait "$active_qa_pid" || qa_status=$?
+  active_qa_pid=""
+  if [[ "$qa_status" -ne 0 ]]; then
+    echo "QA 场景异常退出：$name（状态 $qa_status）" >&2
+    return "$qa_status"
   fi
 
   require_file "$screenshot"
@@ -106,6 +140,7 @@ run_capture() {
     if (!report.hasApi || !report.location || !report.bodyText) process.exit(1);
     const scenario = process.argv[2];
     const fixture = process.argv[3];
+    if (/\.card-detail-(?:copy|heading|image)\s*\{/.test(String(report.bodyText))) process.exit(37);
     if (report.trackerSettings?.general?.startMinimized !== false) process.exit(25);
     if (report.trackerSettings?.overlay?.position !== "right") process.exit(26);
     if (report.trackerSettings?.overlay?.showFriendlyAttack !== false) process.exit(27);
@@ -271,12 +306,15 @@ env \
   QA_SKIP_ARENA_SCREEN_RECOGNITION=1 \
   "$app_executable" >/dev/null 2>&1 &
 launched_pid=$!
+active_qa_pid="$launched_pid"
 sleep 4
 if ! kill -0 "$launched_pid" 2>/dev/null; then
   echo "安装包未成功启动" >&2
   exit 1
 fi
 kill "$launched_pid" 2>/dev/null || true
+wait "$launched_pid" 2>/dev/null || true
+active_qa_pid=""
 
 printf 'idle-listening\tmanual\t打包应用连续空闲 5 分钟后用活动监视器记录\n' >> "$metrics_file"
 printf 'high-frequency-log\tautomated\t日志并发、截断与会话切换回归测试通过\n' >> "$metrics_file"

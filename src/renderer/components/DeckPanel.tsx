@@ -16,7 +16,16 @@ interface DeckPanelProps {
 }
 
 export function DeckPanel({ summary, cards, logIssue }: DeckPanelProps) {
-  const remainingPercent = summary.totalCards > 0 ? Math.round((summary.remainingCards / summary.totalCards) * 100) : 0;
+  const remainingPercent = summary.totalCards > 0
+    ? Math.min(100, Math.max(0, Math.round((summary.remainingCards / summary.totalCards) * 100)))
+    : 0;
+  const visibleRemainingCards = cards.reduce((total, card) => total + card.copiesRemaining, 0);
+  const remainingCardDifference = summary.remainingCards - visibleRemainingCards;
+  const integrityMessage = remainingCardDifference > 0
+    ? `还有 ${remainingCardDifference} 张未识别或未显示`
+    : remainingCardDifference < 0
+      ? `明细比摘要多 ${Math.abs(remainingCardDifference)} 张`
+      : undefined;
 
   return (
     <aside className="panel deck-panel" aria-label="我方牌库">
@@ -52,6 +61,13 @@ export function DeckPanel({ summary, cards, logIssue }: DeckPanelProps) {
         </div>
       </div>
 
+      {!logIssue && integrityMessage ? (
+        <div className="hint-line is-warning deck-data-integrity-warning" role="status" aria-label="牌库明细不完整">
+          <AlertTriangle aria-hidden="true" size={15} />
+          {integrityMessage}
+        </div>
+      ) : null}
+
       {logIssue ? null : cards.length === 0 ? (
         <div className="empty-state" role="status">
           <Library aria-hidden="true" size={18} />
@@ -75,7 +91,9 @@ export function DeckPanel({ summary, cards, logIssue }: DeckPanelProps) {
                       <span className="mana-cost">{card.cost ?? "—"}</span>
                     )}
                     <div className="card-main">
-                      <span title={card.name} aria-label={card.name}>{card.name}</span>
+                      <span title={card.name} aria-label={card.name}>
+                        {card.unresolved ? `${card.name} ×${card.copiesRemaining}` : card.name}
+                      </span>
                       <small>
                         {card.cardType} · 已抽 {card.drawn}
                         {card.details?.attack !== undefined && card.details.health !== undefined

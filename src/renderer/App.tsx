@@ -172,12 +172,7 @@ function App() {
   }
 
   if (isCardPreview) {
-    return (
-      <>
-        <style>{rendererStyles}</style>
-        <CardPreviewWindow />
-      </>
-    );
+    return <CardPreviewWindow />;
   }
 
   const isOpponentOverlay = overlaySearchParams.get("opponent-overlay") === "1";
@@ -515,7 +510,14 @@ function App() {
       setLogRepairNotice(undefined);
     }
   }, [logIssue]);
-  const deckCards = useMemo(() => (logIssue ? [] : toDeckCards(state.deck)), [logIssue, state.deck]);
+  const deckCards = useMemo(
+    () => (
+      logIssue
+        ? []
+        : toDeckCards(state.deck, !state.arena || state.arena.status === "inactive")
+    ),
+    [logIssue, state.arena, state.deck]
+  );
   const deckSummary = useMemo(
     () => (logIssue ? emptyDeckSummary : toDeckSummary(state, deckImported)),
     [deckImported, logIssue, state]
@@ -1609,16 +1611,17 @@ function toDeckSummary(state: PublicTrackerState, deckImported: boolean): DeckSu
   };
 }
 
-function toDeckCards(rows: CardTrackerRow[]): DeckCard[] {
-  return rows.filter((row) => !row.unresolved).map((row, index) => ({
+function toDeckCards(rows: CardTrackerRow[], includeUnresolved = false): DeckCard[] {
+  return rows.filter((row) => includeUnresolved || !row.unresolved).map((row, index) => ({
     id: `deck-${row.name}-${index}`,
     name: row.name,
     cost: row.details?.manaCost,
-    cardType: row.details?.cardType ?? "卡牌",
+    cardType: row.unresolved ? "未识别" : row.details?.cardType ?? "卡牌",
     drawn: row.drawn,
     copiesRemaining: row.remaining,
     copiesTotal: row.count,
-    details: row.details
+    details: row.details,
+    unresolved: row.unresolved
   }));
 }
 

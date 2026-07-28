@@ -83,6 +83,7 @@ export interface DeckCard {
   copiesRemaining: number;
   copiesTotal: number;
   details?: CardDetails;
+  unresolved?: true;
 }
 
 export type GameEventKind = "draw" | "play" | "mulligan" | "secret" | "turn" | "log" | "warning";

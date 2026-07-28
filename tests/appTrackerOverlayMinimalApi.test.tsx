@@ -184,4 +184,31 @@ describe("tracker overlay preload boundary", () => {
     expect(await screen.findAllByText("真实竞技场牌")).not.toHaveLength(0);
     expect(screen.queryByText("未解析竞技场牌")).not.toBeInTheDocument();
   });
+
+  it("renders an unresolved inserted-card placeholder in a constructed deck", async () => {
+    const state = {
+      status: "watching",
+      gameActive: true,
+      deckName: "测试套牌",
+      autoMatchedDeckId: "constructed-deck",
+      deck: [
+        { name: "原始牌", count: 1, remaining: 1, drawn: 0, played: 0 },
+        { name: "未知塞入牌", count: 2, remaining: 2, drawn: 0, played: 0, unresolved: true }
+      ],
+      opponentPlayed: [],
+      events: [],
+      summary: { totalCards: 3, remainingCards: 3, drawnCards: 0, opponentPlayedCount: 0 }
+    };
+    window.hearthstoneTracker = {
+      discoverLogs: vi.fn(async () => []),
+      getState: vi.fn(async () => state),
+      onUpdate: vi.fn(() => () => undefined)
+    } as unknown as typeof window.hearthstoneTracker;
+    const { default: App } = await import("../src/renderer/App.js");
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "实时对局" }));
+    expect(await screen.findByText("未知塞入牌 ×2")).toBeInTheDocument();
+  });
 });

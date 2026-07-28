@@ -509,17 +509,40 @@ function parseHeroClasses(value: Record<string, unknown>): string[] {
   return uniqueStrings(sourceValues.flatMap(extractHeroClassValues));
 }
 
+const OFFICIAL_MINION_TYPE_RACES: Readonly<Record<number, string>> = {
+  2: "DRAENEI",
+  11: "UNDEAD",
+  14: "MURLOC",
+  15: "DEMON",
+  17: "MECHANICAL",
+  18: "ELEMENTAL",
+  20: "BEAST",
+  21: "TOTEM",
+  23: "PIRATE",
+  24: "DRAGON",
+  26: "ALL",
+  43: "QUILBOAR",
+  92: "NAGA"
+};
+
 function parseCardRaces(value: Record<string, unknown>): string[] {
   const scalarRaces = [
     stringValue(value.race),
     stringValue(value.raceName),
     stringValue(value.race_name)
   ].filter((race): race is string => Boolean(race));
+  const officialMinionTypeId =
+    numberValue(value.minionTypeId) ??
+    numberValue(value.minion_type_id);
+  const officialRace = officialMinionTypeId === undefined
+    ? undefined
+    : OFFICIAL_MINION_TYPE_RACES[officialMinionTypeId];
   return uniqueStrings([
     ...scalarRaces,
     ...textArray(value.races),
     ...textArray(value.raceIds),
-    ...textArray(value.race_ids)
+    ...textArray(value.race_ids),
+    ...(officialRace ? [officialRace] : [])
   ]).map((race) => race.toLocaleUpperCase());
 }
 
