@@ -11,7 +11,7 @@ React 渲染层在 `src/renderer/`。桌面版启动时通过 Electron preload �
 - `components/TopBar.tsx`：顶部日志状态和主要操作。
 - `components/DeckPanel.tsx`：我方牌库、剩余数量和抽牌状态。
 - `components/CardDetailBody.tsx`：复用卡牌图像、费用、攻血、效果文字和关联牌详情。
-- `components/CardHoverPreview.tsx`：卡牌鼠标悬停预览；主窗口使用页面内固定定位，置顶小窗通过独立透明预览窗向外展开，避免被小窗宽度挤压；置顶小窗预览刷新时用鼠标坐标确认仍在卡牌行内，避免独立预览窗导致系统 `:hover` 短暂丢失后闪烁；鼠标真正离开、窗口失焦或刷新中断后会自动隐藏。
+- `components/CardHoverPreview.tsx`：卡牌鼠标悬停预览；主窗口使用页面内固定定位，置顶小窗通过独立透明预览窗向外展开，避免被小窗宽度挤压；置顶小窗预览刷新时用鼠标坐标确认仍在卡牌行内，避免独立预览窗导致系统 `:hover` 短暂丢失后闪烁；卡牌资料晚到但鼠标仍停在原行时会自动补开详情；鼠标真正离开、窗口失焦或刷新中断后会自动隐藏。
 - `components/EventFeed.tsx`：实时事件流。
 - `components/OpponentPanel.tsx`：对手职业、回合概览和已出牌列表。
 - `components/ArenaPanel.tsx`：竞技场当前候选牌、版本评分、已选张数和自动生成的竞技场牌库。
@@ -46,7 +46,7 @@ React 渲染层在 `src/renderer/`。桌面版启动时通过 Electron preload �
 
 ## 置顶小窗
 
-`OverlayPanel` 已接入 `?overlay=1` 小窗入口。入口先调用：
+`OverlayPanel` 已接入 `?overlay=1` 小窗入口。牌库、手牌、其他和对手卡牌行使用不含列表序号的稳定身份，实时移除前序卡牌时不能重建仍在悬停的后续卡牌。入口先调用：
 
 ```ts
 const overlayView = toOverlayPanelViewModel(publicTrackerState);

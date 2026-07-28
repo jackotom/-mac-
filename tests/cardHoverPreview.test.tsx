@@ -89,6 +89,40 @@ describe("CardHoverPreview", () => {
     expect(hideCardPreview).toHaveBeenCalled();
   });
 
+  it("opens the external preview when card details arrive under an already hovered row", () => {
+    const showCardPreview = vi.fn(() => Promise.resolve());
+    Object.defineProperty(window, "hearthstoneTracker", {
+      configurable: true,
+      value: {
+        showCardPreview,
+        hideCardPreview: vi.fn(() => Promise.resolve())
+      }
+    });
+    window.history.pushState({}, "", "/?overlay=1");
+
+    const { rerender } = render(
+      <CardHoverPreview details={undefined}>
+        <button type="button">火球术</button>
+      </CardHoverPreview>
+    );
+    const target = screen.getByRole("button", { name: "火球术" }).closest(".card-hover-target") as HTMLElement;
+    vi.spyOn(target, "matches").mockImplementation((selector) => selector === ":hover");
+
+    fireEvent.mouseEnter(target, { clientX: 10, clientY: 10 });
+    expect(showCardPreview).not.toHaveBeenCalled();
+
+    rerender(
+      <CardHoverPreview details={cardDetails}>
+        <button type="button">火球术</button>
+      </CardHoverPreview>
+    );
+
+    expect(showCardPreview).toHaveBeenCalledWith({
+      details: cardDetails,
+      anchorRect: expect.any(Object)
+    });
+  });
+
   it("keeps the external preview visible when the pointer is still inside the anchor bounds", () => {
     vi.useFakeTimers();
     const showCardPreview = vi.fn(() => Promise.resolve());

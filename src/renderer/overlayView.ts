@@ -182,8 +182,8 @@ function toArenaView(state: ArenaState, maxDeckRows: number) {
     choices,
     deck: [...visibleDeck]
       .sort(compareCardsByMana)
-      .map((card, index) => ({
-        id: `arena-deck-${index}-${card.cardId ?? card.name}`,
+      .map((card) => ({
+        id: `arena-deck-${stableCardIdentity(card)}`,
         name: card.name,
         cost: card.details?.manaCost,
         count: card.count,
@@ -252,8 +252,8 @@ function toRemainingDeckItems(rows: readonly CardTrackerRow[], maxRows: number):
     .filter((row) => row.remaining > 0)
     .sort(compareCardsByMana)
     .slice(0, maxRows)
-    .map((row, index) => ({
-      id: `deck-${index}-${row.name}`,
+    .map((row) => ({
+      id: `deck-${stableCardIdentity(row)}`,
       name: row.name,
       cost: row.details?.manaCost,
       count: row.remaining,
@@ -268,8 +268,8 @@ function toZoneCardItems(rows: readonly TrackerZoneCard[], prefix: string, maxRo
   return [...rows]
     .sort(compareCardsByMana)
     .slice(0, maxRows)
-    .map((row, index) => ({
-      id: `${prefix}-${index}-${row.cardId ?? row.name}`,
+    .map((row) => ({
+      id: `${prefix}-${stableCardIdentity(row)}`,
       name: row.name,
       cost: row.details?.manaCost,
       count: row.count,
@@ -295,6 +295,10 @@ function compareCardsByMana(
   return leftCost - rightCost || left.name.localeCompare(right.name, "zh-CN");
 }
 
+function stableCardIdentity(card: Pick<CardTrackerRow | DeckCard | TrackerZoneCard, "name" | "details"> & { cardId?: string }) {
+  return card.cardId ?? card.details?.cardId ?? card.details?.dbfId ?? card.name;
+}
+
 function isFriendlyDraw(event: TrackerEvent): boolean {
   return event.kind === "draw" && event.player === "friendly";
 }
@@ -313,8 +317,8 @@ function toOpponentPlayedItems(rows: readonly CardTrackerRow[], maxRows: number)
     .filter((row) => row.played > 0 && isDisplayableOpponentCardName(row.name))
     .sort((left, right) => right.played - left.played || left.name.localeCompare(right.name, "zh-CN"))
     .slice(0, maxRows)
-    .map((row, index) => ({
-      id: `opponent-${index}-${row.cardId ?? row.name}`,
+    .map((row) => ({
+      id: `opponent-${stableCardIdentity(row)}`,
       name: row.name,
       count: row.played,
       detail: "本局已出",

@@ -92,6 +92,21 @@ export function CardHoverPreview({ details, children, className, isRelated = fal
     };
   }, []);
 
+  useEffect(() => {
+    const anchor = anchorRef.current;
+    if (
+      !details ||
+      !usesExternalCardPreview() ||
+      !anchor ||
+      isActiveExternalPreviewOwner() ||
+      (!anchor.matches(":hover") && !isLastPointerInsideAnchor())
+    ) {
+      return;
+    }
+
+    showPreview();
+  }, [details]);
+
   function showPreview(event?: ReactMouseEvent<HTMLDivElement>) {
     if (usesExternalCardPreview()) {
       clearExternalHideTimer();

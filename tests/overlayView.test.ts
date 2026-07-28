@@ -261,6 +261,33 @@ describe("overlay view", () => {
     expect(view.otherCards).toEqual([expect.objectContaining({ name: "一费牌", count: 1, cost: 1 })]);
   });
 
+  it("keeps a card row identity stable when an earlier live row disappears", () => {
+    const base: PublicTrackerState = {
+      status: "watching",
+      gameActive: true,
+      deckName: "稳定悬停测试套牌",
+      autoMatchedDeckId: "stable-hover-deck",
+      deck: [
+        { cardId: "CARD_A", name: "先消失的牌", count: 1, remaining: 1, drawn: 0, played: 0 },
+        { cardId: "CARD_B", name: "仍在悬停的牌", count: 1, remaining: 1, drawn: 0, played: 0 }
+      ],
+      opponentPlayed: [],
+      events: [],
+      summary: { totalCards: 2, remainingCards: 2, drawnCards: 0, opponentPlayedCount: 0 }
+    };
+
+    const before = toOverlayPanelViewModel(base).remainingDeck.find((card) => card.name === "仍在悬停的牌");
+    const after = toOverlayPanelViewModel({
+      ...base,
+      deck: base.deck.slice(1),
+      summary: { ...base.summary, remainingCards: 1 }
+    }).remainingDeck.find((card) => card.name === "仍在悬停的牌");
+
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    expect(after?.id).toBe(before?.id);
+  });
+
   it("exposes the automatically matched deck identity", () => {
     const state: PublicTrackerState = {
       status: "watching",

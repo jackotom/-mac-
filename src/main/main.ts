@@ -667,8 +667,8 @@ function registerIpc() {
   secureHandle("tracker:show-card-preview", (event, request: CardPreviewRequest) =>
     showCardPreviewWindow(BrowserWindow.fromWebContents(event.sender), request)
   );
-  secureHandle("tracker:hide-card-preview", () => {
-    hideCardPreviewWindow();
+  secureHandle("tracker:hide-card-preview", (event) => {
+    hideCardPreviewWindow(BrowserWindow.fromWebContents(event.sender));
   });
   secureHandle("tracker:minimize-main", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -1537,10 +1537,13 @@ async function showCardPreviewWindow(sourceWindow: BrowserWindow | null, request
   }
 
   const hover = cardPreviewVisibilityGate.beginHover();
+  cardPreviewSourceWindow = sourceWindow;
   const frontmostAppName = await getFrontmostAppName();
   const qaPreview = process.env.QA_SHOW_CARD_PREVIEW === "1";
   if (!qaPreview && !cardPreviewVisibilityGate.canShow(hover, frontmostAppName)) {
-    hideCardPreviewWindow();
+    if (cardPreviewVisibilityGate.invalidateIfCurrent(hover)) {
+      hideCardPreviewWindow();
+    }
     return;
   }
 
@@ -1548,11 +1551,11 @@ async function showCardPreviewWindow(sourceWindow: BrowserWindow | null, request
   if (previewWindow.isDestroyed()) {
     return;
   }
-  cardPreviewSourceWindow = sourceWindow;
   registerCardPreviewPinShortcut();
 
   const requestKey = getCardPreviewRequestKey(sourceWindow, request);
   if (previewWindow.isVisible() && lastCardPreviewRequestKey === requestKey) {
+    previewWindow.webContents.send("tracker:card-preview:update", request.details);
     scheduleCardPreviewAutoHide();
     return;
   }
@@ -1577,7 +1580,11 @@ async function showCardPreviewWindow(sourceWindow: BrowserWindow | null, request
   scheduleCardPreviewAutoHide();
 }
 
-function hideCardPreviewWindow() {
+function hideCardPreviewWindow(sourceWindow?: BrowserWindow | null) {
+  if (sourceWindow && cardPreviewSourceWindow && sourceWindow !== cardPreviewSourceWindow) {
+    return;
+  }
+
   unregisterCardPreviewPinShortcut();
   cardPreviewVisibilityGate.invalidate();
   clearCardPreviewAutoHideTimer();

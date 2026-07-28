@@ -1,4 +1,4 @@
-import { isHearthstoneFrontmost } from "./frontmostApp.js";
+import { isHearthstoneOrTrackerFrontmost } from "./frontmostApp.js";
 
 export class CardPreviewVisibilityGate {
   private generation = 0;
@@ -10,17 +10,26 @@ export class CardPreviewVisibilityGate {
   }
 
   canShow(hover: number, frontmostAppName: string | undefined): boolean {
-    return this.hoverActive && hover === this.generation && isHearthstoneFrontmost(frontmostAppName);
+    return this.hoverActive && hover === this.generation && isHearthstoneOrTrackerFrontmost(frontmostAppName);
   }
 
   refresh(frontmostAppName: string | undefined): boolean {
-    if (isHearthstoneFrontmost(frontmostAppName)) {
+    if (isHearthstoneOrTrackerFrontmost(frontmostAppName)) {
       return false;
     }
 
     const shouldHide = this.hoverActive;
     this.invalidate();
     return shouldHide;
+  }
+
+  invalidateIfCurrent(hover: number): boolean {
+    if (!this.hoverActive || hover !== this.generation) {
+      return false;
+    }
+
+    this.invalidate();
+    return true;
   }
 
   invalidate() {
