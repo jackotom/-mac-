@@ -38,7 +38,12 @@ import { registerFriendlyOverlayIpc } from "./friendlyOverlayIpc.js";
 import { registerOpponentOverlayIpc } from "./opponentOverlayIpc.js";
 import { OpponentOverlayWindowState } from "./opponentOverlayWindowState.js";
 import { OpponentOverlayWindowController } from "./opponentOverlayWindowController.js";
-import { HEARTHSTONE_CAPTURE_TYPES, selectHearthstoneCaptureSource } from "./screenCaptureSource.js";
+import {
+  HEARTHSTONE_DISPLAY_CAPTURE_TYPES,
+  HEARTHSTONE_WINDOW_CAPTURE_TYPES,
+  selectHearthstoneWindowCaptureSource,
+  selectTargetDisplayCaptureSource
+} from "./screenCaptureSource.js";
 import { LadderDeckRecommendationService } from "./ladderDeckRecommendationService.js";
 import { LadderDeckOverlayController, resolveLadderDeckMode } from "./ladderDeckOverlayController.js";
 import { getLadderDeckOverlayBounds } from "./ladderDeckOverlayBounds.js";
@@ -201,8 +206,18 @@ async function captureHearthstoneDisplay() {
       }),
       { width: 1, height: 1 }
     );
-    const sources = await desktopCapturer.getSources({ types: [...HEARTHSTONE_CAPTURE_TYPES], thumbnailSize });
-    const source = selectHearthstoneCaptureSource(sources, targetDisplay.id);
+    const windowSources = await desktopCapturer.getSources({
+      types: [...HEARTHSTONE_WINDOW_CAPTURE_TYPES],
+      thumbnailSize
+    });
+    let source = selectHearthstoneWindowCaptureSource(windowSources);
+    if (!source || source.thumbnail.isEmpty()) {
+      const displaySources = await desktopCapturer.getSources({
+        types: [...HEARTHSTONE_DISPLAY_CAPTURE_TYPES],
+        thumbnailSize
+      });
+      source = selectTargetDisplayCaptureSource(displaySources, targetDisplay.id);
+    }
     if (!source || source.thumbnail.isEmpty()) {
       throw new Error("无法读取炉石所在屏幕。");
     }

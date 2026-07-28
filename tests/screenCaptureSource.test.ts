@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { HEARTHSTONE_CAPTURE_TYPES, selectHearthstoneCaptureSource } from "../src/main/screenCaptureSource";
+import {
+  HEARTHSTONE_DISPLAY_CAPTURE_TYPES,
+  HEARTHSTONE_WINDOW_CAPTURE_TYPES,
+  selectHearthstoneWindowCaptureSource,
+  selectTargetDisplayCaptureSource
+} from "../src/main/screenCaptureSource";
 
 const sources = [
   { id: "screen:1:0", name: "Entire Screen", display_id: "1" },
@@ -8,19 +13,19 @@ const sources = [
 ];
 
 describe("screen capture source selection", () => {
-  it("requests window thumbnails only", () => {
-    expect(HEARTHSTONE_CAPTURE_TYPES).toEqual(["window"]);
+  it("keeps window and display requests separate", () => {
+    expect(HEARTHSTONE_WINDOW_CAPTURE_TYPES).toEqual(["window"]);
+    expect(HEARTHSTONE_DISPLAY_CAPTURE_TYPES).toEqual(["screen"]);
   });
 
   it("prefers the Hearthstone window even when another display is active", () => {
-    expect(selectHearthstoneCaptureSource(sources, 2)?.id).toBe("window:20:0");
+    expect(selectHearthstoneWindowCaptureSource(sources)?.id).toBe("window:20:0");
   });
 
   it("recognizes a Chinese Hearthstone window title", () => {
     expect(
-      selectHearthstoneCaptureSource(
-        [{ id: "window:21:0", name: "炉石传说", display_id: "" }, ...sources],
-        2
+      selectHearthstoneWindowCaptureSource(
+        [{ id: "window:21:0", name: "炉石传说", display_id: "" }, ...sources]
       )?.id
     ).toBe("window:21:0");
   });
@@ -39,12 +44,22 @@ describe("screen capture source selection", () => {
       thumbnail: { getSize: () => ({ width: 3076, height: 1802 }) }
     };
 
-    expect(selectHearthstoneCaptureSource([smallWindow, gameWindow, ...sources], 2)?.id).toBe("window:22:0");
+    expect(selectHearthstoneWindowCaptureSource([smallWindow, gameWindow, ...sources])?.id).toBe("window:22:0");
   });
 
-  it("does not capture a display when the Hearthstone window is missing", () => {
+  it("uses only the target display when fullscreen Hearthstone has no window source", () => {
     const screens = sources.filter((source) => source.id.startsWith("screen:"));
-    expect(selectHearthstoneCaptureSource(screens, 2)).toBeUndefined();
-    expect(selectHearthstoneCaptureSource(screens, 99)).toBeUndefined();
+    expect(selectTargetDisplayCaptureSource(screens, 2)?.id).toBe("screen:2:0");
+    expect(selectTargetDisplayCaptureSource(screens, 99)).toBeUndefined();
+  });
+
+  it("rejects an empty Hearthstone window thumbnail so the caller can request the display", () => {
+    const emptyWindow = {
+      id: "window:20:0",
+      name: "Hearthstone",
+      display_id: "",
+      thumbnail: { getSize: () => ({ width: 0, height: 0 }) }
+    };
+    expect(selectHearthstoneWindowCaptureSource([emptyWindow])).toBeUndefined();
   });
 });

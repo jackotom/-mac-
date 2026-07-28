@@ -19,7 +19,9 @@ const realOcrCardDb = createCardDatabase([
   { dbfId: 5004, name: "摩拉格", cardId: "TEST_MALAG", collectible: true },
   { dbfId: 5005, name: "背叛者高弗雷", cardId: "TEST_GODFREY", collectible: true },
   { dbfId: 5006, name: "探员摩洛克·福尔摩斯", cardId: "TEST_HOLMES", collectible: true },
-  { dbfId: 5007, name: "摩洛克·福尔摩斯", cardId: "TEST_HOLMES_DECOY", collectible: true }
+  { dbfId: 5007, name: "摩洛克·福尔摩斯", cardId: "TEST_HOLMES_DECOY", collectible: true },
+  { dbfId: 5008, name: "时光之主诺兹多姆", cardId: "TIME_063", collectible: true },
+  { dbfId: 5009, name: "克罗米", cardId: "TIME_103", collectible: true }
 ]);
 const ratings: ArenaRatingTable = {
   source: "test ratings",
@@ -603,6 +605,46 @@ D 12:00:00.001 DraftManager.OnChosen(): hero=HERO_05
       cardId: "TEST_HOLMES",
       name: "探员摩洛克·福尔摩斯"
     });
+  });
+
+  it("matches all three legendary-team titles from the reported screenshot and attaches statistics", () => {
+    const screenshotRatings: ArenaRatingTable = {
+      source: "test ratings",
+      version: 1,
+      fetchedAt: "2026-07-28T00:00:00.000Z",
+      ratings: { Neutral: {} },
+      firestone: {
+        source: "Firestone",
+        version: "screenshot",
+        lastUpdated: "2026-07-28T00:00:00.000Z",
+        ratings: {
+          TIME_063: { pickRate: 1.14, includedWinrate: 41.97 },
+          TEST_MALAG: { pickRate: 78.91, includedWinrate: 51.35 },
+          TIME_103: { pickRate: 0.91, includedWinrate: 46.76 }
+        }
+      }
+    };
+    const engine = new ArenaDraftEngine({ cardDatabase: realOcrCardDb, ratings: screenshotRatings });
+    engine.applyArenaLine("D 12:00:00.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(engine.applyScreenChoices(["时光之主诺的墜總", "摩拉格", "克罗米"])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({
+        cardId: "TIME_063",
+        name: "时光之主诺兹多姆",
+        rating: expect.objectContaining({ pickRate: 1.14, firestone: expect.objectContaining({ includedWinrate: 41.97 }) })
+      }),
+      expect.objectContaining({
+        cardId: "TEST_MALAG",
+        name: "摩拉格",
+        rating: expect.objectContaining({ pickRate: 78.91, firestone: expect.objectContaining({ includedWinrate: 51.35 }) })
+      }),
+      expect.objectContaining({
+        cardId: "TIME_103",
+        name: "克罗米",
+        rating: expect.objectContaining({ pickRate: 0.91, firestone: expect.objectContaining({ includedWinrate: 46.76 }) })
+      })
+    ]);
   });
 
   it("ignores orphan Arena picks and non-local or non-draft Power choices", () => {
