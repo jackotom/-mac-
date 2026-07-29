@@ -73,6 +73,34 @@ function makeHost(initialState: PublicTrackerState) {
 }
 
 describe("AutomaticOverlayController", () => {
+  it("uses only the inactive presentation path for an automatic friendly overlay", async () => {
+    let overlayExists = false;
+    let overlayVisible = false;
+    const showInactive = vi.fn(() => {
+      overlayVisible = true;
+    });
+    const show = vi.fn();
+    const focus = vi.fn();
+    const controller = new AutomaticOverlayController({
+      getState: () => makeState({ constructedScreenMode: "standard" }),
+      getFrontmostAppName: async () => "Hearthstone",
+      hasOverlayWindow: () => overlayExists,
+      isOverlayVisible: () => overlayVisible,
+      isOverlayFocused: () => false,
+      createOverlayWindow: vi.fn(async () => {
+        overlayExists = true;
+      }),
+      showOverlayWindow: showInactive,
+      hideOverlayWindow: vi.fn()
+    });
+
+    await controller.refresh();
+
+    expect(showInactive).toHaveBeenCalledOnce();
+    expect(show).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   it("does not create an overlay when its global setting is disabled", async () => {
     const fixture = makeHost(makeState({ constructedScreenMode: "standard" }));
     const controller = new AutomaticOverlayController({

@@ -111,8 +111,50 @@ describe("window experience configuration", () => {
       main.indexOf("async function showOpponentOverlayInactive"),
       main.indexOf("function startBoardAttackOverlayMonitor")
     );
-    expect(section).toContain("opponentOverlayWindowController.showInactive()");
+    expect(section).toContain("presentOpponentSecretOverlay");
     expect(section).not.toContain("expandOpponentOverlayWindow");
+  });
+
+  it("keeps automatic overlay paths inactive while leaving explicit opponent opening focusable", () => {
+    const main = source("src/main/main.ts");
+    const presenter = source("src/main/opponentSecretOverlayPresenter.ts");
+    const friendlyAutomatic = main.slice(
+      main.indexOf("const automaticOverlayController"),
+      main.indexOf("const automaticOpponentOverlayController")
+    );
+    const opponentAutomatic = main.slice(
+      main.indexOf("const automaticOpponentOverlayController"),
+      main.indexOf("function isDeckTrackerEnabled")
+    );
+    const explicitOpponentToggle = main.slice(
+      main.indexOf('secureHandle("tracker:toggle-opponent-overlay"'),
+      main.indexOf('secureHandle("tracker:show-card-preview"')
+    );
+
+    expect(presenter).toContain("ensureWindow({ showWhenReady: false })");
+    expect(presenter).not.toMatch(/\.show\(/);
+    expect(presenter).not.toMatch(/\.focus\(/);
+    expect(friendlyAutomatic).toContain("overlayWindow.showInactive()");
+    expect(friendlyAutomatic).not.toMatch(/overlayWindow\.(?:show|focus)\(/);
+    expect(opponentAutomatic).toContain("opponentOverlayWindowController.showInactive()");
+    expect(opponentAutomatic).not.toContain("expandOpponentOverlayWindow");
+    expect(explicitOpponentToggle).toContain("expandOpponentOverlayWindow(true)");
+    expect(explicitOpponentToggle).toContain("showWhenReady: true");
+  });
+
+  it("routes only new-secret transitions through the no-focus presenter", () => {
+    const main = source("src/main/main.ts");
+    const monitor = main.slice(
+      main.indexOf("function startOpponentSecretOverlayMonitor"),
+      main.indexOf("function startBoardAttackOverlayMonitor")
+    );
+
+    expect(monitor).toMatch(
+      /opponentSecretOverlayVisibility\.update\(secrets\)[\s\S]*?showOpponentOverlayInactive\(generation\)/
+    );
+    expect(monitor).toContain("presentOpponentSecretOverlay");
+    expect(monitor).not.toMatch(/\.show\(/);
+    expect(monitor).not.toMatch(/\.focus\(/);
   });
 
   it("shows the hero ranking loading window before waiting for network data", () => {

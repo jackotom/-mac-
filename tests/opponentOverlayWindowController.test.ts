@@ -109,5 +109,7 @@ describe("opponent overlay window controller", () => {
     expect(state.isCollapsed()).toBe(true);
     expect(window.setBounds).not.toHaveBeenCalled();
     expect(window.showInactive).toHaveBeenCalledOnce();
+    expect(window.show).not.toHaveBeenCalled();
+    expect(window.focus).not.toHaveBeenCalled();
   });
 });

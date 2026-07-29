@@ -34,6 +34,7 @@ import {
   normalizeOverlayWindowBounds
 } from "./overlayWindowBounds.js";
 import { OpponentSecretOverlayVisibility } from "./opponentSecretOverlayVisibility.js";
+import { presentOpponentSecretOverlay } from "./opponentSecretOverlayPresenter.js";
 import {
   configureBoardAttackOverlayWindow,
   getBoardAttackOverlayQuery,
@@ -1182,8 +1183,13 @@ async function updateLadderDeckOverlayMode(mode: LadderMode) {
   ladderDeckOverlayWindow.webContents.send("tracker:ladder-deck-recommendation:update", mode, result);
 }
 
-async function createOpponentOverlayWindow(options: { showWhenReady?: boolean; qaDemo?: boolean } = {}) {
+async function createOpponentOverlayWindow(options: {
+  showWhenReady?: boolean;
+  qaDemo?: boolean;
+  restoreCollapsedWhenReady?: boolean;
+} = {}) {
   const showWhenReady = options.showWhenReady ?? true;
+  const restoreCollapsedWhenReady = options.restoreCollapsedWhenReady ?? true;
   if (opponentOverlayWindow && !opponentOverlayWindow.isDestroyed()) {
     if (showWhenReady) {
       if (opponentOverlayWindowState?.isCollapsed()) {
@@ -1219,7 +1225,7 @@ async function createOpponentOverlayWindow(options: { showWhenReady?: boolean; q
       window.show();
       window.focus();
     }
-  } else if (opponentOverlayRestoreCollapsed && !options.qaDemo) {
+  } else if (restoreCollapsedWhenReady && opponentOverlayRestoreCollapsed && !options.qaDemo) {
     await collapseOpponentOverlayWindow();
   }
   return window;
@@ -1388,16 +1394,31 @@ function stopOpponentSecretOverlayMonitor() {
 async function showOpponentOverlayInactive(generation: number) {
   if (generation !== opponentSecretOverlayGeneration) return;
   if (!isDeckTrackerEnabled("opponentDeckTracker")) return;
-  const window = await createOpponentOverlayWindow({ showWhenReady: false });
-  if (
-    generation !== opponentSecretOverlayGeneration ||
-    !isDeckTrackerEnabled("opponentDeckTracker") ||
-    opponentOverlayWindow !== window ||
-    window.isDestroyed()
-  ) {
-    if (opponentOverlayWindow === window && !isDeckTrackerEnabled("opponentDeckTracker")) {
-      await releaseOpponentOverlayWindow(window);
-    }
+  const ensureWindow = async (options: { readonly showWhenReady: false }) =>
+    await createOpponentOverlayWindow({
+      ...options,
+      restoreCollapsedWhenReady: false
+    });
+  await presentOpponentSecretOverlay({
+    ensureWindow,
+    isStillValid: (window) => {
+      if (
+        generation !== opponentSecretOverlayGeneration ||
+        !isDeckTrackerEnabled("opponentDeckTracker") ||
+        opponentOverlayWindow !== window ||
+        window.isDestroyed()
+      ) {
+        return false;
+      }
+      return true;
+    },
+    showInactive: showOpponentOverlayWindowInactive
+  });
+}
+
+async function showOpponentOverlayWindowInactive() {
+  if (opponentOverlayRestoreCollapsed && !opponentOverlayWindowState?.isCollapsed()) {
+    await collapseOpponentOverlayWindow();
     return;
   }
   opponentOverlayWindowController.showInactive();
