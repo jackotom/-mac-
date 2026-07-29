@@ -150,9 +150,9 @@ function isPublicCardTracking(value: unknown): boolean {
   if (!isPublicPlayerCardTracking(value.friendly, outcomeBudget) ||
       !isPublicPlayerCardTracking(value.opponent, outcomeBudget) ||
       !hasUniqueStrings(value.opponentSecretSlots, "entityId") ||
-      !value.opponentSecretSlots.every((slot) => isOpponentSecretSlot(slot, outcomeBudget)) ||
+      !value.opponentSecretSlots.every(isOpponentSecretSlot) ||
       !Object.entries(value.detailsByCardKey).every(([cardKey, details]) =>
-        isNonEmptyString(cardKey) && isCardDetails(details, outcomeBudget))) {
+        isNonEmptyString(cardKey) && isCardDetails(details))) {
     return false;
   }
 
@@ -216,7 +216,8 @@ function isPublicCardHistoryGroup(value: unknown, outcomeBudget: OutcomeTreeBudg
       !hasUniqueStrings(value.items, "id")) {
     return false;
   }
-  return value.items.every((item) => isPublicCardHistoryItem(item, outcomeBudget));
+  return value.items.every((item) => isPublicCardHistoryItem(item, outcomeBudget)) &&
+    hasStrictlyDecreasingSequences(value.items);
 }
 
 function isPublicCardHistoryItem(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
@@ -233,26 +234,24 @@ function isPublicCardHistoryItem(value: unknown, outcomeBudget: OutcomeTreeBudge
     (value.outcomeSections === undefined || isCardOutcomeSections(value.outcomeSections, outcomeBudget));
 }
 
-function isOpponentSecretSlot(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+function isOpponentSecretSlot(value: unknown): boolean {
   return isRecord(value) && hasOnlyKeys(value, ["entityId", "candidates", "revealedCardId"]) &&
     isNonEmptyString(value.entityId) && Array.isArray(value.candidates) &&
-    value.candidates.every((candidate) => isSecretCandidate(candidate, outcomeBudget)) &&
+    value.candidates.every(isSecretCandidate) &&
     isOptionalString(value.revealedCardId);
 }
 
-function isSecretCandidate(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+function isSecretCandidate(value: unknown): boolean {
   return isRecord(value) && hasOnlyKeys(value, ["cardId", "name", "status", "details"]) &&
     isNonEmptyString(value.cardId) && isNonEmptyString(value.name) &&
     isOneOf(value.status, ["possible", "excluded"]) &&
-    (value.details === undefined || isCardDetails(value.details, outcomeBudget));
+    (value.details === undefined || isCardDetails(value.details));
 }
 
-function isCardDetails(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+function isCardDetails(value: unknown): boolean {
   return isRecord(value) && isNonNegativeInteger(value.dbfId) && isNonEmptyString(value.name) &&
     typeof value.isSpell === "boolean" && Array.isArray(value.relatedCards) &&
-    value.relatedCards.every(isRelatedCard) &&
-    (value.cardOutcomeSections === undefined ||
-      isCardOutcomeSections(value.cardOutcomeSections, outcomeBudget));
+    value.relatedCards.every(isRelatedCard) && !("cardOutcomeSections" in value);
 }
 
 function isRelatedCard(value: unknown): boolean {
@@ -302,6 +301,18 @@ function hasUniqueStrings(value: readonly unknown[], key: string): boolean {
       return false;
     }
     seen.add(item[key]);
+    return true;
+  });
+}
+
+function hasStrictlyDecreasingSequences(items: readonly unknown[]): boolean {
+  let previousSequence = Number.POSITIVE_INFINITY;
+  return items.every((item) => {
+    if (!isRecord(item) || !isNonNegativeInteger(item.sequence) ||
+        item.sequence >= previousSequence) {
+      return false;
+    }
+    previousSequence = item.sequence;
     return true;
   });
 }

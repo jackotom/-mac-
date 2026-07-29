@@ -33,6 +33,29 @@ function overwriteSecretSlots(state: CompleteTrackerState, value: unknown): void
   tracking.opponentSecretSlots = value;
 }
 
+function overwriteDetailsByCardKey(state: CompleteTrackerState, value: unknown): void {
+  const tracking = state.cardTracking as unknown as Record<string, unknown>;
+  tracking.detailsByCardKey = value;
+}
+
+function createDetailsWithOutcomeSections() {
+  return {
+    dbfId: 315,
+    name: "火球术",
+    isSpell: true,
+    relatedCards: [],
+    cardOutcomeSections: [{
+      key: "actual",
+      title: "本次实际施放",
+      emptyText: "无结果",
+      cards: [{
+        key: "result-1",
+        card: { dbfId: 1001, name: "奥术飞弹" }
+      }]
+    }]
+  };
+}
+
 describe("card tracking runtime validation", () => {
   it("accepts legacy states during migration and keeps normal states complete", () => {
     expect(parsePublicTrackerState(createLegacyPublicTrackerState()).cardTracking).toBeUndefined();
@@ -44,6 +67,22 @@ describe("card tracking runtime validation", () => {
       // @ts-expect-error 正常工厂在类型层也禁止显式传入 undefined。
       createPublicTrackerState({ cardTracking: undefined });
     }).toThrow(/cardTracking/);
+  });
+
+  it("rejects empty game keys and invalid card tracking overrides in the normal factory", () => {
+    expect(() => createPublicTrackerState({
+      cardTracking: createEmptyCardTracking(" ")
+    })).toThrow(/cardTracking/);
+
+    const invalidTracking = structuredClone(createEmptyCardTracking("game-1"));
+    const friendlyCurrent = invalidTracking.friendly.current as unknown as Record<string, unknown>;
+    friendlyCurrent.hand = {
+      status: "known",
+      knownCount: 0,
+      totalCount: 1,
+      cards: []
+    };
+    expect(() => createPublicTrackerState({ cardTracking: invalidTracking })).toThrow(/cardTracking/);
   });
 
   it("creates independent nested arrays and objects for every normal state", () => {
@@ -68,6 +107,42 @@ describe("card tracking runtime validation", () => {
     expect(first.cardTracking).not.toBe(second.cardTracking);
     expect(first.cardTracking.friendly.used.items)
       .not.toBe(second.cardTracking.friendly.used.items);
+  });
+
+  it("deeply clones all caller-owned state overrides in both factories", () => {
+    const overrides = {
+      deck: [{
+        name: "火球术",
+        count: 1,
+        remaining: 1,
+        drawn: 0,
+        played: 0
+      }],
+      events: [{
+        id: "event-1",
+        at: "2026-07-29T12:00:00.000Z",
+        kind: "draw" as const,
+        player: "friendly" as const,
+        cardName: "火球术"
+      }],
+      summary: {
+        totalCards: 1,
+        remainingCards: 1,
+        drawnCards: 0,
+        opponentPlayedCount: 0
+      }
+    };
+
+    const normal = createPublicTrackerState(overrides);
+    const legacy = createLegacyPublicTrackerState(overrides);
+
+    for (const state of [normal, legacy]) {
+      expect(state.deck).not.toBe(overrides.deck);
+      expect(state.deck[0]).not.toBe(overrides.deck[0]);
+      expect(state.events).not.toBe(overrides.events);
+      expect(state.events[0]).not.toBe(overrides.events[0]);
+      expect(state.summary).not.toBe(overrides.summary);
+    }
   });
 
   it("rejects known groups whose total differs from the known count", () => {
@@ -138,6 +213,30 @@ describe("card tracking runtime validation", () => {
     expect(() => parsePublicTrackerState(truncated)).toThrow(/卡牌生命周期数据无效/);
   });
 
+  it("rejects history sequences that are not strictly decreasing", () => {
+    const ascending = createPublicTrackerState();
+    overwriteHistory(ascending, "friendly", "used", {
+      totalCount: 2,
+      truncated: false,
+      items: [
+        { id: "use-1", sequence: 1, entityId: "1", confidence: "confirmed" },
+        { id: "use-2", sequence: 2, entityId: "2", confidence: "confirmed" }
+      ]
+    });
+    expect(() => parsePublicTrackerState(ascending)).toThrow(/卡牌生命周期数据无效/);
+
+    const equal = createPublicTrackerState();
+    overwriteHistory(equal, "friendly", "used", {
+      totalCount: 2,
+      truncated: false,
+      items: [
+        { id: "use-2", sequence: 2, entityId: "2", confidence: "confirmed" },
+        { id: "use-1", sequence: 2, entityId: "1", confidence: "confirmed" }
+      ]
+    });
+    expect(() => parsePublicTrackerState(equal)).toThrow(/卡牌生命周期数据无效/);
+  });
+
   it("rejects secret counts derived from candidate cards instead of slots", () => {
     const state = createPublicTrackerState();
     overwriteZone(state, "opponent", "secret", {
@@ -164,6 +263,49 @@ describe("card tracking runtime validation", () => {
     }]);
 
     expect(() => parsePublicTrackerState(state)).toThrow(/卡牌生命周期数据无效/);
+  });
+
+  it("rejects actual outcome sections stored in base card details", () => {
+    const indexedDetails = createPublicTrackerState();
+    overwriteDetailsByCardKey(indexedDetails, {
+      CS2_029: createDetailsWithOutcomeSections()
+    });
+    expect(() => parsePublicTrackerState(indexedDetails)).toThrow(/卡牌生命周期数据无效/);
+
+    const secretDetails = createPublicTrackerState();
+    overwriteZone(secretDetails, "opponent", "secret", {
+      status: "partial",
+      knownCount: 0,
+      totalCount: 1,
+      cards: []
+    });
+    overwriteSecretSlots(secretDetails, [{
+      entityId: "slot-1",
+      candidates: [{
+        cardId: "EX1_287",
+        name: "法术反制",
+        status: "possible",
+        details: createDetailsWithOutcomeSections()
+      }]
+    }]);
+    expect(() => parsePublicTrackerState(secretDetails)).toThrow(/卡牌生命周期数据无效/);
+  });
+
+  it("accepts actual outcome sections on history items", () => {
+    const state = createPublicTrackerState();
+    overwriteHistory(state, "friendly", "used", {
+      totalCount: 1,
+      truncated: false,
+      items: [{
+        id: "use-1",
+        sequence: 1,
+        entityId: "1",
+        confidence: "confirmed",
+        outcomeSections: createDetailsWithOutcomeSections().cardOutcomeSections
+      }]
+    });
+
+    expect(parsePublicTrackerState(state)).toBe(state);
   });
 
   it("rejects outcome trees deeper than 16 levels", () => {

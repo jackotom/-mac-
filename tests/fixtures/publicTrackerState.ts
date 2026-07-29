@@ -4,6 +4,7 @@ import type {
   PublicPlayerCardTracking,
   PublicTrackerState
 } from "../../src/shared/types";
+import { parsePublicTrackerState } from "../../src/renderer/runtimeValidation";
 
 type TrackerStateOverrides = Omit<Partial<PublicTrackerState>, "cardTracking"> & {
   readonly cardTracking?: PublicCardTracking;
@@ -82,10 +83,10 @@ function createBaseTrackerState(): PublicTrackerState {
 export function createLegacyPublicTrackerState(
   overrides: Omit<Partial<PublicTrackerState>, "cardTracking"> = {}
 ): PublicTrackerState {
-  return {
+  return structuredClone({
     ...createBaseTrackerState(),
     ...overrides
-  };
+  });
 }
 
 export function createPublicTrackerState(): CompletePublicTrackerState;
@@ -100,11 +101,17 @@ export function createPublicTrackerState(
     throw new Error("cardTracking 不能显式设为 undefined");
   }
   const { cardTracking, ...rest } = overrides;
-  return {
+  const state = structuredClone({
     ...createBaseTrackerState(),
     ...rest,
     cardTracking: cardTracking === undefined
       ? createEmptyCardTracking("no-game")
-      : structuredClone(cardTracking)
-  };
+      : cardTracking
+  });
+  try {
+    return parsePublicTrackerState(state) as CompletePublicTrackerState;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`cardTracking 或状态覆盖无效：${reason}`);
+  }
 }
