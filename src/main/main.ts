@@ -266,7 +266,9 @@ const automaticOverlayController = new AutomaticOverlayController({
   },
   hideOverlayWindow: async () => {
     hideCardPreviewWindow();
-    await releaseOverlayWindow(overlayWindow);
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.hide();
+    }
   },
   isEnabled: () => isAutomaticTrackerEnabled("friendlyDeckTracker"),
   shouldHideWhenDisabled: () =>
@@ -284,7 +286,9 @@ const automaticOpponentOverlayController = new AutomaticOverlayController({
   showOverlayWindow: () => opponentOverlayWindowController.showInactive(),
   hideOverlayWindow: async () => {
     opponentOverlayRestoreCollapsed = opponentOverlayWindowState?.isCollapsed() ?? false;
-    await releaseOpponentOverlayWindow();
+    if (opponentOverlayWindow && !opponentOverlayWindow.isDestroyed()) {
+      opponentOverlayWindow.hide();
+    }
   },
   isEnabled: () => isAutomaticTrackerEnabled("opponentDeckTracker"),
   shouldHideWhenDisabled: () =>

@@ -5,10 +5,8 @@ import { describe, expect, it } from "vitest";
 const main = fs.readFileSync(path.resolve(import.meta.dirname, "../src/main/main.ts"), "utf8");
 
 describe("transient overlay window lifecycle", () => {
-  it("releases hidden renderer windows instead of keeping them resident", () => {
+  it("releases one-shot renderer windows instead of keeping them resident", () => {
     for (const name of [
-      "overlayWindow",
-      "opponentOverlayWindow",
       "boardAttackOverlayWindow",
       "ladderDeckOverlayWindow",
       "arenaChoiceOverlayWindow",
@@ -17,6 +15,23 @@ describe("transient overlay window lifecycle", () => {
       expect(main).not.toMatch(new RegExp(`${name}\\?*\\.hide\\(`));
     }
     expect(main.match(/releaseTransientWindow\(/g)?.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("only hides deck tracker windows on temporary Hearthstone focus loss", () => {
+    const friendlyHostStart = main.indexOf("const automaticOverlayController");
+    const opponentHostStart = main.indexOf("const automaticOpponentOverlayController");
+    const helperStart = main.indexOf("function isDeckTrackerEnabled");
+    const friendlyHost = main.slice(friendlyHostStart, opponentHostStart);
+    const opponentHost = main.slice(opponentHostStart, helperStart);
+
+    expect(friendlyHost).toMatch(
+      /hideOverlayWindow:\s*async \(\) => \{[\s\S]*?overlayWindow\.hide\(\)/
+    );
+    expect(friendlyHost).not.toContain("releaseOverlayWindow");
+    expect(opponentHost).toMatch(
+      /hideOverlayWindow:\s*async \(\) => \{[\s\S]*?opponentOverlayWindow\.hide\(\)/
+    );
+    expect(opponentHost).not.toContain("releaseOpponentOverlayWindow");
   });
 
   it("creates the arena choice renderer only when the overlay is visible", () => {
