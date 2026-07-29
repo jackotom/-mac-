@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
@@ -17,6 +18,7 @@ describe("card lifecycle Electron QA verification", () => {
 
   it("defines eight isolated, hard-asserted scenarios without user data or another browser", () => {
     const script = read("scripts/verify-card-lifecycle-ui.mjs");
+    const sources = `${script}\n${read("scripts/card-lifecycle-qa-environment.mjs")}`;
     for (const scenario of [
       "friendly-short",
       "friendly-tall",
@@ -29,32 +31,82 @@ describe("card lifecycle Electron QA verification", () => {
     ]) {
       expect(script).toContain(scenario);
     }
-    expect(script).toContain("mkdtemp");
-    expect(script).toContain("QA_USER_DATA_DIR");
-    expect(script).toContain("node_modules/.bin/electron");
-    expect(script).toContain("当前环境无法验证 100×900");
-    expect(script).toContain("workArea.height");
-    expect(script).toContain("actualScrollableSelectors");
-    expect(script).toContain("designatedScrollOwners");
-    expect(script).toContain("consoleErrorCount");
-    expect(script).toContain("outcomeRows");
-    expect(script).toContain("KeyboardEvent");
-    expect(script).not.toMatch(/\b(?:playwright|puppeteer|open|chrome|egolite)\b/i);
-    expect(script).not.toMatch(/(?:Library\/Logs\/Hearthstone|Documents\/text\/炉石传说|process\.env\.(?:HOME|USERPROFILE))/);
+    expect(sources).toContain("mkdtemp");
+    expect(sources).toContain("QA_USER_DATA_DIR");
+    expect(sources).toContain("node_modules/.bin/electron");
+    expect(sources).toContain("当前环境无法验证 100×900");
+    expect(sources).toContain("workArea.height");
+    expect(sources).toContain("actualScrollableSelectors");
+    expect(sources).toContain("designatedScrollOwners");
+    expect(sources).toContain("consoleErrorCount");
+    expect(sources).toContain("outcomeRows");
+    expect(sources).toContain("KeyboardEvent");
+    expect(sources).not.toMatch(/\b(?:playwright|puppeteer|open|chrome|egolite)\b/i);
+    expect(sources).not.toMatch(/(?:Library\/Logs\/Hearthstone|Documents\/text\/炉石传说|process\.env\.(?:HOME|USERPROFILE))/);
     expect(script).toContain('join(userData, "Power.log")');
-    expect(script).toContain('QA_LOCK_LOG_PATH: "1"');
+    expect(sources).toContain('QA_LOCK_LOG_PATH: "1"');
     expect(script).toMatch(
       /assert\.equal\(\s*inspection\.trackerState\?\.logPath,\s*isolatedPowerLog/
+    );
+    expect(script).toMatch(
+      /assert\.deepEqual\(\s*inspection\.inheritedNodeEnvironmentKeys,\s*\[\]/
     );
   });
 
   it("sanitizes inherited QA and development environment before every Electron launch", () => {
-    const script = read("scripts/verify-card-lifecycle-ui.mjs");
-    expect(script).toContain("/^QA_/");
-    expect(script).toContain("VITE_DEV_SERVER_URL");
-    expect(script).toContain("ELECTRON_RUN_AS_NODE");
-    expect(script).toContain("NODE_OPTIONS");
-    expect(script).not.toContain("...process.env,");
+    const sources = [
+      read("scripts/verify-card-lifecycle-ui.mjs"),
+      read("scripts/card-lifecycle-qa-environment.mjs")
+    ].join("\n");
+    expect(sources).toContain("/^QA_/");
+    expect(sources).toContain("/^NODE_/");
+    expect(sources).toContain("VITE_DEV_SERVER_URL");
+    expect(sources).toContain("ELECTRON_RUN_AS_NODE");
+    expect(sources).not.toContain("...process.env,");
+  });
+
+  it("drops every inherited NODE variable without restoring selected exceptions", async () => {
+    const moduleUrl = pathToFileURL(
+      join(root, "scripts/card-lifecycle-qa-environment.mjs")
+    ).href;
+    const environmentModule = await import(moduleUrl) as {
+      createNodeEnvironmentUnsetArguments: (
+        baseEnvironment: Record<string, string>
+      ) => string[];
+      createChildEnvironment: (
+        baseEnvironment: Record<string, string>,
+        extraEnvironment: Record<string, string>,
+        userData: string,
+        isolatedPowerLog: string,
+        inspectPath: string
+      ) => Record<string, string>;
+    };
+    const poisonedNodeEnvironment = {
+      PATH: "/safe/bin",
+      NODE_V8_COVERAGE: "/private/user-coverage",
+      NODE_EXTRA_CA_CERTS: "/private/user-ca.pem",
+      NODE_TLS_REJECT_UNAUTHORIZED: "0",
+      NODE_OPTIONS: "--require=/private/injected.cjs",
+      NODE_PATH: "/private/node_modules"
+    };
+    const childEnvironment = environmentModule.createChildEnvironment(
+      poisonedNodeEnvironment,
+      { QA_OPEN_OVERLAY: "1" },
+      "/tmp/isolated-user-data",
+      "/tmp/isolated-user-data/Power.log",
+      "/tmp/isolated-user-data/inspection.json"
+    );
+    expect(childEnvironment.PATH).toBe("/safe/bin");
+    expect(Object.keys(childEnvironment).filter((key) => /^NODE_/.test(key))).toEqual([]);
+    expect(
+      environmentModule.createNodeEnvironmentUnsetArguments(poisonedNodeEnvironment)
+    ).toEqual([
+      "-u", "NODE_EXTRA_CA_CERTS",
+      "-u", "NODE_OPTIONS",
+      "-u", "NODE_PATH",
+      "-u", "NODE_TLS_REJECT_UNAUTHORIZED",
+      "-u", "NODE_V8_COVERAGE"
+    ]);
   });
 
   it("owns and cleans only the detached Electron process group", () => {

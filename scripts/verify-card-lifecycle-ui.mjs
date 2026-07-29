@@ -4,6 +4,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  createChildEnvironment,
+  createNodeEnvironmentUnsetArguments
+} from "./card-lifecycle-qa-environment.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const electronPath = join(projectRoot, "node_modules/.bin/electron");
@@ -87,37 +91,6 @@ async function prepareUserData(name, bounds, opponent = false) {
   return { userData, isolatedPowerLog };
 }
 
-function createChildEnvironment(extraEnvironment, userData, isolatedPowerLog, inspectPath) {
-  const developmentEntryKeys = new Set([
-    "VITE_DEV_SERVER_URL",
-    "ELECTRON_RUN_AS_NODE",
-    "NODE_OPTIONS",
-    "NODE_PATH"
-  ]);
-  const cleanEnvironment = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) =>
-      !/^QA_/.test(key) &&
-      !/^VITE_/.test(key) &&
-      !developmentEntryKeys.has(key)
-    )
-  );
-  return {
-    ...cleanEnvironment,
-    ...extraEnvironment,
-    ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-    HEARTHSTONE_LOG_DIR: userData,
-    QA_ALLOW_MULTIPLE_INSTANCES: "1",
-    QA_SKIP_LOG_CONFIG_REPAIR: "1",
-    QA_SKIP_ARENA_SCREEN_RECOGNITION: "1",
-    QA_LOCK_LOG_PATH: "1",
-    QA_START_TRACKING: "0",
-    QA_USER_DATA_DIR: userData,
-    QA_LOG_PATH: isolatedPowerLog,
-    QA_INSPECT_PATH: inspectPath,
-    QA_EXIT_AFTER_SCREENSHOT: "1"
-  };
-}
-
 function isProcessGroupAlive(processGroupId) {
   try {
     process.kill(-processGroupId, 0);
@@ -161,9 +134,19 @@ async function terminateProcessGroup(processGroupId) {
 async function runElectronScenario(name, extraEnvironment = {}, bounds, opponent = false) {
   const { userData, isolatedPowerLog } = await prepareUserData(name, bounds, opponent);
   const inspectPath = join(userData, "inspection.json");
-  const child = spawn(electronPath, [projectRoot], {
+  const child = spawn("/usr/bin/env", [
+    ...createNodeEnvironmentUnsetArguments(process.env),
+    electronPath,
+    projectRoot
+  ], {
     cwd: projectRoot,
-    env: createChildEnvironment(extraEnvironment, userData, isolatedPowerLog, inspectPath),
+    env: createChildEnvironment(
+      process.env,
+      extraEnvironment,
+      userData,
+      isolatedPowerLog,
+      inspectPath
+    ),
     detached: true,
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -191,6 +174,11 @@ async function runElectronScenario(name, extraEnvironment = {}, bounds, opponent
       inspection.trackerState?.logPath,
       isolatedPowerLog,
       `${name}: 只能读取本场临时 Power.log`
+    );
+    assert.deepEqual(
+      inspection.inheritedNodeEnvironmentKeys,
+      [],
+      `${name}: Electron 不能继承任何 NODE_* 环境变量`
     );
     return inspection;
   } finally {

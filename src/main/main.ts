@@ -2564,6 +2564,9 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
       bounds,
       workArea: displayWorkArea,
       workAreas: screen.getAllDisplays().map((display) => roundBounds(display.workArea)),
+      inheritedNodeEnvironmentKeys: Object.keys(process.env)
+        .filter((key) => /^NODE_/.test(key))
+        .sort(),
       preview
     };
     const qaWindowLayout = getQaThreeWindowLayoutInspection();
