@@ -5,12 +5,18 @@ import { fileURLToPath } from "node:url";
 import { autoRepairLogConfigOnStartup, ensureLogConfig, inspectLogConfig } from "./logConfig.js";
 import { discoverLogCandidates } from "./logDiscovery.js";
 import { TrackerService } from "./trackerService.js";
-import { ArenaScreenRecognizer, ScreenCaptureError, cleanupStaleScreenCaptures } from "./arenaScreenRecognition.js";
+import {
+  ArenaScreenRecognizer,
+  ScreenCaptureError,
+  cleanupStaleScreenCaptures,
+  resolveArenaOcrHelperPath
+} from "./arenaScreenRecognition.js";
 import { CollectionDeckService } from "./collectionDeckService.js";
 import { CardDataService } from "./cardDataService.js";
 import { shouldShowArenaChoiceOverlay } from "./arenaChoiceOverlayVisibility.js";
 import { AutomaticOverlayController } from "./automaticOverlayController.js";
 import { getFrontmostAppName, isHearthstoneOrTrackerFrontmost } from "./frontmostApp.js";
+import { resolveFrontmostAppHelperPath } from "./frontmostApp.js";
 import { CardPreviewVisibilityGate } from "./cardPreviewVisibility.js";
 import {
   isQaOverlayCapture,
@@ -55,11 +61,16 @@ import { DiagnosticLogger } from "./diagnosticLogger.js";
 import { ArenaHeroStatsService } from "./arenaHeroStatsService.js";
 import { WindowBoundsPersistence } from "./windowBoundsPersistence.js";
 import { applyLaunchAtLoginSetting } from "./launchAtLogin.js";
+import {
+  formatStartupHealthFailures,
+  runStartupHealthCheck
+} from "./startupHealthCheck.js";
 import type { CardLibraryResult, CardPreviewRequest, CollectionDeck, CollectionDeckScanResult, PublicTrackerState, TrackerSettings } from "../shared/types.js";
 import type { LadderMode } from "../shared/ladderDeckRecommendation.js";
 
 if (process.env.QA_USER_DATA_DIR) {
   app.setPath("userData", process.env.QA_USER_DATA_DIR);
+  app.setPath("logs", path.join(process.env.QA_USER_DATA_DIR, "logs"));
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -390,15 +401,55 @@ if (hasSingleInstanceLock) {
         diagnosticLogger.warn("清理上次运行残留截图失败", error);
       }
     }
-    await autoRepairLogConfigOnStartup({
-      environment: process.env,
-      onError: (error) => reportDiagnosticError("启动时修复 Hearthstone log.config 失败", error)
+    const healthCheck = await runStartupHealthCheck({
+      userDataDirectory: app.getPath("userData"),
+      repairSettings: () => trackerSettingsStore.repairOnStartup(),
+      repairLogConfig: () => autoRepairLogConfigOnStartup({
+        environment: process.env
+      }),
+      requiredResources: [
+        {
+          name: "主界面文件",
+          path: path.join(__dirname, "../../dist/index.html")
+        },
+        {
+          name: "安全桥接文件",
+          path: path.join(__dirname, "preload.cjs")
+        },
+        {
+          name: "竞技场识别组件",
+          path: resolveArenaOcrHelperPath(),
+          executable: true
+        },
+        {
+          name: "前台检测组件",
+          path: resolveFrontmostAppHelperPath(),
+          executable: true
+        }
+      ]
     });
-    try {
-      trackerSettings = await trackerSettingsStore.read();
-    } catch (error) {
-      reportDiagnosticError("读取记牌器设置失败，将使用默认设置。", error);
-      trackerSettings = DEFAULT_TRACKER_SETTINGS;
+    if (healthCheck.status === "blocked") {
+      diagnosticLogger.error("启动自动检修未通过", healthCheck.failures);
+      if (process.env.QA_USER_DATA_DIR) {
+        console.error(formatStartupHealthFailures(healthCheck.failures));
+        app.exit(1);
+        return;
+      }
+      await dialog.showMessageBox({
+        type: "error",
+        title: "炉石记牌器无法启动",
+        message: "启动检修未通过",
+        detail: formatStartupHealthFailures(healthCheck.failures),
+        buttons: ["退出软件"],
+        defaultId: 0,
+        noLink: true
+      });
+      app.quit();
+      return;
+    }
+    trackerSettings = healthCheck.settings;
+    if (healthCheck.repairs.length > 0) {
+      diagnosticLogger.info("启动自动检修已修复问题", healthCheck.repairs);
     }
     registerIpc();
     registerAppActivateHandler();
@@ -456,6 +507,26 @@ if (hasSingleInstanceLock) {
       if (trackerSettings.overlay.enabled) ladderDeckOverlayController.start();
       if (trackerSettings.overlay.enabled && trackerSettings.overlay.arenaHeroWinRateRanking) startArenaHeroRankingMonitor();
     }
+  }).catch(async (error) => {
+    const reason = error instanceof Error && error.message
+      ? error.message
+      : String(error);
+    diagnosticLogger.error("启动过程发生无法自动修复的问题", error);
+    if (process.env.QA_USER_DATA_DIR) {
+      console.error(reason);
+      app.exit(1);
+      return;
+    }
+    await dialog.showMessageBox({
+      type: "error",
+      title: "炉石记牌器无法启动",
+      message: "启动过程发生无法自动修复的问题",
+      detail: `${reason}\n\n请重新安装最新版炉石记牌器；若仍失败，请保留错误信息后联系维护者。`,
+      buttons: ["退出软件"],
+      defaultId: 0,
+      noLink: true
+    });
+    app.quit();
   });
 }
 

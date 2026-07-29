@@ -80,6 +80,24 @@ describe("TrackerSettingsStore", () => {
     await expect(new TrackerSettingsStore(userDataDirectory).read()).resolves.toEqual(DEFAULT_TRACKER_SETTINGS);
   });
 
+  it.each([
+    ["corrupt JSON", "{not-json"],
+    ["invalid shape", JSON.stringify({ ladder: { friendlyDeckTracker: "yes" } })]
+  ])("backs up and repairs %s during startup health checking", async (_label, content) => {
+    const userDataDirectory = await createUserDataDirectory();
+    const filePath = path.join(userDataDirectory, "tracker-settings.json");
+    await writeFile(filePath, content, "utf8");
+
+    const result = await new TrackerSettingsStore(userDataDirectory).repairOnStartup();
+
+    expect(result.status).toBe("repaired");
+    if (result.status !== "repaired") throw new Error("expected repaired result");
+    expect(result.backupPath).toMatch(/tracker-settings\.json\.bak-/);
+    await expect(readFile(result.backupPath!, "utf8")).resolves.toBe(content);
+    await expect(readFile(filePath, "utf8").then(JSON.parse)).resolves.toEqual(DEFAULT_TRACKER_SETTINGS);
+    expect(result.settings).toEqual(DEFAULT_TRACKER_SETTINGS);
+  });
+
   it("normalizes legacy mode-specific switches into global settings", async () => {
     const userDataDirectory = await createUserDataDirectory();
     const store = new TrackerSettingsStore(userDataDirectory);

@@ -14,6 +14,7 @@ This layer only reads Hearthstone log files from disk. It does not read process 
 - `src/main/arenaHeroStatsService.ts`: aggregates Firestone's public Arena class overview into a hero win-rate ranking, keeps a 12-hour atomic local cache, and returns stale data with a warning when refresh fails.
 - `src/main/arenaScreenRecognition.ts`: invokes the bundled macOS visual recognizer for Arena candidate fallback and constructed deck-select text recognition.
 - `src/main/frontmostApp.ts`: reads the bundled macOS frontmost-app helper and gates Arena visual recognition/choice overlay visibility to Hearthstone.
+- `src/main/startupHealthCheck.ts`: runs the pre-window startup inspection, verifies writable application data storage and required packaged files, coordinates safe settings/log-config repair, and returns one ready-or-blocked result for the main process.
 - `src/main/opponentSecretOverlayVisibility.ts`: detects increases in independent opponent-secret slot count so the opponent overlay is shown once without taking focus.
 - `src/main/boardAttackOverlay.ts`: owns the confirmed HDT attack-icon placement ratios and the active-game/frontmost-app visibility rule.
 - `src/main/opponentOverlayWindowState.ts`: preserves expanded opponent-window bounds while switching to and from the compact folded entry.
@@ -25,6 +26,7 @@ This layer only reads Hearthstone log files from disk. It does not read process 
 - `src/main/trackerService.ts`: Electron-facing watcher service that tails the chosen log file.
 - `src/main/matchHistoryStore.ts`: validates and atomically stores at most 100 confirmed local match results under Electron `userData`.
 - `src/main/main.ts` and `src/main/preload.ts`: IPC boundary for renderer calls.
+- `src/main/trackerSettingsStore.ts`: validates settings, migrates older formats, and during startup health checking preserves an invalid file as a timestamped backup before atomically restoring safe defaults.
 - `src/shared/deck.ts`: UI-facing deck parser used by the current tracker engine; it supports manual lists and deck strings when a card database is available.
 - `src/shared/deckImport.ts`: parses manual deck lists and preserves Hearthstone deck strings as raw text.
 - `src/shared/deckstring.ts`: wraps the existing `deckstrings` package and maps decoded dbfIds through the local card database.

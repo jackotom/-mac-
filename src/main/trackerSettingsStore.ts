@@ -91,6 +91,50 @@ export class TrackerSettingsStore {
     }
   }
 
+  async repairOnStartup(): Promise<
+    | { readonly status: "unchanged" | "migrated"; readonly settings: TrackerSettings }
+    | { readonly status: "repaired"; readonly settings: TrackerSettings; readonly backupPath: string }
+  > {
+    let content: string;
+    try {
+      content = await fs.readFile(this.filePath, "utf8");
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return {
+          status: "unchanged",
+          settings: cloneSettings(DEFAULT_TRACKER_SETTINGS)
+        };
+      }
+      throw error;
+    }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(content) as unknown;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      return this.backupAndReplaceInvalidSettings(content);
+    }
+
+    const current = parseTrackerSettings(value);
+    if (current) {
+      const normalized = normalizeGlobalTrackerSwitches(current);
+      if (!trackerSwitchesMatch(current)) {
+        await this.write(normalized);
+        return { status: "migrated", settings: cloneSettings(normalized) };
+      }
+      return { status: "unchanged", settings: cloneSettings(normalized) };
+    }
+
+    const migrated = migratePreviousTrackerSettings(value) ?? migrateLegacyTrackerSettings(value);
+    if (migrated) {
+      await this.write(migrated);
+      return { status: "migrated", settings: cloneSettings(migrated) };
+    }
+
+    return this.backupAndReplaceInvalidSettings(content);
+  }
+
   async replace(value: unknown): Promise<TrackerSettings> {
     const settings = parseTrackerSettings(value);
     if (!settings) throw new Error("设置数据无效");
@@ -115,6 +159,18 @@ export class TrackerSettingsStore {
     });
     this.writeQueue = operation.catch(() => undefined);
     return operation;
+  }
+
+  private async backupAndReplaceInvalidSettings(content: string) {
+    const backupPath = `${this.filePath}.bak-${timestampForPath()}-${process.pid}`;
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    await fs.writeFile(backupPath, content, { encoding: "utf8", flag: "wx" });
+    await this.write(DEFAULT_TRACKER_SETTINGS);
+    return {
+      status: "repaired" as const,
+      settings: cloneSettings(DEFAULT_TRACKER_SETTINGS),
+      backupPath
+    };
   }
 }
 
@@ -312,4 +368,8 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
 
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function timestampForPath() {
+  return new Date().toISOString().replace(/[-:.TZ]/g, "");
 }
