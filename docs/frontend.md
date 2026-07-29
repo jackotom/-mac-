@@ -48,7 +48,7 @@ React 渲染层在 `src/renderer/`。桌面版启动时通过 Electron preload �
 
 ## 置顶小窗
 
-`OverlayPanel` 已接入 `?overlay=1` 小窗入口。牌库、手牌、其他和对手卡牌行使用不含列表序号的稳定身份，实时移除前序卡牌时不能重建仍在悬停的后续卡牌。入口先调用：
+`OverlayPanel` 已接入 `?overlay=1` 小窗入口。牌库、手牌、场上、奥秘、墓地、移除、疑似烧毁和已使用卡牌行使用不含列表序号的稳定身份，实时移除前序卡牌时不能重建仍在悬停的后续卡牌。入口先调用：
 
 ```ts
 const overlayView = toOverlayPanelViewModel(publicTrackerState);
@@ -130,3 +130,12 @@ const overlayView = toOverlayPanelViewModel(publicTrackerState);
 `HomeDashboard` 保留原有属性、条件分支、按钮文字和无障碍名称，只增加首页专用的结构钩子。酒馆木桌纹理、锻铜边框、符文微光、按钮反馈、浅色主题、窄屏与减少动态效果规则集中在 `homeNewsStyles.css`，并通过 `.view-home` 和 `.home-tavern-*` 限定作用范围。
 
 原创底图位于 `src/renderer/assets/tavern-dashboard-frame-v1.png`，只提供木纹、金属框和光影氛围，不包含文字、品牌、人物或游戏卡背。首页真实数据仍由 `toDashboardViewModel()` 映射，导航、进入实时对局、复制牌组代码等行为未改变。
+
+## v0.2.9 生命周期视图
+
+- renderer 只从必填 `cardTracking` 生成当前位置和历史，不再从旧“其他”或对手摘要字段猜区域。
+- 我方窗口默认 `100×900`，允许缩到 `100×200`；对手窗口默认 `250×170`。外壳不滚动，唯一列表滚动宿主是主内容。
+- 当前位置包含牌库、手牌、场上、奥秘、墓地、移除；历史包含疑似烧毁、已使用。短窗每页只展开一个组，长窗保留用户选择。
+- 卡牌详情只有 summary 和 interactive 两种模式。普通悬浮不加载理论池；固定详情的理论池默认折叠、每次展开 12 张；本次实际结果始终完整显示。
+- 古神实际结果从对应历史项的 `usageId` 合并，理论候选池只在基础详情字典保存一份。
+- 自动奥秘窗口只通过无焦点路径显示；用户主动打开仍可聚焦。

@@ -15,7 +15,8 @@ This layer only reads Hearthstone log files from disk. It does not read process 
 - `src/main/arenaScreenRecognition.ts`: invokes the bundled macOS visual recognizer for Arena candidate fallback and constructed deck-select text recognition.
 - `src/main/frontmostApp.ts`: reads the bundled macOS frontmost-app helper and gates Arena visual recognition/choice overlay visibility to Hearthstone.
 - `src/main/startupHealthCheck.ts`: runs the pre-window startup inspection, verifies writable application data storage and required packaged files, coordinates safe settings/log-config repair, and returns one ready-or-blocked result for the main process.
-- `src/main/opponentSecretOverlayVisibility.ts`: detects increases in independent opponent-secret slot count so the opponent overlay is shown once without taking focus.
+- `src/main/opponentSecretOverlayVisibility.ts`: detects increases in independent opponent-secret slot count.
+- `src/main/opponentSecretOverlayPresenter.ts`: presents an automatically triggered opponent-secret window through `showInactive()` only, after validating settings, generation, and window identity; the automatic path has no focus capability.
 - `src/main/boardAttackOverlay.ts`: owns the confirmed HDT attack-icon placement ratios and the active-game/frontmost-app visibility rule.
 - `src/main/opponentOverlayWindowState.ts`: preserves expanded opponent-window bounds while switching to and from the compact folded entry.
 - `src/main/hearthstoneInstallation.ts`: reads the local Hearthstone app version and cross-checks Battle.net product records before publishing a verified CN patch.
@@ -173,7 +174,7 @@ At the start of a current-format Arena draft, repeated legendary `Client chooses
 
 Cold-start freshness still uses the observable Arena/Decks file times. A manually touched old Decks file can therefore defeat that conservative guard; the implementation does not impose a candidate-subset rule because Underground mode legitimately allows the final deck to remove replacement candidates during re-editing.
 
-The main overlay bounds are stored as `overlay-window-bounds.json` under Electron `userData`. Saved bounds are validated against current display work areas before window creation; invalid data falls back to `100x900`, undersized bounds are repaired to `100x900`, and off-screen coordinates are clamped back into a visible display. Displays shorter than `900px` use their available work-area height instead.
+The main overlay bounds are stored as `overlay-window-bounds.json` under Electron `userData`. Saved bounds are validated against current display work areas before window creation; the default remains `100x900`, the supported minimum is `100x200`, and off-screen coordinates are clamped back into a visible display. Existing valid heights are preserved. Displays shorter than `900px` use their available work-area height instead.
 
 The main process captures the largest available Hearthstone window and fails closed when no such window exists, then applies the same strict local-database validation. Screen capture belongs to the signed main application, while `arena-ocr` only performs local text recognition and never requests permission itself. A denied permission opens System Settings at most once per run; transient capture failures only retry and do not produce a false permission prompt.
 
@@ -256,3 +257,15 @@ Automatic foreground and tracker-context controllers own friendly and opponent o
 Friendly-close suppression is scoped to the current automatically detected deck/mode context. The opponent close control folds the window to `52×38`; secret updates and automatic foreground recovery may show that entry inactive, but never call expand. Only the folded entry or main-window opponent control expands it. Closing the Arena hero ranking suppresses it for the current Arena session, while leaving Arena clears that suppression.
 
 First-run placement is left-two/right-one: the Arena hero ranking is at the left edge, the opponent tracker is 24 pixels to its right, and the friendly tracker is at the right edge. A legacy opponent tracker saved flush against a display's left edge is migrated once beside the new hero ranking to avoid overlap. Friendly, opponent, and Arena hero windows persist bounds independently. Overlay position and offset settings anchor only the friendly tracker. Bounds restoration validates against every connected display, preserves a valid secondary-display placement instead of relocating to the cursor display, and clamps only off-screen or removed-display coordinates into a current work area. Opponent move/resize interaction has a grace period, and pending bounds writes are flushed before explicit close, automatic hide, or application quit.
+
+## Card lifecycle state
+
+`TrackerEngine` owns the only mutable per-game card lifecycle records. Physical zones and action histories are published separately through required `cardTracking` state:
+
+- current deck, hand, play, secret, graveyard, and removed zones come from current entities and deck rows;
+- used and suspected-burn histories come only from logged actions, never by reinterpreting graveyard contents;
+- a burn is inferred only from a deck-to-graveyard transition while ten countable cards occupy the friendly hand;
+- random-spell captures bind to a concrete `usageId`; completed captures are deduplicated by usage, source, and ordered outcome-tree content;
+- opponent secret slot count is independent from the number of candidates in each slot.
+
+Legacy shared fields remain for one compatibility version, but renderer state is validated with required `cardTracking` and no longer falls back to those fields.
