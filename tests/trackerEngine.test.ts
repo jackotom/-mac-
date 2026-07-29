@@ -550,6 +550,66 @@ D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=�
     ]);
   });
 
+  it("keeps mismatched cross-source captures with different outcome content", () => {
+    const engine = createOutcomeBindingEngine();
+    engine.applyText([
+      "D 09:10:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      ...renderRandomSpellCapture({
+        source: "GameState",
+        time: "09:10:01",
+        sourceEntityId: 60,
+        resultEntityStart: 201,
+        resultCardIds: ["SPELL_1"],
+        controller: 1
+      }),
+      ...renderRandomSpellCapture({
+        source: "PowerTaskList",
+        time: "09:10:01",
+        sourceEntityId: 60,
+        resultEntityStart: 202,
+        resultCardIds: ["SPELL_2"],
+        controller: 1
+      })
+    ].join("\n"));
+
+    const used = engine.getState().cardTracking!.friendly.used;
+    expect(used.totalCount).toBe(1);
+    expect(used.items[0]?.outcomeSections?.[0]?.cards.map((node) => node.card.cardId))
+      .toEqual(["SPELL_1", "SPELL_2"]);
+  });
+
+  it("does not deduplicate a returned entity's second usage against its first usage", () => {
+    const engine = createOutcomeBindingEngine();
+    engine.applyText([
+      "D 09:20:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      ...renderRandomSpellCapture({
+        source: "GameState",
+        time: "09:20:01",
+        sourceEntityId: 60,
+        resultEntityStart: 211,
+        resultCardIds: ["SPELL_1"],
+        controller: 1
+      }),
+      "D 09:20:01.950 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=PLAY",
+      "D 09:20:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1] tag=ZONE value=HAND",
+      ...renderRandomSpellCapture({
+        source: "PowerTaskList",
+        time: "09:20:01",
+        sourceEntityId: 60,
+        resultEntityStart: 212,
+        resultCardIds: ["SPELL_1"],
+        controller: 1
+      })
+    ].join("\n"));
+
+    const used = engine.getState().cardTracking!.friendly.used;
+    expect(used.totalCount).toBe(2);
+    expect(new Set(used.items.map((item) => item.id)).size).toBe(2);
+    expect(used.items.map((item) =>
+      item.outcomeSections?.[0]?.cards.map((node) => node.card.cardId)
+    )).toEqual([["SPELL_1"], ["SPELL_1"]]);
+  });
+
   it("keeps returned and same-name Yogg uses bound to their own usageIds", () => {
     const engine = createOutcomeBindingEngine();
     engine.applyText([

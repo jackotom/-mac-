@@ -54,6 +54,11 @@ interface FriendlyObservation {
 
 type CardOutcomeSide = "friendly" | "opponent";
 
+interface CardOutcomeLogSource {
+  readonly counterKey: string;
+  readonly dedupGroup: string;
+}
+
 interface RecordedCardOutcomeNode {
   readonly key: string;
   readonly entityId?: string;
@@ -77,6 +82,8 @@ interface CardOutcomeBlockFrame {
   readonly blockType?: string;
   readonly entityId?: string;
   readonly parent?: CardOutcomeBlockFrame;
+  readonly rootSemanticKey: string;
+  readonly rootLogSource: CardOutcomeLogSource;
   readonly parentCards?: RecordedCardOutcomeNode[];
   readonly parentSourceEntityId?: string;
   readonly parentAcceptsFullEntityOutcomes?: boolean;
@@ -190,8 +197,9 @@ export class TrackerEngine {
   private recordedDeathEntityIds = new Set<string>();
   private cardOutcomeBlockStack: CardOutcomeBlockFrame[] = [];
   private outcomesByUsageId = new Map<string, CompletedCardOutcome[]>();
-  private completedCardOutcomeKeys = new Set<string>();
-  private cardOutcomeRootOccurrencesBySource = new Map<string, number>();
+  private completedCardOutcomeDedupKeys = new Set<string>();
+  private cardOutcomeOccurrencesBySource = new Map<string, number>();
+  private cardOutcomeFrameSequence = 0;
   private lastBlockBoundaryFingerprint: string | undefined;
   private pendingKnownEntityReturn: EntitySnapshot | undefined;
   private pendingKnownEntityReturnCandidateIds = new Set<string>();
@@ -1992,8 +2000,9 @@ export class TrackerEngine {
     this.pendingUnknownDeckExitZones.clear();
     this.cardOutcomeBlockStack = [];
     this.outcomesByUsageId.clear();
-    this.completedCardOutcomeKeys.clear();
-    this.cardOutcomeRootOccurrencesBySource.clear();
+    this.completedCardOutcomeDedupKeys.clear();
+    this.cardOutcomeOccurrencesBySource.clear();
+    this.cardOutcomeFrameSequence = 0;
     this.lastBlockBoundaryFingerprint = undefined;
   }
 
@@ -2048,27 +2057,33 @@ export class TrackerEngine {
     if (event.phase === "end") {
       const frame = this.cardOutcomeBlockStack.pop();
       if (frame?.capture && !frame.suppressed) {
-        this.completeCardOutcome(frame.capture, frame.usageId);
+        this.completeCardOutcome(
+          frame.capture,
+          frame.usageId,
+          frame.rootSemanticKey,
+          frame.rootLogSource
+        );
       }
       return;
     }
 
     const parent = this.cardOutcomeBlockStack.at(-1);
     const boundaryKey = `${event.blockType ?? "UNKNOWN"}:${event.entity?.id ?? "unknown"}:${fingerprint}`;
-    const frameKey = parent
-      ? boundaryKey
-      : this.createCardOutcomeRootKey(boundaryKey, event.raw);
+    this.cardOutcomeFrameSequence += 1;
+    const frameKey = `${boundaryKey}:frame:${this.cardOutcomeFrameSequence}`;
     const frame: CardOutcomeBlockFrame = {
       key: frameKey,
       blockType: event.blockType,
       entityId: event.entity?.id,
       parent,
+      rootSemanticKey: parent?.rootSemanticKey ?? boundaryKey,
+      rootLogSource: parent?.rootLogSource ?? cardOutcomeLogSource(event.raw),
       parentCards: parent?.cards,
       parentSourceEntityId: parent?.sourceEntityId,
       parentAcceptsFullEntityOutcomes: parent?.acceptsFullEntityOutcomes,
       side: this.cardOutcomeSide(event.entity?.controller) ?? parent?.side,
       usageId: parent?.usageId,
-      suppressed: parent?.suppressed || (!parent && this.completedCardOutcomeKeys.has(frameKey))
+      suppressed: parent?.suppressed
     };
     this.cardOutcomeBlockStack.push(frame);
     if (!frame.suppressed) {
@@ -2078,14 +2093,6 @@ export class TrackerEngine {
         this.configureCardOutcomeFrame(frame, entity);
       }
     }
-  }
-
-  private createCardOutcomeRootKey(boundaryKey: string, raw: string) {
-    const source = cardOutcomeLogSource(raw);
-    const sourceOccurrenceKey = `${source.counterKey}:${boundaryKey}`;
-    const occurrence = (this.cardOutcomeRootOccurrencesBySource.get(sourceOccurrenceKey) ?? 0) + 1;
-    this.cardOutcomeRootOccurrencesBySource.set(sourceOccurrenceKey, occurrence);
-    return `${source.dedupGroup}:${boundaryKey}:occurrence:${occurrence}`;
   }
 
   private resolveCurrentCardOutcomeFrame(entity: EntitySnapshot) {
@@ -2168,11 +2175,28 @@ export class TrackerEngine {
     });
   }
 
-  private completeCardOutcome(outcome: RecordedCardOutcome, usageId: string | undefined) {
-    if (!usageId || (!outcome.keepWhenEmpty && outcome.cards.length === 0) || this.completedCardOutcomeKeys.has(outcome.key)) {
+  private completeCardOutcome(
+    outcome: RecordedCardOutcome,
+    usageId: string | undefined,
+    rootSemanticKey: string,
+    logSource: CardOutcomeLogSource
+  ) {
+    if (!usageId || (!outcome.keepWhenEmpty && outcome.cards.length === 0)) {
       return;
     }
-    this.completedCardOutcomeKeys.add(outcome.key);
+    const captureFingerprint = [
+      usageId,
+      rootSemanticKey,
+      cardOutcomeContentFingerprint(outcome)
+    ].join(":");
+    const sourceOccurrenceKey = `${logSource.counterKey}:${captureFingerprint}`;
+    const occurrence = (this.cardOutcomeOccurrencesBySource.get(sourceOccurrenceKey) ?? 0) + 1;
+    this.cardOutcomeOccurrencesBySource.set(sourceOccurrenceKey, occurrence);
+    const dedupKey = `${logSource.dedupGroup}:${captureFingerprint}:occurrence:${occurrence}`;
+    if (this.completedCardOutcomeDedupKeys.has(dedupKey)) {
+      return;
+    }
+    this.completedCardOutcomeDedupKeys.add(dedupKey);
     this.cardOutcomeCompletionSequence += 1;
     const records = this.outcomesByUsageId.get(usageId) ?? [];
     records.push({
@@ -2322,7 +2346,7 @@ function blockBoundaryFingerprint(event: Extract<ParsedLogEvent, { type: "block-
   return `${event.phase}:${timestamp}:${boundary}`;
 }
 
-function cardOutcomeLogSource(raw: string) {
+function cardOutcomeLogSource(raw: string): CardOutcomeLogSource {
   const source = raw.match(/\b(GameState|PowerTaskList)\.DebugPrintPower\(\)/)?.[1];
   if (source) {
     return {
@@ -2335,6 +2359,24 @@ function cardOutcomeLogSource(raw: string) {
     counterKey: fallback,
     dedupGroup: `source:${fallback}`
   };
+}
+
+function cardOutcomeContentFingerprint(outcome: RecordedCardOutcome) {
+  const cardIdentity = (card: CardInfo) => {
+    const cardId = card.cardId ?? card.id;
+    return cardId
+      ? `id:${normalizeCardId(cardId)}`
+      : `name:${normalizeCardKey(card.name)}`;
+  };
+  const serializeNode = (node: RecordedCardOutcomeNode): unknown => [
+    cardIdentity(node.card),
+    node.children.map(serializeNode)
+  ];
+  return JSON.stringify([
+    cardIdentity(outcome.source),
+    outcome.keepWhenEmpty,
+    outcome.cards.map(serializeNode)
+  ]);
 }
 
 function scoreCollectionDeck(deck: CollectionDeck, observations: readonly FriendlyObservation[]): number {
