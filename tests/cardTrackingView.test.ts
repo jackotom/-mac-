@@ -158,6 +158,116 @@ describe("card tracking renderer mapping", () => {
     expect(value.detailsByCardKey["id:toy_372"]).not.toHaveProperty("cardOutcomeSections");
   });
 
+  describe("history detail combinations", () => {
+    it("keeps base details and adds this usage's outcomes when both exist", () => {
+      const value = tracking();
+      setTrackingField(value, "detailsByCardKey", {
+        "id:with_base": baseDetails("有基础牌")
+      });
+      setHistory(value, "friendly", "used", {
+        totalCount: 1,
+        truncated: false,
+        items: [{
+          id: "use-1",
+          sequence: 1,
+          entityId: "1",
+          card: { cardKey: "id:with_base", cardId: "WITH_BASE", name: "有基础牌" },
+          confidence: "confirmed",
+          outcomeSections: actualOutcome("实际结果", 11)
+        }]
+      });
+
+      const details = toCardTrackingView(value, "friendly", {
+        showSecretCandidates: true
+      }).used.items[0]?.details;
+
+      expect(details?.cardPoolSections?.[0]?.cards[0]?.name).toBe("理论法术");
+      expect(details?.cardOutcomeSections?.[0]?.cards[0]?.card.name).toBe("实际结果");
+    });
+
+    it("keeps base details unchanged when outcomes are absent", () => {
+      const value = tracking();
+      const base = baseDetails("只有基础牌");
+      setTrackingField(value, "detailsByCardKey", {
+        "id:base_only": base
+      });
+      setHistory(value, "friendly", "used", {
+        totalCount: 1,
+        truncated: false,
+        items: [{
+          id: "use-1",
+          sequence: 1,
+          entityId: "1",
+          card: { cardKey: "id:base_only", cardId: "BASE_ONLY", name: "只有基础牌" },
+          confidence: "confirmed"
+        }]
+      });
+
+      const details = toCardTrackingView(value, "friendly", {
+        showSecretCandidates: true
+      }).used.items[0]?.details;
+
+      expect(details).toBe(base);
+      expect(details).not.toHaveProperty("cardOutcomeSections");
+    });
+
+    it("creates renderable minimal details from the recorded identity when only outcomes exist", () => {
+      const value = tracking();
+      setHistory(value, "friendly", "used", {
+        totalCount: 1,
+        truncated: false,
+        items: [{
+          id: "use-1",
+          sequence: 1,
+          entityId: "1",
+          card: {
+            cardKey: "id:outcome_only",
+            cardId: "OUTCOME_ONLY",
+            name: "日志记录真名"
+          },
+          confidence: "confirmed",
+          outcomeSections: actualOutcome("仅有实际结果", 12)
+        }]
+      });
+
+      const details = toCardTrackingView(value, "friendly", {
+        showSecretCandidates: true
+      }).used.items[0]?.details;
+
+      expect(details).toMatchObject({
+        name: "日志记录真名",
+        cardId: "OUTCOME_ONLY",
+        relatedCards: [],
+        cardOutcomeSections: actualOutcome("仅有实际结果", 12)
+      });
+      expect(details).not.toHaveProperty("cardPoolSections");
+      expect(details?.name).not.toBe("未公开");
+    });
+
+    it("keeps details absent when neither base details nor outcomes exist", () => {
+      const value = tracking();
+      setHistory(value, "friendly", "used", {
+        totalCount: 1,
+        truncated: false,
+        items: [{
+          id: "use-1",
+          sequence: 1,
+          entityId: "1",
+          card: {
+            cardKey: "id:no_details",
+            cardId: "NO_DETAILS",
+            name: "只有记录名称"
+          },
+          confidence: "confirmed"
+        }]
+      });
+
+      expect(toCardTrackingView(value, "friendly", {
+        showSecretCandidates: true
+      }).used.items[0]?.details).toBeUndefined();
+    });
+  });
+
   it("formats unknown, partial, secret, and truncated counts without using candidate totals", () => {
     const value = tracking();
     setZone(value, "opponent", "deck", {

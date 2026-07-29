@@ -103,7 +103,7 @@ function toHistoryItem(
   const baseDetails = item.card
     ? tracking.detailsByCardKey[item.card.cardKey]
     : undefined;
-  const details = mergeHistoryDetails(baseDetails, item.outcomeSections);
+  const details = mergeHistoryDetails(baseDetails, item.outcomeSections, item.card);
 
   return {
     id: item.id,
@@ -117,10 +117,21 @@ function toHistoryItem(
 
 function mergeHistoryDetails(
   baseDetails: CardDetails | undefined,
-  outcomeSections: PublicCardHistoryItem["outcomeSections"]
+  outcomeSections: PublicCardHistoryItem["outcomeSections"],
+  card: PublicCardHistoryItem["card"]
 ): CardDetails | undefined {
   if (!baseDetails) {
-    return undefined;
+    if (outcomeSections === undefined || card === undefined) {
+      return undefined;
+    }
+    return {
+      dbfId: dbfIdFromCardKey(card.cardKey),
+      name: card.name,
+      cardId: card.cardId,
+      isSpell: false,
+      relatedCards: [],
+      cardOutcomeSections: outcomeSections
+    };
   }
   if (outcomeSections === undefined) {
     return baseDetails;
@@ -129,6 +140,11 @@ function mergeHistoryDetails(
     ...baseDetails,
     cardOutcomeSections: outcomeSections
   };
+}
+
+function dbfIdFromCardKey(cardKey: string): number {
+  const match = /^dbf:(\d+)$/iu.exec(cardKey);
+  return match ? Number(match[1]) : 0;
 }
 
 function toSecretSlots(
