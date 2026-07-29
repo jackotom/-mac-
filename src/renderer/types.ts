@@ -5,7 +5,10 @@ import type {
   CardPreviewRequest,
   CollectionDeckScanResult,
   LogCandidate,
+  PublicCardZone,
   PublicLogConfigStatus,
+  PublicTrackingConfidence,
+  PublicTrackingStatus,
   PublicTrackerState,
   TrackerSettings
 } from "../shared/types";
@@ -132,6 +135,50 @@ export interface OverlayCardItem {
   unresolved?: true;
 }
 
+export interface OverlayHistoryItem {
+  readonly id: string;
+  readonly sequence: number;
+  readonly displayName?: string;
+  readonly hidden: boolean;
+  readonly confidence: PublicTrackingConfidence;
+  readonly details?: CardDetails;
+}
+
+export interface OverlayCardZoneView {
+  readonly key: PublicCardZone;
+  readonly status: PublicTrackingStatus;
+  readonly knownCount: number;
+  readonly totalCount?: number;
+  readonly countLabel: string;
+  readonly cards: readonly OverlayCardItem[];
+}
+
+export interface OverlayCardHistoryView {
+  readonly key: "burned" | "used";
+  readonly totalCount: number;
+  readonly countLabel: string;
+  readonly truncated: boolean;
+  readonly items: readonly OverlayHistoryItem[];
+}
+
+export interface OverlayCardTrackingView {
+  readonly status: "ready";
+  readonly gameKey: string;
+  readonly side: "friendly" | "opponent";
+  readonly current: Readonly<Record<PublicCardZone, OverlayCardZoneView>>;
+  readonly burned: OverlayCardHistoryView;
+  readonly used: OverlayCardHistoryView;
+  readonly secretSlots: readonly OverlaySecretSlot[];
+}
+
+export interface OverlayCardTrackingUnavailableView {
+  readonly status: "unready";
+  readonly side: "friendly" | "opponent";
+  readonly message: "生命周期数据未就绪";
+}
+
+export type OverlayCardTrackingState = OverlayCardTrackingView | OverlayCardTrackingUnavailableView;
+
 export interface OverlayStatusView {
   tone: OverlayStatusTone;
   label: string;
@@ -204,6 +251,7 @@ export interface OverlayPublicMatchCounters {
 }
 
 export interface OverlayPanelViewModel {
+  cardTracking?: OverlayCardTrackingState;
   summary: OverlayDeckSummary;
   deckIdentity: OverlayDeckIdentity;
   remainingDeck: OverlayCardItem[];

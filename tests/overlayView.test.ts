@@ -1,8 +1,55 @@
 import { describe, expect, it } from "vitest";
 import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
 import type { PublicTrackerState } from "../src/shared/types";
+import { createEmptyCardTracking, createLegacyPublicTrackerState } from "./fixtures/publicTrackerState";
 
 describe("overlay view", () => {
+  it("marks missing lifecycle data as unready without translating legacy other cards", () => {
+    const state = createLegacyPublicTrackerState({
+      friendlyOther: [{ name: "旧其他区猜测", count: 9 }]
+    });
+
+    const view = toOverlayPanelViewModel(state);
+
+    expect(view.cardTracking).toEqual({
+      status: "unready",
+      side: "friendly",
+      message: "生命周期数据未就绪"
+    });
+  });
+
+  it("keeps opponent secret slots when candidate prediction is disabled", () => {
+    const cardTracking = structuredClone(createEmptyCardTracking("game-1"));
+    const opponentCurrent = cardTracking.opponent.current as unknown as Record<string, unknown>;
+    opponentCurrent.secret = {
+      status: "partial",
+      knownCount: 0,
+      totalCount: 1,
+      cards: []
+    };
+    (cardTracking as unknown as Record<string, unknown>).opponentSecretSlots = [{
+      entityId: "secret-1",
+      candidates: [{ cardId: "SECRET_1", name: "候选奥秘", status: "possible" }]
+    }];
+    const state: PublicTrackerState = {
+      ...createLegacyPublicTrackerState(),
+      cardTracking
+    };
+
+    const view = toOverlayPanelViewModel(state, {
+      side: "opponent",
+      showSecretCandidates: false
+    });
+
+    expect(view.cardTracking).toMatchObject({
+      status: "ready",
+      side: "opponent",
+      current: { secret: { countLabel: "当前 1" } },
+      secretSlots: [{ id: "secret-1", candidates: [] }]
+    });
+    expect(view.opponentSecrets).toEqual([]);
+  });
+
   it("maps an idle watcher to one green waiting-for-game message", () => {
     const state: PublicTrackerState = {
       status: "watching",

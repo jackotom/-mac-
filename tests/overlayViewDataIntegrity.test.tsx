@@ -35,6 +35,15 @@ function trackerState({
 }
 
 describe("overlay view data integrity", () => {
+  it("does not derive lifecycle groups from legacy other rows", () => {
+    const view = toOverlayPanelViewModel(trackerState({
+      friendlyOther: [{ name: "旧其他区猜测", count: 967 }]
+    }));
+
+    expect(view.cardTracking?.status).toBe("unready");
+    expect(view.cardTracking).not.toHaveProperty("current");
+  });
+
   it("does not amplify a normal friendly-other row count", () => {
     const view = toOverlayPanelViewModel(trackerState({
       friendlyOther: [{ name: "场外测试牌", count: 1 }]

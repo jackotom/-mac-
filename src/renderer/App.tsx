@@ -29,6 +29,7 @@ import type {
   CollectionDeckSummary,
   LogCandidate,
   MatchHistoryResult,
+  PublicCardTracking,
   PublicTrackerState,
   TrackerSettings,
   TrackerEvent
@@ -47,12 +48,97 @@ import type {
   TrackerStatus
 } from "./types";
 
+function createAppCardTracking(gameKey: string): PublicCardTracking {
+  const knownEmpty = () => ({
+    status: "known" as const,
+    knownCount: 0,
+    totalCount: 0,
+    cards: []
+  });
+  const unknownEmpty = () => ({
+    status: "unknown" as const,
+    knownCount: 0,
+    cards: []
+  });
+  const player = (opponent: boolean) => ({
+    current: {
+      deck: opponent ? unknownEmpty() : knownEmpty(),
+      hand: opponent ? unknownEmpty() : knownEmpty(),
+      play: knownEmpty(),
+      secret: knownEmpty(),
+      graveyard: knownEmpty(),
+      removed: knownEmpty()
+    },
+    burned: { totalCount: 0, items: [], truncated: false },
+    used: { totalCount: 0, items: [], truncated: false }
+  });
+  return {
+    schemaVersion: 1,
+    gameKey,
+    friendly: player(false),
+    opponent: player(true),
+    opponentSecretSlots: [],
+    detailsByCardKey: {}
+  };
+}
+
+function createQaOpponentCardTracking(): PublicCardTracking {
+  const tracking = createAppCardTracking("qa-opponent-game");
+  return {
+    ...tracking,
+    opponent: {
+      ...tracking.opponent,
+      current: {
+        ...tracking.opponent.current,
+        secret: {
+          status: "partial",
+          knownCount: 0,
+          totalCount: 2,
+          cards: []
+        }
+      },
+      used: {
+        totalCount: 1,
+        truncated: false,
+        items: [{
+          id: "qa-opponent-use-1",
+          sequence: 1,
+          entityId: "qa-opponent-card-1",
+          card: {
+            cardKey: "id:ex1_145",
+            cardId: "EX1_145",
+            name: "伺机待发"
+          },
+          confidence: "confirmed"
+        }]
+      }
+    },
+    opponentSecretSlots: [
+      {
+        entityId: "qa-secret-1",
+        candidates: [
+          { cardId: "EX1_287", name: "法术反制", status: "possible" },
+          { cardId: "EX1_289", name: "寒冰屏障", status: "excluded" }
+        ]
+      },
+      {
+        entityId: "qa-secret-2",
+        candidates: [
+          { cardId: "EX1_294", name: "镜像实体", status: "possible" },
+          { cardId: "EX1_295", name: "扰咒术", status: "excluded" }
+        ]
+      }
+    ]
+  };
+}
+
 const demoState: PublicTrackerState = {
   status: "missing-log",
   deck: [],
   opponentPlayed: [],
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
+  cardTracking: createAppCardTracking("app-demo"),
   error: "缺少 Power.log。先点“修复日志”，完全退出并重新打开炉石，然后进入一局。"
 };
 
@@ -103,6 +189,7 @@ const qaOpponentOverlayState: PublicTrackerState = {
   },
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 1 },
+  cardTracking: createQaOpponentCardTracking(),
   lastUpdated: "2026-07-12T12:00:00.000Z"
 };
 
@@ -1508,8 +1595,12 @@ function OpponentOverlayWindow({
   isLoading: boolean;
   loadError?: string;
 }) {
-  const mappedView = toOverlayPanelViewModel(state, { maxDeckRows: 40, maxRecentRows: 40 });
-  const overlayView = showSecrets ? mappedView : { ...mappedView, opponentSecrets: [] };
+  const overlayView = toOverlayPanelViewModel(state, {
+    maxDeckRows: 40,
+    maxRecentRows: 40,
+    side: "opponent",
+    showSecretCandidates: showSecrets
+  });
 
   return (
     <OpponentOverlayPanel

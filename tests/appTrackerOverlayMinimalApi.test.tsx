@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createEmptyCardTracking, createLegacyPublicTrackerState } from "./fixtures/publicTrackerState";
 
 afterEach(() => {
   window.history.replaceState({}, "", "/");
@@ -7,6 +8,37 @@ afterEach(() => {
 });
 
 describe("tracker overlay preload boundary", () => {
+  it("keeps the opponent overlay mounted when prediction candidates are disabled", async () => {
+    const cardTracking = structuredClone(createEmptyCardTracking("game-1"));
+    const opponentCurrent = cardTracking.opponent.current as unknown as Record<string, unknown>;
+    opponentCurrent.secret = {
+      status: "partial",
+      knownCount: 0,
+      totalCount: 1,
+      cards: []
+    };
+    (cardTracking as unknown as Record<string, unknown>).opponentSecretSlots = [{
+      entityId: "secret-1",
+      candidates: [{ cardId: "SECRET_1", name: "候选奥秘", status: "possible" }]
+    }];
+    const state = {
+      ...createLegacyPublicTrackerState({ status: "watching", gameActive: true }),
+      cardTracking
+    };
+    window.history.replaceState({}, "", "/?opponent-overlay=1&show-secret-prediction=0");
+    window.hearthstoneTracker = {
+      getState: vi.fn(async () => state),
+      onUpdate: vi.fn(() => () => undefined),
+      getOpponentOverlayCollapsed: vi.fn(async () => false)
+    } as unknown as typeof window.hearthstoneTracker;
+    const { default: App } = await import("../src/renderer/App.js");
+
+    render(<App />);
+
+    expect(await screen.findByLabelText("对手记牌器置顶小窗")).toBeInTheDocument();
+    expect(screen.queryByText("候选奥秘")).not.toBeInTheDocument();
+  });
+
   it("renders with the minimal tracker-overlay API", async () => {
     const state = {
       status: "watching",

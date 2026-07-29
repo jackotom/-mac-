@@ -6,10 +6,13 @@ import type {
   OverlayPanelViewModel,
   OverlayStatusTone
 } from "./types";
+import { toCardTrackingView } from "./cardTrackingView";
 
 export interface OverlayViewOptions {
   maxDeckRows?: number;
   maxRecentRows?: number;
+  side?: "friendly" | "opponent";
+  showSecretCandidates?: boolean;
 }
 
 const defaultMaxDeckRows = 40;
@@ -35,6 +38,17 @@ export function toOverlayPanelViewModel(
 ): OverlayPanelViewModel {
   const maxDeckRows = normalizeLimit(options.maxDeckRows, defaultMaxDeckRows);
   const maxRecentRows = normalizeLimit(options.maxRecentRows, defaultMaxRecentRows);
+  const side = options.side ?? "friendly";
+  const showSecretCandidates = options.showSecretCandidates ?? true;
+  const cardTracking = state.cardTracking
+    ? toCardTrackingView(state.cardTracking, side, {
+        showSecretCandidates
+      })
+    : {
+        status: "unready" as const,
+        side,
+        message: "生命周期数据未就绪" as const
+      };
   const recentEvents = [...state.events].reverse();
   const logIssueStatus = toLogIssueStatus(state);
   const isRecognizingConstructedDeck = Boolean(state.constructedScreenMode && !state.autoMatchedDeckId);
@@ -68,6 +82,7 @@ export function toOverlayPanelViewModel(
   const opponentHandCount = state.opponentHandCount ?? countZoneCards(state.opponentHand ?? []);
 
   return {
+    cardTracking,
     summary: {
       totalCards: shouldClearTrackedData ? 0 : state.summary.totalCards,
       remainingCards: isUnknownActiveDeckCount
@@ -95,7 +110,13 @@ export function toOverlayPanelViewModel(
     opponentUnknownHandCount: shouldClearTrackedData
       ? 0
       : Math.max(0, opponentHandCount - visibleOpponentHandCount),
-    opponentSecrets: shouldClearTrackedData ? [] : toOpponentSecretSlots(state.opponentSecrets ?? []),
+    opponentSecrets: shouldClearTrackedData
+      ? []
+      : cardTracking.status === "ready" && cardTracking.side === "opponent" && showSecretCandidates
+        ? [...cardTracking.secretSlots]
+        : cardTracking.status === "ready" && cardTracking.side === "opponent"
+          ? []
+          : toOpponentSecretSlots(state.opponentSecrets ?? []),
     boardAttack: shouldClearTrackedData ? { friendly: 0, opponent: 0 } : state.boardAttack ?? { friendly: 0, opponent: 0 },
     friendlyCounters: shouldClearTrackedData ? undefined : state.matchCounters?.friendly,
     opponentCounters: shouldClearTrackedData ? undefined : state.matchCounters?.opponent,
