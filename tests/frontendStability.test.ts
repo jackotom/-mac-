@@ -5,6 +5,7 @@ import {
   shouldRequestCardLibrary
 } from "../src/renderer/frontendStability";
 import { parsePublicTrackerState, parseTrackerSettings } from "../src/renderer/runtimeValidation";
+import { createLegacyPublicTrackerState } from "./fixtures/publicTrackerState";
 
 describe("frontend stability helpers", () => {
   it("shows initialization errors before live errors and notices", () => {
@@ -43,7 +44,7 @@ describe("frontend stability helpers", () => {
   });
 
   it("accepts the minimum valid tracker state", () => {
-    const state = { status: "idle", deck: [], opponentPlayed: [], events: [], summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 } };
+    const state = createLegacyPublicTrackerState();
     expect(parsePublicTrackerState(state)).toEqual(state);
   });
 

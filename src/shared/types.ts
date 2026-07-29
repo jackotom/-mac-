@@ -1,4 +1,4 @@
-import type { CardDetails } from "./cardDatabase.js";
+import type { CardDetails, CardOutcomeSection } from "./cardDatabase.js";
 import type { ArenaCardRating, ArenaScoreQuality } from "./arenaRatings.js";
 
 export type Zone = "DECK" | "HAND" | "PLAY" | "GRAVEYARD" | "REMOVEDFROMGAME" | "SETASIDE" | "SECRET" | "UNKNOWN";
@@ -236,6 +236,61 @@ export interface ArenaState {
   readonly error?: string;
 }
 
+export type PublicCardZone =
+  | "deck"
+  | "hand"
+  | "play"
+  | "secret"
+  | "graveyard"
+  | "removed";
+
+export type PublicTrackingStatus = "known" | "partial" | "unknown";
+export type PublicTrackingConfidence = "confirmed" | "inferred";
+
+export interface PublicKnownCard {
+  readonly cardKey: string;
+  readonly cardId?: string;
+  readonly name: string;
+  readonly count: number;
+}
+
+export interface PublicCardZoneGroup {
+  readonly status: PublicTrackingStatus;
+  readonly knownCount: number;
+  readonly totalCount?: number;
+  readonly cards: readonly PublicKnownCard[];
+}
+
+export interface PublicCardHistoryItem {
+  readonly id: string;
+  readonly sequence: number;
+  readonly entityId: string;
+  readonly card?: Omit<PublicKnownCard, "count">;
+  readonly confidence: PublicTrackingConfidence;
+  readonly outcomeSections?: readonly CardOutcomeSection[];
+}
+
+export interface PublicCardHistoryGroup {
+  readonly totalCount: number;
+  readonly items: readonly PublicCardHistoryItem[];
+  readonly truncated: boolean;
+}
+
+export interface PublicPlayerCardTracking {
+  readonly current: Readonly<Record<PublicCardZone, PublicCardZoneGroup>>;
+  readonly burned: PublicCardHistoryGroup;
+  readonly used: PublicCardHistoryGroup;
+}
+
+export interface PublicCardTracking {
+  readonly schemaVersion: 1;
+  readonly gameKey: string;
+  readonly friendly: PublicPlayerCardTracking;
+  readonly opponent: PublicPlayerCardTracking;
+  readonly opponentSecretSlots: readonly OpponentSecretSlot[];
+  readonly detailsByCardKey: Readonly<Record<string, CardDetails>>;
+}
+
 export interface PublicTrackerState {
   status: "idle" | "watching" | "paused" | "missing-log" | "error";
   trackerMode?: TrackerMode;
@@ -265,6 +320,7 @@ export interface PublicTrackerState {
   arena?: ArenaState;
   lastUpdated?: string;
   error?: string;
+  readonly cardTracking?: PublicCardTracking;
 }
 
 export interface CardLibraryQuery {

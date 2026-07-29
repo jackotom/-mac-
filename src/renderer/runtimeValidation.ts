@@ -10,6 +10,12 @@ const arenaStatuses = new Set(["inactive", "drafting", "redrafting", "complete",
 const arenaScoreTiers = new Set(["s", "a", "b", "c", "d", "f", "unknown"]);
 const matchModes = new Set(["standard", "wild", "arena", "unknown"]);
 const matchResults = new Set(["win", "loss", "tie"]);
+const publicCardZones = ["deck", "hand", "play", "secret", "graveyard", "removed"] as const;
+const publicTrackingStatuses = new Set(["known", "partial", "unknown"]);
+const publicTrackingConfidences = new Set(["confirmed", "inferred"]);
+const MAX_PUBLIC_HISTORY_ITEMS = 30;
+const MAX_OUTCOME_TREE_DEPTH = 16;
+const MAX_OUTCOME_TREE_NODES = 512;
 
 export function parsePublicTrackerState(value: unknown): PublicTrackerState {
   if (!isRecord(value) || typeof value.status !== "string" || !trackerStatuses.has(value.status) || !Array.isArray(value.deck) ||
@@ -28,6 +34,9 @@ export function parsePublicTrackerState(value: unknown): PublicTrackerState {
   }
   if (!isOptionalMatchCounters(value.matchCounters)) {
     throw new Error("本局公开计数数据无效，已拒绝更新界面。");
+  }
+  if (value.cardTracking !== undefined && !isPublicCardTracking(value.cardTracking)) {
+    throw new Error("卡牌生命周期数据无效，已拒绝更新界面。");
   }
   return value as unknown as PublicTrackerState;
 }
@@ -127,6 +136,178 @@ function isOptionalZoneCards(value: unknown): boolean {
 function isZoneCard(value: unknown): boolean {
   return isRecord(value) && isNonEmptyString(value.name) && isPositiveInteger(value.count) &&
     isOptionalString(value.cardId) && (value.details === undefined || isRecord(value.details));
+}
+
+function isPublicCardTracking(value: unknown): boolean {
+  if (!hasExactKeys(value, [
+    "schemaVersion", "gameKey", "friendly", "opponent", "opponentSecretSlots", "detailsByCardKey"
+  ]) || value.schemaVersion !== 1 || !isNonEmptyString(value.gameKey) ||
+      !Array.isArray(value.opponentSecretSlots) || !isRecord(value.detailsByCardKey)) {
+    return false;
+  }
+
+  const outcomeBudget = { nodes: 0 };
+  if (!isPublicPlayerCardTracking(value.friendly, outcomeBudget) ||
+      !isPublicPlayerCardTracking(value.opponent, outcomeBudget) ||
+      !hasUniqueStrings(value.opponentSecretSlots, "entityId") ||
+      !value.opponentSecretSlots.every((slot) => isOpponentSecretSlot(slot, outcomeBudget)) ||
+      !Object.entries(value.detailsByCardKey).every(([cardKey, details]) =>
+        isNonEmptyString(cardKey) && isCardDetails(details, outcomeBudget))) {
+    return false;
+  }
+
+  const opponent = value.opponent as Record<string, unknown>;
+  const current = opponent.current as Record<string, unknown>;
+  const secret = current.secret as Record<string, unknown>;
+  return secret.totalCount === value.opponentSecretSlots.length;
+}
+
+function isPublicPlayerCardTracking(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  if (!hasExactKeys(value, ["current", "burned", "used"])) {
+    return false;
+  }
+  const current = value.current;
+  return hasExactKeys(current, publicCardZones) &&
+    publicCardZones.every((zone) => isPublicCardZoneGroup(current[zone])) &&
+    isPublicCardHistoryGroup(value.burned, outcomeBudget) &&
+    isPublicCardHistoryGroup(value.used, outcomeBudget);
+}
+
+function isPublicCardZoneGroup(value: unknown): boolean {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["status", "knownCount", "totalCount", "cards"]) ||
+      typeof value.status !== "string" || !publicTrackingStatuses.has(value.status) ||
+      !isNonNegativeInteger(value.knownCount) || !Array.isArray(value.cards) ||
+      !value.cards.every(isPublicKnownCard)) {
+    return false;
+  }
+
+  const knownCount = value.cards.reduce<number>(
+    (total, card) => total + (card as { count: number }).count,
+    0
+  );
+  if (knownCount !== value.knownCount) {
+    return false;
+  }
+
+  if (value.status === "known") {
+    return isNonNegativeInteger(value.totalCount) && value.totalCount === value.knownCount;
+  }
+  if (value.status === "partial") {
+    return isNonNegativeInteger(value.totalCount) && value.totalCount > value.knownCount;
+  }
+  return value.totalCount === undefined;
+}
+
+function isPublicKnownCard(value: unknown): boolean {
+  return isRecord(value) && hasOnlyKeys(value, ["cardKey", "cardId", "name", "count"]) &&
+    isNonEmptyString(value.cardKey) && isOptionalString(value.cardId) &&
+    isNonEmptyString(value.name) && isPositiveInteger(value.count);
+}
+
+interface OutcomeTreeBudget {
+  nodes: number;
+}
+
+function isPublicCardHistoryGroup(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  if (!hasExactKeys(value, ["totalCount", "items", "truncated"]) ||
+      !isNonNegativeInteger(value.totalCount) || !Array.isArray(value.items) ||
+      value.items.length > MAX_PUBLIC_HISTORY_ITEMS || value.items.length > value.totalCount ||
+      typeof value.truncated !== "boolean" || value.truncated !== (value.totalCount > value.items.length) ||
+      !hasUniqueStrings(value.items, "id")) {
+    return false;
+  }
+  return value.items.every((item) => isPublicCardHistoryItem(item, outcomeBudget));
+}
+
+function isPublicCardHistoryItem(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  return isRecord(value) &&
+    hasOnlyKeys(value, ["id", "sequence", "entityId", "card", "confidence", "outcomeSections"]) &&
+    isNonEmptyString(value.id) && isNonNegativeInteger(value.sequence) &&
+    isNonEmptyString(value.entityId) && (
+      value.card === undefined ||
+      (isRecord(value.card) && hasOnlyKeys(value.card, ["cardKey", "cardId", "name"]) &&
+        isNonEmptyString(value.card.cardKey) && isOptionalString(value.card.cardId) &&
+        isNonEmptyString(value.card.name))
+    ) &&
+    typeof value.confidence === "string" && publicTrackingConfidences.has(value.confidence) &&
+    (value.outcomeSections === undefined || isCardOutcomeSections(value.outcomeSections, outcomeBudget));
+}
+
+function isOpponentSecretSlot(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  return isRecord(value) && hasOnlyKeys(value, ["entityId", "candidates", "revealedCardId"]) &&
+    isNonEmptyString(value.entityId) && Array.isArray(value.candidates) &&
+    value.candidates.every((candidate) => isSecretCandidate(candidate, outcomeBudget)) &&
+    isOptionalString(value.revealedCardId);
+}
+
+function isSecretCandidate(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  return isRecord(value) && hasOnlyKeys(value, ["cardId", "name", "status", "details"]) &&
+    isNonEmptyString(value.cardId) && isNonEmptyString(value.name) &&
+    isOneOf(value.status, ["possible", "excluded"]) &&
+    (value.details === undefined || isCardDetails(value.details, outcomeBudget));
+}
+
+function isCardDetails(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  return isRecord(value) && isNonNegativeInteger(value.dbfId) && isNonEmptyString(value.name) &&
+    typeof value.isSpell === "boolean" && Array.isArray(value.relatedCards) &&
+    value.relatedCards.every(isRelatedCard) &&
+    (value.cardOutcomeSections === undefined ||
+      isCardOutcomeSections(value.cardOutcomeSections, outcomeBudget));
+}
+
+function isRelatedCard(value: unknown): boolean {
+  return isRecord(value) && isNonNegativeInteger(value.dbfId) && isNonEmptyString(value.name) &&
+    isOptionalString(value.cardId) && isOptionalFiniteNumber(value.manaCost) &&
+    isOptionalString(value.cardType) && isOptionalString(value.rarity) &&
+    isOptionalString(value.text) && isOptionalString(value.imageUrl) &&
+    isOptionalString(value.cropImageUrl);
+}
+
+function isCardOutcomeSections(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
+  return Array.isArray(value) && value.every((section) =>
+    isRecord(section) && isNonEmptyString(section.key) && isNonEmptyString(section.title) &&
+    isNonEmptyString(section.emptyText) && Array.isArray(section.cards) &&
+    section.cards.every((node) => isCardOutcomeNode(node, 1, outcomeBudget, new Set())));
+}
+
+function isCardOutcomeNode(
+  value: unknown,
+  depth: number,
+  outcomeBudget: OutcomeTreeBudget,
+  ancestors: Set<unknown>
+): boolean {
+  if (depth > MAX_OUTCOME_TREE_DEPTH || outcomeBudget.nodes >= MAX_OUTCOME_TREE_NODES ||
+      !isRecord(value) || ancestors.has(value) || !isNonEmptyString(value.key) ||
+      !isRelatedCard(value.card) ||
+      (value.children !== undefined && !Array.isArray(value.children))) {
+    return false;
+  }
+
+  outcomeBudget.nodes += 1;
+  if (value.children === undefined) {
+    return true;
+  }
+
+  ancestors.add(value);
+  const childrenAreValid = value.children.every((child) =>
+    isCardOutcomeNode(child, depth + 1, outcomeBudget, ancestors));
+  ancestors.delete(value);
+  return childrenAreValid;
+}
+
+function hasUniqueStrings(value: readonly unknown[], key: string): boolean {
+  const seen = new Set<string>();
+  return value.every((item) => {
+    if (!isRecord(item) || !isNonEmptyString(item[key]) || seen.has(item[key])) {
+      return false;
+    }
+    seen.add(item[key]);
+    return true;
+  });
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
 }
 
 function isOptionalMatchCounters(value: unknown): boolean {
