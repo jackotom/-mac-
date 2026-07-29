@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { toDashboardViewModel } from "../src/renderer/dashboardView";
 import type { LadderDeckRecommendationResult } from "../src/shared/ladderDeckRecommendation";
 import type { MatchHistoryResult, PublicTrackerState } from "../src/shared/types";
-import { createPublicTrackerState } from "./fixtures/publicTrackerState";
+import { createEmptyCardTracking, createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 const liveState = createPublicTrackerState({
   status: "watching",
@@ -140,6 +140,78 @@ const realHistory: MatchHistoryResult = {
 };
 
 describe("dashboard view model", () => {
+  it("keeps a hidden opponent use without inventing an ordinary card identity", () => {
+    const cardTracking = createEmptyCardTracking("hidden-opponent-use");
+    (cardTracking.opponent as unknown as Record<string, unknown>).used = {
+      totalCount: 1,
+      truncated: false,
+      items: [{
+        id: "hidden-use-1",
+        sequence: 1,
+        entityId: "hidden-entity-1",
+        confidence: "confirmed"
+      }]
+    };
+    const state = createPublicTrackerState({
+      status: "watching",
+      gameActive: true,
+      cardTracking
+    });
+
+    const [hiddenUse] = toDashboardViewModel(state).opponent.playedCards;
+
+    expect(hiddenUse).toEqual({
+      id: "hidden-use-1",
+      hidden: true,
+      count: 1,
+      turn: "?",
+      details: undefined
+    });
+    expect(hiddenUse).not.toHaveProperty("name");
+  });
+
+  it("keeps each opponent use outcome isolated while retaining the shared theoretical pool", () => {
+    const cardTracking = createEmptyCardTracking("scoped-opponent-outcomes");
+    (cardTracking.opponent as unknown as Record<string, unknown>).used = {
+      totalCount: 2,
+      truncated: false,
+      items: [
+        {
+          id: "use-b",
+          sequence: 2,
+          entityId: "entity-b",
+          card: { cardKey: "id:toy_372", cardId: "TOY_372", name: "匣中古神" },
+          confidence: "confirmed",
+          outcomeSections: actualOutcome("结果 B", 202)
+        },
+        {
+          id: "use-a",
+          sequence: 1,
+          entityId: "entity-a",
+          card: { cardKey: "id:toy_372", cardId: "TOY_372", name: "匣中古神" },
+          confidence: "confirmed",
+          outcomeSections: actualOutcome("结果 A", 101)
+        }
+      ]
+    };
+    (cardTracking as unknown as Record<string, unknown>).detailsByCardKey = {
+      "id:toy_372": yoggBaseDetails()
+    };
+    const state = createPublicTrackerState({
+      status: "watching",
+      gameActive: true,
+      cardTracking
+    });
+
+    const [secondUse, firstUse] = toDashboardViewModel(state).opponent.playedCards;
+
+    expect(secondUse.details?.cardPoolSections?.[0]?.cards[0]?.name).toBe("理论法术");
+    expect(firstUse.details?.cardPoolSections?.[0]?.cards[0]?.name).toBe("理论法术");
+    expect(secondUse.details?.cardOutcomeSections?.[0]?.cards[0]?.card.name).toBe("结果 B");
+    expect(firstUse.details?.cardOutcomeSections?.[0]?.cards[0]?.card.name).toBe("结果 A");
+    expect(cardTracking.detailsByCardKey["id:toy_372"]).not.toHaveProperty("cardOutcomeSections");
+  });
+
   it("maps confirmed tracker and history data without inventing values", () => {
     const view = toDashboardViewModel(truthfulLiveState, realHistory, realLadder);
 
@@ -192,8 +264,8 @@ describe("dashboard view model", () => {
       currentTurn: "?",
       fatigueDamage: 3,
       playedCards: [
-        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" },
-        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" }
+        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", hidden: false, count: 1, turn: "?" },
+        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", hidden: false, count: 1, turn: "?" }
       ]
     });
     expect(view.events.items).toEqual([
@@ -308,3 +380,33 @@ describe("dashboard view model", () => {
     expect(view.arena).toEqual({ state: "error", message: "竞技场日志读取失败" });
   });
 });
+
+function yoggBaseDetails() {
+  return {
+    dbfId: 103_270,
+    cardId: "TOY_372",
+    name: "匣中古神",
+    manaCost: 7,
+    cardType: "法术",
+    isSpell: true,
+    relatedCards: [],
+    cardPoolSections: [{
+      key: "theoretical",
+      title: "理论候选池",
+      emptyText: "无候选",
+      cards: [{ dbfId: 1, name: "理论法术" }]
+    }]
+  };
+}
+
+function actualOutcome(name: string, dbfId: number) {
+  return [{
+    key: "actual",
+    title: "本次实际施放",
+    emptyText: "无结果",
+    cards: [{
+      key: `actual-${dbfId}`,
+      card: { dbfId, name }
+    }]
+  }];
+}

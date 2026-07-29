@@ -50,30 +50,33 @@ export function OpponentPanel({ overview, playedCards }: OpponentPanelProps) {
               <strong>暂无对手出牌</strong>
               <span>识别到对手打牌后会自动记录。</span>
             </li>
-          ) : playedCards.map((card) => (
-            <li key={card.id}>
-              <details className="card-detail-disclosure">
-                <summary className="played-card-row">
-                  {card.details?.cropImageUrl || card.details?.imageUrl ? (
-                    <img className="card-thumb" src={card.details.cropImageUrl ?? card.details.imageUrl} alt="" loading="lazy" />
-                  ) : (
-                    <span className="mana-cost">{card.cost ?? "—"}</span>
-                  )}
-                  <div>
-                    <strong title={card.name} aria-label={card.name}>{card.name}</strong>
-                    <small>
-                      回合 {card.turn}
-                      {card.details?.attack !== undefined && card.details.health !== undefined
-                        ? ` · ${card.details.attack}/${card.details.health}`
-                        : ""}
-                    </small>
-                  </div>
-                  <em>x{card.count}</em>
-                </summary>
-                <CardDetailBody details={card.details} mode="interactive" />
-              </details>
-            </li>
-          ))}
+          ) : playedCards.map((card) => {
+            const displayName = card.hidden ? "身份未公开" : card.name ?? "身份未公开";
+            return (
+              <li key={card.id}>
+                <details className="card-detail-disclosure">
+                  <summary className="played-card-row">
+                    {card.details?.cropImageUrl || card.details?.imageUrl ? (
+                      <img className="card-thumb" src={card.details.cropImageUrl ?? card.details.imageUrl} alt="" loading="lazy" />
+                    ) : (
+                      <span className="mana-cost">{card.cost ?? "—"}</span>
+                    )}
+                    <div>
+                      <strong title={displayName} aria-label={displayName}>{displayName}</strong>
+                      <small>
+                        回合 {card.turn}
+                        {card.details?.attack !== undefined && card.details.health !== undefined
+                          ? ` · ${card.details.attack}/${card.details.health}`
+                          : ""}
+                      </small>
+                    </div>
+                    <em>x{card.count}</em>
+                  </summary>
+                  <CardDetailBody details={card.details} mode="interactive" />
+                </details>
+              </li>
+            );
+          })}
         </ul>
       </section>
     </aside>

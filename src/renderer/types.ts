@@ -113,7 +113,8 @@ export interface OpponentOverview {
 
 export interface OpponentPlayedCard {
   id: string;
-  name: string;
+  name?: string;
+  hidden: boolean;
   cost?: number;
   turn: number | "?";
   count: number;
@@ -139,6 +140,7 @@ export interface OverlayHistoryItem {
   readonly id: string;
   readonly sequence: number;
   readonly displayName?: string;
+  readonly cardId?: string;
   readonly hidden: boolean;
   readonly confidence: PublicTrackingConfidence;
   readonly details?: CardDetails;

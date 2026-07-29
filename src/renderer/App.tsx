@@ -1739,6 +1739,7 @@ function toOpponentUsedCards(state: PublicTrackerState): OpponentPlayedCard[] {
   return toDashboardOpponentView(state).playedCards.map((card) => ({
     id: card.id,
     name: card.name,
+    hidden: card.hidden,
     cost: card.details?.manaCost,
     turn: card.turn,
     count: card.count,

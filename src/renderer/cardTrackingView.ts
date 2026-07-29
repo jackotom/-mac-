@@ -109,6 +109,7 @@ function toHistoryItem(
     id: item.id,
     sequence: item.sequence,
     displayName: item.card?.name,
+    ...(item.card?.cardId ? { cardId: item.card.cardId } : {}),
     hidden: item.card === undefined,
     confidence: item.confidence,
     details

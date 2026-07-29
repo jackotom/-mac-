@@ -7,6 +7,7 @@ import type {
 } from "../shared/types";
 import type { CardDetails } from "../shared/cardDatabase";
 import type { LadderDeckRecommendationResult } from "../shared/ladderDeckRecommendation";
+import { toCardTrackingView } from "./cardTrackingView";
 
 export type DashboardDataState = "ready" | "empty" | "unavailable" | "error";
 
@@ -40,8 +41,9 @@ export interface DashboardDeckView {
 
 export interface DashboardOpponentCardView {
   readonly id: string;
-  readonly name: string;
+  readonly name?: string;
   readonly cardId?: string;
+  readonly hidden: boolean;
   readonly count: number;
   readonly turn: "?";
   readonly details?: CardDetails;
@@ -245,18 +247,17 @@ function toDeckCard(card: CardTrackerRow, index: number): DashboardDeckCardView 
 export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardOpponentView {
   const tracking = tracker.cardTracking;
   const opponent = tracking.opponent;
-  const detailsByCardKey = tracking.detailsByCardKey;
-  const playedCards = opponent.used.items.map((item) => {
-    const card = item.card;
-    return {
-      id: item.id,
-      name: card?.name ?? "未知卡牌",
-      cardId: card?.cardId,
-      count: 1,
-      turn: "?" as const,
-      details: card ? detailsByCardKey[card.cardKey] : undefined
-    };
-  });
+  const playedCards = toCardTrackingView(tracking, "opponent", {
+    showSecretCandidates: false
+  }).used.items.map((item): DashboardOpponentCardView => ({
+    id: item.id,
+    ...(item.hidden ? {} : { name: item.displayName }),
+    ...(item.cardId ? { cardId: item.cardId } : {}),
+    hidden: item.hidden,
+    count: 1,
+    turn: "?",
+    details: item.details
+  }));
   const deckCount = toZoneCount(opponent.current.deck);
   const handCount = toZoneCount(opponent.current.hand);
   const secretCount = toZoneCount(opponent.current.secret);
