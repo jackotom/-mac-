@@ -271,6 +271,9 @@ async function verifyFriendlyShort() {
 }
 
 async function verifyFriendlyTall() {
+  if (workAreas.length === 0) {
+    await verifyFriendlyShort();
+  }
   const tallWorkArea = workAreas.find((workArea) => workArea.height >= 900);
   if (!tallWorkArea) {
     throw new Error(`当前环境无法验证 100×900：所有显示器 workArea=${JSON.stringify(workAreas)}`);

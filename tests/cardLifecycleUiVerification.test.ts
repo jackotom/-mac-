@@ -51,6 +51,9 @@ describe("card lifecycle Electron QA verification", () => {
     expect(script).toMatch(
       /assert\.deepEqual\(\s*inspection\.inheritedNodeEnvironmentKeys,\s*\[\]/
     );
+    expect(script).toMatch(
+      /async function verifyFriendlyTall\(\) \{\s*if \(workAreas\.length === 0\) \{\s*await verifyFriendlyShort\(\);/
+    );
   });
 
   it("sanitizes inherited QA and development environment before every Electron launch", () => {
