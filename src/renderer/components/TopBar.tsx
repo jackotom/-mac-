@@ -43,7 +43,7 @@ export function TopBar({
         <div>
           <h1>实时日志</h1>
           <p title={status.logPath}>
-            {status.logPath} · {status.watchedFiles} 个文件 · {status.parsedLines.toLocaleString("zh-CN")} 行
+            {status.logPath} · {status.watchedFiles} 个文件 · 事件 {status.eventCount.toLocaleString("zh-CN")}
           </p>
         </div>
       </section>

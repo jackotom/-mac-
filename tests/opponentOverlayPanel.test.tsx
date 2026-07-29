@@ -47,7 +47,7 @@ const status: TrackerStatus = {
   isLoading: false,
   logPath: "/Applications/Hearthstone/Logs/Power.log",
   watchedFiles: 3,
-  parsedLines: 120,
+  eventCount: 120,
   lastSyncedAt: "09:00:12"
 };
 

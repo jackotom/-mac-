@@ -67,7 +67,7 @@ export interface TrackerStatus {
   isLoading: boolean;
   logPath: string;
   watchedFiles: number;
-  parsedLines: number;
+  eventCount: number;
   lastSyncedAt: string;
 }
 
@@ -95,7 +95,7 @@ export interface GameEvent {
   id: string;
   kind: GameEventKind;
   actor: "me" | "opponent" | "system";
-  turn: number;
+  turn: number | "?";
   timestamp: string;
   title: string;
   detail: string;

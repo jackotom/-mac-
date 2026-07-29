@@ -1664,7 +1664,7 @@ function toTrackerStatus(
     isLoading,
     logPath: isLoading ? "正在读取本机日志" : logIssue?.detail ?? selectedLogPath ?? state.logPath ?? "自动寻找炉石日志",
     watchedFiles: isLoading ? 0 : candidates.filter((candidate) => candidate.exists).length || candidates.length || 1,
-    parsedLines: state.events.length,
+    eventCount: state.events.length,
     lastSyncedAt: isLoading ? "读取中" : formatTimeLabel(state.lastUpdated)
   };
 }
@@ -1724,11 +1724,11 @@ function toDeckCards(rows: CardTrackerRow[], includeUnresolved = false): DeckCar
 }
 
 function toGameEvents(events: TrackerEvent[]): GameEvent[] {
-  return events.map((event, index) => ({
+  return events.map((event) => ({
     id: event.id,
     kind: mapEventKind(event),
     actor: event.player === "friendly" ? "me" : event.player === "opponent" ? "opponent" : "system",
-    turn: Math.max(1, Math.ceil((index + 1) / 2)),
+    turn: "?",
     timestamp: formatTimeLabel(event.at),
     title: eventTitle(event),
     detail: eventDetail(event)
