@@ -322,6 +322,8 @@ export interface EntitySnapshot {
   controller?: number;
   attack?: number;
   cardType?: string;
+  attachedToEntityId?: string;
+  storedEntityId?: string;
 }
 
 export interface SecretCandidate {
@@ -357,6 +359,14 @@ export interface ActionBoundaryLogEvent {
   raw: string;
 }
 
+export interface CausalTriggerLogEvent {
+  type: "causal-trigger";
+  phase: "start" | "end";
+  trigger?: "deathrattle";
+  entity?: EntitySnapshot;
+  raw: string;
+}
+
 export interface ZoneChangeLogEvent {
   type: "zone-change";
   entityId?: string;
@@ -371,6 +381,15 @@ export interface ZoneChangeLogEvent {
 export interface EntityLogEvent {
   type: "entity";
   entity: EntitySnapshot;
+  creating?: boolean;
+  raw: string;
+}
+
+export interface EntityReferenceLogEvent {
+  type: "entity-reference";
+  entityId?: string;
+  relation: "attached" | "stored-entity";
+  referencedEntityId: string;
   raw: string;
 }
 
@@ -433,6 +452,8 @@ export type ParsedLogEvent =
   | ControllerLogEvent
   | AttackLogEvent
   | ActionBoundaryLogEvent
+  | CausalTriggerLogEvent
+  | EntityReferenceLogEvent
   | GameStartLogEvent
   | GameSetupCompleteLogEvent
   | GameEndLogEvent

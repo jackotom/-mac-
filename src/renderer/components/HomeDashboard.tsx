@@ -103,33 +103,35 @@ export function HomeDashboard({
 
   return (
     <section
-      className={`home-dashboard home-dashboard-grid home-newsroom${ladderReady ? "" : " is-ladder-unavailable"}`}
+      className={`home-dashboard home-dashboard-grid home-newsroom home-tavern-dashboard${ladderReady ? "" : " is-ladder-unavailable"}`}
+      data-tracker-status={state.status}
+      data-ladder-state={dashboard.ladder.state}
       aria-label="首页"
     >
-      <header className={`home-newsroom-hero status-${state.status}`}>
-        <img className="home-newsroom-hero-image" src={heroImageUrl} alt="" />
-        <div className="home-newsroom-hero-shade" />
-        <div className="home-newsroom-hero-copy">
-          <span className="home-newsroom-kicker">
+      <header className={`home-newsroom-hero home-tavern-hero status-${state.status}`}>
+        <img className="home-newsroom-hero-image home-tavern-hero-art" src={heroImageUrl} alt="" />
+        <div className="home-newsroom-hero-shade home-tavern-hero-vignette" aria-hidden="true" />
+        <div className="home-newsroom-hero-copy home-tavern-hero-content">
+          <span className="home-newsroom-kicker home-tavern-status-ribbon">
             <Radio aria-hidden="true" size={14} />
             {getStatusLabel(state)}
           </span>
           <h1>{hero.title}</h1>
           <p>{hero.detail}</p>
-          <div className="home-newsroom-hero-actions">
+          <div className="home-newsroom-hero-actions home-tavern-actions">
             {onOpenTracker ? (
-              <button type="button" className="home-primary-action" onClick={onOpenTracker}>
+              <button type="button" className="home-primary-action home-tavern-primary-action" onClick={onOpenTracker}>
                 进入实时对局
                 <ArrowRight aria-hidden="true" size={16} />
               </button>
             ) : null}
-            <span className="home-local-badge">
+            <span className="home-local-badge home-tavern-local-seal">
               <ShieldCheck aria-hidden="true" size={14} />
               数据仅保存在本机
             </span>
           </div>
         </div>
-        <aside className="home-newsroom-status-card" aria-label="当前记录状态">
+        <aside className="home-newsroom-status-card home-tavern-scoreboard" aria-label="当前记录状态">
           <div className="home-status-card-heading">
             <span className={`home-status-dot is-${state.status}`} aria-hidden="true" />
             <div>
@@ -146,9 +148,9 @@ export function HomeDashboard({
         </aside>
       </header>
 
-      <div className="home-newsroom-layout">
-        <main className="home-editorial-column">
-          <section className="home-featured-story" aria-labelledby="featured-story-title">
+      <div className="home-newsroom-layout home-tavern-table-layout">
+        <main className="home-editorial-column home-tavern-main-column">
+          <section className="home-featured-story home-tavern-featured" aria-labelledby="featured-story-title">
             <div className="home-section-heading">
               <div>
                 <span>LOCAL EDITION</span>
@@ -156,7 +158,7 @@ export function HomeDashboard({
               </div>
               <Sparkles aria-hidden="true" size={19} />
             </div>
-            <article className="home-featured-story-card">
+            <article className="home-featured-story-card home-tavern-featured-card">
               <img src={editorialImageUrl} alt="" />
               <div className="home-featured-story-copy">
                 <span>{curatedStories[0].category}</span>
@@ -168,9 +170,9 @@ export function HomeDashboard({
             </article>
           </section>
 
-          <section className="home-curated-grid" aria-label="精选内容">
+          <section className="home-curated-grid home-tavern-notice-board" aria-label="精选内容">
             {curatedStories.slice(1).map((story) => (
-              <article key={story.id} className="home-curated-card">
+              <article key={story.id} className="home-curated-card home-tavern-note-card">
                 <span>{story.category}</span>
                 <h3>{story.title}</h3>
                 <p>{story.summary}</p>
@@ -220,7 +222,7 @@ export function HomeDashboard({
           </DashboardPanel>
         </main>
 
-        <aside className="home-insight-column">
+        <aside className="home-insight-column home-tavern-side-column">
           {ladderReady && dashboard.ladder.recommendation ? (
             <DashboardPanel className="home-ladder-panel" title="天梯推荐" icon={Trophy}>
               <div className="home-ladder-ready">
@@ -246,7 +248,7 @@ export function HomeDashboard({
                 {copyState === "error" ? <p className="home-copy-error" role="alert">复制失败，请重试。</p> : null}
                 <button
                   type="button"
-                  className="home-copy-deck"
+                  className="home-copy-deck home-tavern-copy-action"
                   disabled={!onCopyLadderDeckCode || copyState === "copying"}
                   onClick={() => void copyDeckCode()}
                   aria-label={copyState === "copied" ? "已复制卡组代码" : "复制卡组代码"}
@@ -275,7 +277,7 @@ export function HomeDashboard({
         </aside>
       </div>
 
-      <div className="home-newsroom-footer-grid">
+      <div className="home-newsroom-footer-grid home-tavern-footer">
         <DashboardPanel className="home-deck-panel" title="当前套牌" icon={Layers3}>
           {dashboard.deck.state === "ready" ? (
             <div className="home-deck-ready">
@@ -377,9 +379,9 @@ function DashboardPanel({
   children: React.ReactNode;
 }) {
   return (
-    <article className={`home-dashboard-panel dashboard-panel ${className}`} aria-label={title}>
-      <header><Icon aria-hidden="true" size={17} /><h2>{title}</h2></header>
-      <div className="home-dashboard-panel-body">{children}</div>
+    <article className={`home-dashboard-panel dashboard-panel home-tavern-panel ${className}`} aria-label={title}>
+      <header className="home-tavern-panel-heading"><Icon aria-hidden="true" size={17} /><h2>{title}</h2></header>
+      <div className="home-dashboard-panel-body home-tavern-panel-body">{children}</div>
     </article>
   );
 }

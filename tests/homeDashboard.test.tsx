@@ -78,14 +78,23 @@ describe("home dashboard", () => {
 
   it("renders four real data areas and copies the trusted recommendation code", async () => {
     const onCopy = vi.fn(async () => undefined);
+    const onOpenTracker = vi.fn();
     render(
       <HomeDashboard
         state={liveState}
         matchHistory={history}
         ladderRecommendation={ladder}
         onCopyLadderDeckCode={onCopy}
+        onOpenTracker={onOpenTracker}
       />
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "进入实时对局" }));
+    expect(onOpenTracker).toHaveBeenCalledOnce();
+
+    for (const panelName of ["游戏动态", "天梯推荐", "当前套牌", "竞技场概览"]) {
+      expect(screen.getByRole("article", { name: panelName })).toBeInTheDocument();
+    }
 
     const activity = screen.getByRole("article", { name: "游戏动态" });
     expect(activity).toHaveTextContent("对局进行中");

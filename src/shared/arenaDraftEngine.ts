@@ -185,7 +185,9 @@ export class ArenaDraftEngine {
       return exact;
     }
 
-    const maxDistance = fuzzyName.length <= 5 ? 1 : 3;
+    const maxDistance = fuzzyName.length <= 5
+      ? 1
+      : Math.min(5, Math.max(3, Math.ceil(fuzzyName.length / 3)));
     let best: { card: CardInfo; distance: number } | undefined;
     let bestDistanceMatches = 0;
     for (const [cardName] of this.cardInfoByName) {

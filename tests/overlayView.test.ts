@@ -39,6 +39,34 @@ describe("overlay view", () => {
     });
   });
 
+  it("does not call an active Arena draft a waiting-for-game state", () => {
+    const state: PublicTrackerState = {
+      status: "watching",
+      gameActive: false,
+      deck: [],
+      opponentPlayed: [],
+      events: [],
+      summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
+      arena: {
+        status: "drafting",
+        draftCount: 0,
+        unresolvedCount: 30,
+        currentChoices: [
+          { name: "奇利亚斯豪华版3000型", count: 1 },
+          { name: "末世的姆诺兹多", count: 1 },
+          { name: "瓦丝琪女男爵", count: 1 }
+        ],
+        picks: [],
+        deck: []
+      }
+    };
+
+    expect(toOverlayPanelViewModel(state).status).toMatchObject({
+      tone: "tracking",
+      label: "监听中"
+    });
+  });
+
   it("uses the backend waiting-for-game message without repeating its status prefix", () => {
     const state: PublicTrackerState = {
       status: "watching",

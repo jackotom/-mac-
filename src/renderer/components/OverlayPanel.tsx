@@ -472,7 +472,7 @@ function ArenaOverlay({ view }: { view: NonNullable<OverlayPanelProps["view"]["a
 function ArenaDeckStatsList({ items }: { items: readonly OverlayCardItem[] }) {
   const visibleItems = items.filter((item) => !isUnresolvedCard(item));
   if (visibleItems.length === 0) {
-    return <p className="overlay-empty">尚未选择牌</p>;
+    return <p className="overlay-empty">当前牌库尚无已选牌</p>;
   }
 
   return (

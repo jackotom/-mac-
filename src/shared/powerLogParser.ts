@@ -63,31 +63,45 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
   }
 
   if (/BLOCK_END\b/.test(line)) {
-    return [{ type: "action-boundary", phase: "end", action: "other", raw: line }];
+    return [
+      { type: "action-boundary", phase: "end", action: "other", raw: line },
+      { type: "causal-trigger", phase: "end", raw: line }
+    ];
   }
 
   if (/BLOCK_START\b.*BlockType=TRIGGER\b/.test(line)) {
     const entity = parseEntity(line);
+    const events: ParsedLogEvent[] = [];
+    if (/TriggerKeyword=DEATHRATTLE\b/i.test(line) && entity.id) {
+      events.push({
+        type: "causal-trigger",
+        phase: "start",
+        trigger: "deathrattle",
+        entity,
+        raw: line
+      });
+    }
     const normalizedCardId = entity.cardId?.toLocaleUpperCase();
     if (
       normalizedCardId &&
       /TriggerKeyword=START_OF_GAME_KEYWORD\b/.test(line) &&
       START_OF_GAME_GLOBAL_EFFECT_CARD_IDS.has(normalizedCardId)
     ) {
-      return [{ type: "global-effect", source: "start-of-game", entity, raw: line }];
+      events.push({ type: "global-effect", source: "start-of-game", entity, raw: line });
+      return events;
     }
     const sourceCardId = normalizedCardId
       ? TRIGGERED_GLOBAL_EFFECT_CARD_IDS.get(normalizedCardId)
       : undefined;
     if (sourceCardId) {
-      return [{
+      events.push({
         type: "global-effect",
         source: "played",
         entity: { ...entity, cardId: sourceCardId },
         raw: line
-      }];
+      });
     }
-    return [];
+    return events;
   }
 
   if (/BLOCK_START\b.*BlockType=PLAY\b/.test(line)) {
@@ -110,8 +124,24 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
 
   if (line.includes("FULL_ENTITY") || line.includes("SHOW_ENTITY")) {
     if (entity.id || entity.name || entity.cardId) {
-      events.push({ type: "entity", entity, raw: line });
+      events.push({
+        type: "entity",
+        entity,
+        creating: /\bFULL_ENTITY\s+-\s+Creating\b/.test(line),
+        raw: line
+      });
     }
+  }
+
+  const entityReference = line.match(/\btag=(ATTACHED|TAG_SCRIPT_DATA_NUM_1)\s+value=(\d+)\b/i);
+  if (entityReference) {
+    events.push({
+      type: "entity-reference",
+      entityId: entity.id,
+      relation: entityReference[1].toUpperCase() === "ATTACHED" ? "attached" : "stored-entity",
+      referencedEntityId: entityReference[2],
+      raw: line
+    });
   }
 
   if (parseTagValueNumber(line, "DISPLAYED_CREATOR") !== undefined) {
