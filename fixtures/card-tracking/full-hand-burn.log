@@ -1,0 +1,20 @@
+D 14:00:00.000 GameState.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED
+D 14:00:00.050 GameState.DebugPrintGame() - GameType=GT_RANKED
+D 14:00:00.100 GameState.DebugPrintGame() - PlayerID=1, PlayerName=本地玩家
+D 14:00:00.200 GameState.DebugPrintGame() - PlayerID=2, PlayerName=UNKNOWN HUMAN PLAYER
+D 14:00:01.001 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌1 id=101 zone=DECK cardId=FILLER_1 player=1] tag=ZONE value=HAND
+D 14:00:01.002 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌2 id=102 zone=DECK cardId=FILLER_2 player=1] tag=ZONE value=HAND
+D 14:00:01.003 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌3 id=103 zone=DECK cardId=FILLER_3 player=1] tag=ZONE value=HAND
+D 14:00:01.004 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌4 id=104 zone=DECK cardId=FILLER_4 player=1] tag=ZONE value=HAND
+D 14:00:01.005 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌5 id=105 zone=DECK cardId=FILLER_5 player=1] tag=ZONE value=HAND
+D 14:00:01.006 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌6 id=106 zone=DECK cardId=FILLER_6 player=1] tag=ZONE value=HAND
+D 14:00:01.007 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌7 id=107 zone=DECK cardId=FILLER_7 player=1] tag=ZONE value=HAND
+D 14:00:01.008 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌8 id=108 zone=DECK cardId=FILLER_8 player=1] tag=ZONE value=HAND
+D 14:00:01.009 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌9 id=109 zone=DECK cardId=FILLER_9 player=1] tag=ZONE value=HAND
+D 14:00:01.010 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌10 id=110 zone=DECK cardId=FILLER_10 player=1] tag=ZONE value=HAND
+D 14:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=43 zone=DECK cardId= player=1] tag=ZONE value=GRAVEYARD
+D 14:00:20.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=43 zone=DECK cardId= player=1] tag=ZONE value=GRAVEYARD
+D 14:00:21.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌1 id=101 zone=HAND cardId=FILLER_1 player=1] tag=ZONE value=PLAY
+D 14:00:22.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=44 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD
+D 14:00:22.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=201 zone=DECK cardId= player=2] tag=ZONE value=HAND
+D 14:00:23.000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=烧毁测试牌 id=43 zone=GRAVEYARD cardId= player=1] CardID=BURNED_CARD

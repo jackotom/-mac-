@@ -467,7 +467,10 @@ if (hasSingleInstanceLock) {
     initialBackgroundWindowReady = true;
     mainWindowUserActivationAllowedAfterMs = Date.now() + mainWindowActivateGraceMs;
     if (process.env.QA_OPEN_OPPONENT_OVERLAY === "1") {
-      const window = await createOpponentOverlayWindow({ showWhenReady: true, qaDemo: true });
+      const window = await createOpponentOverlayWindow({
+        showWhenReady: true,
+        qaDemo: process.env.QA_OPPONENT_REAL_STATE !== "1"
+      });
       await captureQaScreenshotIfRequested(window);
     } else if (process.env.QA_OPEN_OVERLAY === "1") {
       const window = await createOverlayWindow();
@@ -2240,7 +2243,27 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
     return;
   }
 
+  await window.webContents.executeJavaScript(`
+    (() => {
+      if (window.__qaConsoleErrorsInstalled) return;
+      window.__qaConsoleErrorsInstalled = true;
+      window.__qaConsoleErrorCount = 0;
+      const originalConsoleError = console.error.bind(console);
+      console.error = (...args) => {
+        window.__qaConsoleErrorCount += 1;
+        originalConsoleError(...args);
+      };
+      window.addEventListener("error", () => { window.__qaConsoleErrorCount += 1; });
+      window.addEventListener("unhandledrejection", () => { window.__qaConsoleErrorCount += 1; });
+    })();
+  `);
+
   await new Promise((resolve) => setTimeout(resolve, 1200));
+
+  if (process.env.QA_DECK_TEXT) {
+    await tracker.importDeck(process.env.QA_DECK_TEXT);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
 
   if (process.env.QA_START_TRACKING === "1") {
     await window.webContents.executeJavaScript(`window.hearthstoneTracker?.start?.().then(() => undefined)`);
@@ -2335,22 +2358,75 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
     await window.webContents.executeJavaScript(`
       window.hearthstoneTracker?.showCardPreview?.(${JSON.stringify({
         details: {
-          dbfId: 103354,
-          cardId: "TOY_378",
-          name: "星空投影球",
-          manaCost: 10,
+          dbfId: 103270,
+          cardId: "TOY_372",
+          name: "匣中古神",
+          manaCost: 7,
           cardType: "法术",
           cardTypeId: 5,
-          heroClass: "法师",
-          text: "再次施放你在本局对战中施放过的法术，每种法力值消耗各随机一个。",
+          text: "随机施放5个法术。",
           isSpell: true,
           relatedCards: [],
-          playedSpellsThisGame: [
-            { dbfId: 110290, cardId: "END_025", name: "永时火焰箭", manaCost: 3, cardType: "法术" },
-            { dbfId: 79767, cardId: "REV_505", name: "冰冷案例", manaCost: 4, cardType: "法术" },
-            { dbfId: 110290, cardId: "END_025", name: "永时火焰箭", manaCost: 3, cardType: "法术" },
-            { dbfId: 82319, cardId: "RLK_544", name: "奥术防御者", manaCost: 8, cardType: "法术" }
-          ]
+          cardPoolSections: [{
+            key: "qa-random-spell-pool",
+            title: "可能施放的法术",
+            emptyText: "暂无候选",
+            cards: Array.from({ length: 15 }, (_, index) => ({
+              dbfId: 201 + index,
+              cardId: `QA_POOL_${index + 1}`,
+              name: `候选法术${index + 1}`,
+              manaCost: (index % 10) + 1,
+              cardType: "法术",
+              text: `候选法术${index + 1}的说明。`
+            }))
+          }],
+          cardOutcomeSections: [{
+            key: "qa-yogg-five",
+            title: "本次实际施放",
+            emptyText: "暂无结果",
+            cards: [
+              ...Array.from({ length: 4 }, (_, index) => ({
+                key: `qa-five-${index + 1}`,
+                card: {
+                  dbfId: 301 + index,
+                  cardId: `QA_FIVE_${index + 1}`,
+                  name: `五连结果${index + 1}`,
+                  cardType: "法术"
+                }
+              })),
+              {
+                key: "qa-five-yogg",
+                card: {
+                  dbfId: 103270,
+                  cardId: "TOY_372",
+                  name: "匣中古神",
+                  cardType: "法术"
+                },
+                children: [{
+                  key: "qa-five-yogg-child",
+                  card: {
+                    dbfId: 399,
+                    cardId: "QA_NESTED",
+                    name: "嵌套结果",
+                    cardType: "法术"
+                  }
+                }]
+              }
+            ]
+          }, {
+            key: "qa-yogg-ten",
+            title: "双倍实际施放",
+            emptyText: "暂无结果",
+            cards: Array.from({ length: 10 }, (_, index) => ({
+              key: `qa-ten-${index + 1}`,
+              card: {
+                dbfId: 401 + index,
+                cardId: index < 2 ? "QA_DUPLICATE" : `QA_TEN_${index + 1}`,
+                name: index < 2 ? "重复法术" : `双倍结果${index + 1}`,
+                cardType: "法术"
+              }
+            }))
+          }]
         },
         anchorRect
       })});
@@ -2363,13 +2439,71 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
       (() => {
         const targets = Array.from(document.querySelectorAll(".overlay-card-hover-target, .card-hover-target"));
         const target = targets.find((element) => element.textContent?.includes("银樽海韵"))
-          ?? targets.find((element) => element.textContent?.includes("抱团"));
+          ?? targets.find((element) => element.textContent?.includes("抱团"))
+          ?? targets[0];
         if (target) {
           target.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, view: window }));
+          target.focus();
         }
       })();
     `);
     await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  const qaTrackingGroup = process.env.QA_OPEN_TRACKING_GROUP;
+  if (qaTrackingGroup) {
+    await window.webContents.executeJavaScript(`
+      document.querySelector('[data-group-key="${qaTrackingGroup}"] > button')?.click();
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  let qaPinnedPreviewInspection: Record<string, unknown> | undefined;
+  if (process.env.QA_INLINE_PIN_KEYBOARD_EVENT === "KeyboardEvent") {
+    await window.webContents.executeJavaScript(`
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        altKey: true,
+        bubbles: true,
+        code: "KeyQ",
+        key: "q"
+      }));
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await window.webContents.executeJavaScript(`
+      document.querySelector(".card-hover-preview .card-pool-section > summary")?.click();
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    qaPinnedPreviewInspection = await inspectQaPreview(window);
+    await window.webContents.executeJavaScript(`
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        altKey: true,
+        bubbles: true,
+        code: "KeyQ",
+        key: "q"
+      }));
+      document.querySelector(".card-hover-target")?.dispatchEvent(
+        new MouseEvent("mouseout", { bubbles: true, view: window })
+      );
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+
+  if (process.env.QA_PIN_CARD_PREVIEW === "1") {
+    setCardPreviewPinned(true);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (cardPreviewWindow && !cardPreviewWindow.isDestroyed()) {
+      await cardPreviewWindow.webContents.executeJavaScript(`
+        document.querySelector(".card-preview-window-shell .card-pool-section > summary")?.click();
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      qaPinnedPreviewInspection = await inspectQaPreview(cardPreviewWindow);
+    }
+    setCardPreviewPinned(false);
+    await window.webContents.executeJavaScript(`
+      window.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true, view: window }));
+    `);
+    scheduleCardPreviewAutoHide();
+    await new Promise((resolve) => setTimeout(resolve, cardPreviewAutoHideMs + 250));
   }
 
   if (process.env.QA_COPY_LADDER_DECK === "1") {
@@ -2383,27 +2517,38 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
   }
 
   await waitForQaRendererSettled((script) => window.webContents.executeJavaScript(script));
+  if (process.env.QA_OPEN_OVERLAY === "1" || process.env.QA_OPEN_OPPONENT_OVERLAY === "1") {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const hasTrackingLayout = await window.webContents.executeJavaScript(
+        `Boolean(document.querySelector(".card-tracking-main"))`
+      ) as boolean;
+      if (hasTrackingLayout) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
 
   if (inspectPath) {
-    const inspectJson = (await window.webContents.executeJavaScript(`(async () => JSON.stringify({
-      hasApi: Boolean(window.hearthstoneTracker),
-      location: window.location.href,
-      bodyText: document.body.innerText.slice(0, 500),
-      trackerState: await window.hearthstoneTracker?.getState?.(),
-      trackerSettings: await window.hearthstoneTracker?.getTrackerSettings?.(),
-      layout: {
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        bodyScrollWidth: document.body.scrollWidth,
-        bodyScrollHeight: document.body.scrollHeight
-      },
-      clipboardText: ${JSON.stringify(process.env.QA_COPY_LADDER_DECK === "1" ? clipboard.readText() : "")}
-    }))()`)) as string;
-    const rendererInspection = JSON.parse(inspectJson) as Record<string, unknown>;
+    const rendererInspection = await inspectQaRenderer(window);
+    const finalInlinePreview = await inspectQaPreview(window);
+    const externalPreview = cardPreviewWindow && !cardPreviewWindow.isDestroyed() && cardPreviewWindow.isVisible()
+      ? await inspectQaPreview(cardPreviewWindow)
+      : undefined;
+    const bounds = roundBounds(window.getBounds());
+    const displayWorkArea = roundBounds(screen.getDisplayMatching(bounds).workArea);
+    const preview = qaPinnedPreviewInspection
+      ? {
+          ...qaPinnedPreviewInspection,
+          afterUnpinHidden: externalPreview === undefined && finalInlinePreview.visible !== true
+        }
+      : externalPreview ?? finalInlinePreview;
     const completeRendererInspection = {
       ...rendererInspection,
       trackerSettings: rendererInspection.trackerSettings ?? trackerSettings,
-      qaMainWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+      qaMainWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+      bounds,
+      workArea: displayWorkArea,
+      workAreas: screen.getAllDisplays().map((display) => roundBounds(display.workArea)),
+      preview
     };
     const qaWindowLayout = getQaThreeWindowLayoutInspection();
     const inspection = qaWindowLayout
@@ -2429,4 +2574,143 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
   if (process.env.QA_EXIT_AFTER_SCREENSHOT === "1") {
     await requestQaQuit(() => app.quit());
   }
+}
+
+async function inspectQaRenderer(window: BrowserWindow): Promise<Record<string, unknown>> {
+  const inspectJson = (await window.webContents.executeJavaScript(`(async () => {
+    const rect = (element) => {
+      if (!(element instanceof Element)) return null;
+      const value = element.getBoundingClientRect();
+      return {
+        x: Math.round(value.x * 100) / 100,
+        y: Math.round(value.y * 100) / 100,
+        width: Math.round(value.width * 100) / 100,
+        height: Math.round(value.height * 100) / 100,
+        top: Math.round(value.top * 100) / 100,
+        right: Math.round(value.right * 100) / 100,
+        bottom: Math.round(value.bottom * 100) / 100,
+        left: Math.round(value.left * 100) / 100
+      };
+    };
+    const selectorFor = (element) => {
+      if (element === document.documentElement) return "html";
+      if (element === document.body) return "body";
+      if (element.id) return "#" + CSS.escape(element.id);
+      const classes = Array.from(element.classList).slice(0, 2).map((name) => "." + CSS.escape(name)).join("");
+      return element.tagName.toLowerCase() + classes;
+    };
+    const shell = document.querySelector(".overlay-shell, .desktop-frame, .card-preview-window-shell");
+    const main = document.querySelector(".card-tracking-main");
+    const footer = document.querySelector(".card-tracking-footer");
+    const tracking = document.querySelector(".card-tracking-layout");
+    const visibleRows = Array.from(document.querySelectorAll(
+      ".overlay-compact-card-row, .overlay-undisclosed-row, .opponent-secret-slot"
+    )).filter((element) => {
+      const style = getComputedStyle(element);
+      const value = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && value.width > 0 && value.height > 0;
+    });
+    const allElements = [document.documentElement, document.body, ...document.querySelectorAll("*")];
+    const actualScrollableSelectors = [...new Set(allElements.filter((element) => {
+      const style = getComputedStyle(element);
+      return /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight;
+    }).map(selectorFor))];
+    const size = (element) => element ? {
+      scrollWidth: element.scrollWidth,
+      scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      clientHeight: element.clientHeight
+    } : null;
+    const unknownHandRows = Array.from(document.querySelectorAll(".overlay-undisclosed-row"))
+      .map((element) => element.textContent?.trim() ?? "");
+    return JSON.stringify({
+      hasApi: Boolean(window.hearthstoneTracker),
+      location: window.location.href,
+      bodyText: document.body.innerText.slice(0, 2000),
+      trackerState: await window.hearthstoneTracker?.getState?.(),
+      trackerSettings: await window.hearthstoneTracker?.getTrackerSettings?.(),
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      layoutMode: tracking?.getAttribute("data-layout-mode") ?? null,
+      page: tracking?.getAttribute("data-tracking-page") ?? null,
+      expandedKeys: Array.from(document.querySelectorAll('[data-group-key][data-expanded="true"]'))
+        .map((element) => element.getAttribute("data-group-key")),
+      shellRect: rect(shell),
+      shellComputed: shell ? {
+        height: getComputedStyle(shell).height,
+        minHeight: getComputedStyle(shell).minHeight,
+        gridTemplateRows: getComputedStyle(shell).gridTemplateRows
+      } : null,
+      mainRect: rect(main),
+      footerRect: rect(footer),
+      visibleCardRowRects: visibleRows.map(rect),
+      shellScrollSize: size(shell),
+      mainScrollSize: size(main),
+      designatedScrollOwners: Array.from(document.querySelectorAll("[data-scroll-owner]"))
+        .map((element) => element.getAttribute("data-scroll-owner")),
+      actualScrollableSelectors,
+      horizontalOverflowSelectors: [...new Set(allElements.filter((element) => {
+        const style = getComputedStyle(element);
+        return /(auto|scroll)/.test(style.overflowX) && element.scrollWidth > element.clientWidth;
+      }).map(selectorFor))],
+      unknownHandRows,
+      consoleErrorCount: Number(window.__qaConsoleErrorCount ?? 0),
+      clipboardText: ${JSON.stringify(process.env.QA_COPY_LADDER_DECK === "1" ? clipboard.readText() : "")}
+    });
+  })()`)) as string;
+  return JSON.parse(inspectJson) as Record<string, unknown>;
+}
+
+async function inspectQaPreview(window: BrowserWindow): Promise<Record<string, unknown>> {
+  if (window.isDestroyed()) return { visible: false };
+  const inspectJson = (await window.webContents.executeJavaScript(`(() => {
+    const root = document.querySelector(".card-hover-preview, .card-preview-window-shell");
+    if (!(root instanceof HTMLElement) || root.getBoundingClientRect().width <= 0) {
+      return JSON.stringify({ visible: false });
+    }
+    const pool = root.querySelector(".card-pool-section");
+    const outcomeSections = Array.from(root.querySelectorAll(".card-outcome-section")).map((section) => ({
+      title: section.querySelector(":scope > span")?.textContent?.trim() ?? "",
+      outcomeRows: section.querySelectorAll(":scope > .card-outcome-tree > .card-outcome-node").length
+    }));
+    const allElements = [root, ...root.querySelectorAll("*")];
+    const outcomeElements = Array.from(root.querySelectorAll(".card-outcome-section *"));
+    const isActuallyScrollable = (element) => {
+      const style = getComputedStyle(element);
+      return /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight;
+    };
+    const actualScrollableSelectors = [...new Set(allElements.filter((element) => {
+      const style = getComputedStyle(element);
+      return /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight;
+    }).map((element) => {
+      if (element === root) return ".card-preview-root";
+      const classes = Array.from(element.classList).slice(0, 2).join(".");
+      return classes ? "." + classes : element.tagName.toLowerCase();
+    }))];
+    return JSON.stringify({
+      visible: true,
+      pinned: root.getAttribute("data-pinned") === "true" ||
+        root.getAttribute("data-preview-pinned") === "true" ||
+        root.classList.contains("is-pinned"),
+      poolExpanded: pool instanceof HTMLDetailsElement ? pool.open : false,
+      poolRows: pool instanceof HTMLDetailsElement && pool.open
+        ? pool.querySelectorAll(".card-related-card").length
+        : 0,
+      continueButton: pool instanceof HTMLDetailsElement && pool.open &&
+        Boolean(pool.querySelector(".card-pool-load-more")),
+      outcomeRows: outcomeSections.map((section) => section.outcomeRows),
+      outcomeSections,
+      duplicateSpellCount: Array.from(root.querySelectorAll(".card-outcome-node strong"))
+        .filter((element) => element.textContent?.trim() === "重复法术").length,
+      nestedOutcomeGroups: root.querySelectorAll(".card-outcome-children").length,
+      designatedScrollOwners: Array.from(root.querySelectorAll("[data-scroll-owner]"))
+        .map((element) => element.getAttribute("data-scroll-owner")),
+      actualScrollableSelectors,
+      resultScrollableSelectors: [...new Set(outcomeElements.filter(isActuallyScrollable).map((element) => {
+        const classes = Array.from(element.classList).slice(0, 2).join(".");
+        return classes ? "." + classes : element.tagName.toLowerCase();
+      }))],
+      text: root.textContent?.replace(/\\s+/g, " ").trim() ?? ""
+    });
+  })()`)) as string;
+  return JSON.parse(inspectJson) as Record<string, unknown>;
 }

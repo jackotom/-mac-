@@ -1,0 +1,40 @@
+D 16:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 16:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND
+D 16:00:02.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1]
+D 16:00:02.100 GameState.DebugPrintPower() -     BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1]
+D 16:00:02.201 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=71 CardID=RANDOM_SPELL_1
+D 16:00:02.202 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=72 CardID=RANDOM_SPELL_2
+D 16:00:02.203 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=73 CardID=RANDOM_SPELL_3
+D 16:00:02.204 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=74 CardID=RANDOM_SPELL_4
+D 16:00:02.205 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=75 CardID=RANDOM_SPELL_5
+D 16:00:02.800 GameState.DebugPrintPower() -     BLOCK_END
+D 16:00:02.900 GameState.DebugPrintPower() - BLOCK_END
+D 16:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1]
+D 16:00:02.100 PowerTaskList.DebugPrintPower() -     BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1]
+D 16:00:02.201 PowerTaskList.DebugPrintPower() -         FULL_ENTITY - Creating ID=71 CardID=RANDOM_SPELL_1
+D 16:00:02.202 PowerTaskList.DebugPrintPower() -         FULL_ENTITY - Creating ID=72 CardID=RANDOM_SPELL_2
+D 16:00:02.203 PowerTaskList.DebugPrintPower() -         FULL_ENTITY - Creating ID=73 CardID=RANDOM_SPELL_3
+D 16:00:02.204 PowerTaskList.DebugPrintPower() -         FULL_ENTITY - Creating ID=74 CardID=RANDOM_SPELL_4
+D 16:00:02.205 PowerTaskList.DebugPrintPower() -         FULL_ENTITY - Creating ID=75 CardID=RANDOM_SPELL_5
+D 16:00:02.800 PowerTaskList.DebugPrintPower() -     BLOCK_END
+D 16:00:02.900 PowerTaskList.DebugPrintPower() - BLOCK_END
+D 16:00:02.950 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=PLAY
+D 16:00:03.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1] tag=ZONE value=HAND
+D 16:00:04.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1]
+D 16:00:04.100 GameState.DebugPrintPower() -     BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1]
+D 16:00:04.201 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=81 CardID=RANDOM_SPELL_1
+D 16:00:04.202 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=82 CardID=RANDOM_SPELL_1
+D 16:00:04.203 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=83 CardID=RANDOM_SPELL_2
+D 16:00:04.204 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=84 CardID=RANDOM_SPELL_3
+D 16:00:04.205 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=85 CardID=RANDOM_SPELL_4
+D 16:00:04.206 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=86 CardID=RANDOM_SPELL_5
+D 16:00:04.207 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=87 CardID=RANDOM_SPELL_6
+D 16:00:04.208 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=88 CardID=RANDOM_SPELL_7
+D 16:00:04.209 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=89 CardID=RANDOM_SPELL_8
+D 16:00:04.210 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=90 CardID=TOY_372
+D 16:00:04.300 GameState.DebugPrintPower() -         BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=90 zone=PLAY cardId=TOY_372 player=1]
+D 16:00:04.401 GameState.DebugPrintPower() -             FULL_ENTITY - Creating ID=91 CardID=RANDOM_SPELL_9
+D 16:00:04.402 GameState.DebugPrintPower() -             FULL_ENTITY - Creating ID=92 CardID=RANDOM_SPELL_10
+D 16:00:04.700 GameState.DebugPrintPower() -         BLOCK_END
+D 16:00:04.800 GameState.DebugPrintPower() -     BLOCK_END
+D 16:00:04.900 GameState.DebugPrintPower() - BLOCK_END

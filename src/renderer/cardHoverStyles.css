@@ -218,12 +218,8 @@ body:has(.card-preview-window-shell),
 }
 
 :is(.card-pool-section, .card-game-context) .card-related-cards {
-  max-height: 220px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: #47616e transparent;
-  scrollbar-width: thin;
+  max-height: none;
+  overflow: visible;
 }
 
 .card-pool-load-more {
@@ -263,13 +259,8 @@ body:has(.card-preview-window-shell),
 }
 
 .card-outcome-section > .card-outcome-tree {
-  max-height: 220px;
-  padding-right: 2px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: #47616e transparent;
-  scrollbar-width: thin;
+  max-height: none;
+  overflow: visible;
 }
 
 .card-outcome-node {

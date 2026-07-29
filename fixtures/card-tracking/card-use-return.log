@@ -1,0 +1,11 @@
+D 15:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 15:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]
+D 15:00:01.100 GameState.DebugPrintPower() - BLOCK_END
+D 15:00:01.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]
+D 15:00:01.100 PowerTaskList.DebugPrintPower() - BLOCK_END
+D 15:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=普通使用牌 id=51 zone=PLAY cardId=FRIEND_USE player=1] tag=ZONE value=HAND
+D 15:00:03.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]
+D 15:00:03.100 GameState.DebugPrintPower() - BLOCK_END
+D 15:00:04.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=UNKNOWN ENTITY id=71 zone=HAND cardId= player=1]
+D 15:00:04.100 GameState.DebugPrintPower() - BLOCK_END
+D 15:00:05.000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=晚揭示使用牌 id=71 zone=PLAY cardId= player=1] CardID=LATE_USE

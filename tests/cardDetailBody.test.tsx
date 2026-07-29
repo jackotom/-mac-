@@ -165,12 +165,15 @@ describe("CardDetailBody related cards", () => {
       .toEqual(doubledSpells.map((card) => card.name));
   });
 
-  it("keeps long theoretical and actual lists inside their own scroll areas", () => {
+  it("keeps detail lists in the preview shell's single scroll area", () => {
     expect(cardHoverStyles).toMatch(
-      /:is\(\.card-pool-section,\s*\.card-game-context\) \.card-related-cards\s*\{[\s\S]*?max-height:\s*220px;[\s\S]*?overflow-y:\s*auto;/
+      /:is\(\.card-pool-section,\s*\.card-game-context\) \.card-related-cards\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible;/
     );
     expect(cardHoverStyles).toMatch(
-      /\.card-outcome-section > \.card-outcome-tree\s*\{[\s\S]*?max-height:\s*220px;[\s\S]*?overflow-y:\s*auto;/
+      /\.card-outcome-section > \.card-outcome-tree\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible;/
+    );
+    expect(cardHoverStyles).not.toMatch(
+      /\.card-outcome-section > \.card-outcome-tree\s*\{[^}]*overflow-y:\s*auto;/
     );
     expect(cardHoverStyles).toMatch(
       /\.card-outcome-children\s*\{[\s\S]*?border-left:/
