@@ -1737,6 +1737,28 @@ D 13:00:03.100 GameState.DebugPrintPower() - BLOCK_END
       expect(used.items.map((item) => item.sequence)).toEqual([2, 1]);
     });
 
+    it("records a named PLAY missing from the database and does not duplicate it after a late reveal", () => {
+      const engine = createLifecycleEngine();
+      engine.applyText(`
+D 13:30:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 13:30:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=数据库外卡牌 id=91 zone=HAND cardId=OUTSIDE_DB player=1]
+D 13:30:01.100 GameState.DebugPrintPower() - BLOCK_END
+`);
+
+      expectSingleOutsideDatabaseUse(engine);
+
+      engine.setCardDatabase(createCardDatabase([
+        { id: 91, cardId: "OUTSIDE_DB", name: "数据库外卡牌", type: "SPELL" }
+      ]));
+      expectSingleOutsideDatabaseUse(engine);
+
+      engine.applyLine(
+        "D 13:30:02.000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=数据库外卡牌 id=91 zone=PLAY cardId= player=1] CardID=OUTSIDE_DB"
+      );
+
+      expectSingleOutsideDatabaseUse(engine);
+    });
+
     it("records an inferred burn once, updates all physical zones, and allows a later real reburn", () => {
       const engine = createLifecycleEngine("2x 烧毁测试牌");
       engine.applyText([
@@ -1814,52 +1836,92 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
       expect(tracking.friendly.current.graveyard.totalCount).toBe(1);
     });
 
-    it("clears lifecycle state through all three reset entries and deduplicates CREATE_GAME", () => {
+    it("does not infer a burn from a plain nine-card hand", () => {
       const engine = createLifecycleEngine("1x 烧毁测试牌");
       engine.applyText([
-        "D 17:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
-        "D 17:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]",
-        "D 17:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
-        ...createHandEntityLines(10, 1, 300),
-        "D 17:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=46 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD"
+        "D 16:30:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        ...createHandEntityLines(9, 1),
+        "D 16:30:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=45 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD"
       ].join("\n"));
+
+      const tracking = engine.getState().cardTracking!;
+      expect(tracking.friendly.current.hand.totalCount).toBe(9);
+      expect(tracking.friendly.current.graveyard.totalCount).toBe(1);
+      expect(tracking.friendly.burned.totalCount).toBe(0);
+    });
+
+    it("deduplicates duplicate CREATE_GAME records", () => {
+      const engine = createLifecycleEngine("1x 烧毁测试牌");
+      seedResetSensitiveLifecycle(engine);
       const first = engine.getState().cardTracking!;
-      expect(first.friendly.used.totalCount).toBe(1);
+      expect(first.friendly.used.totalCount).toBe(2);
       expect(first.friendly.burned.totalCount).toBe(1);
 
       engine.applyLine("D 17:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME");
       const duplicateStart = engine.getState().cardTracking!;
       expect(duplicateStart.gameKey).toBe(first.gameKey);
-      expect(duplicateStart.friendly.used.totalCount).toBe(1);
+      expect(duplicateStart.friendly.used.totalCount).toBe(2);
       expect(duplicateStart.friendly.burned.totalCount).toBe(1);
+      expect(findAncientOutcomeSections(engine)).toHaveLength(1);
+    });
 
-      engine.applyLine("D 18:00:00.000 GameState.DebugPrintPower() - CREATE_GAME");
-      const newGame = engine.getState().cardTracking!;
-      expect(newGame.gameKey).not.toBe(first.gameKey);
-      expect(newGame.friendly.used.totalCount).toBe(0);
-      expect(newGame.friendly.burned.totalCount).toBe(0);
+    it("resetForGame clears use, burn, and ancient outcome deduplication before replay", () => {
+      const engine = createLifecycleEngine("1x 烧毁测试牌");
+      seedResetSensitiveLifecycle(engine);
+      const oldGameKey = engine.getState().cardTracking!.gameKey;
 
+      engine.resetForGame();
+
+      expect(engine.getState().cardTracking).toMatchObject({
+        friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
+      });
+      expect(engine.getState().cardTracking!.gameKey).not.toBe(oldGameKey);
       engine.applyLine(
-        "D 18:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=52 zone=HAND cardId=FRIEND_USE player=1]"
+        "D 17:00:30.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND"
       );
+      expect(findAncientOutcomeSections(engine)).toBeUndefined();
+      engine.applyLine(
+        "D 17:00:30.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=DECK"
+      );
+
+      expectResetSensitiveLifecycleCanReplay(engine);
+    });
+
+    it("resetAfterGame clears use, burn, and ancient outcome state", () => {
+      const engine = createLifecycleEngine("1x 烧毁测试牌");
+      seedResetSensitiveLifecycle(engine);
+
       engine.resetAfterGame();
+
       expect(engine.getState().cardTracking).toMatchObject({
         gameKey: "no-game",
         friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
       });
+      engine.loadDeckCards([{ name: "匣中古神", count: 1, cardId: "TOY_372" }], "重置检查牌库");
+      expect(findAncientOutcomeSections(engine)).toBeUndefined();
 
-      const arenaEngine = createLifecycleEngine();
-      arenaEngine.loadDeckCards([{ name: "烧毁测试牌", count: 1, cardId: "BURNED_CARD" }], "竞技场牌库");
-      arenaEngine.applyText(`
-D 19:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
-D 19:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=53 zone=HAND cardId=FRIEND_USE player=1]
-`);
-      expect(arenaEngine.getState().cardTracking!.friendly.used.totalCount).toBe(1);
-      arenaEngine.clearArenaDeck();
-      expect(arenaEngine.getState().cardTracking).toMatchObject({
+      engine.resetForGame();
+      expectResetSensitiveLifecycleCanReplay(engine);
+    });
+
+    it("clearArenaDeck clears use, burn, and ancient outcome state", () => {
+      const engine = createLifecycleEngine();
+      engine.loadDeckCards([
+        { name: "烧毁测试牌", count: 1, cardId: "BURNED_CARD" },
+        { name: "匣中古神", count: 1, cardId: "TOY_372" }
+      ], "竞技场牌库");
+      seedResetSensitiveLifecycle(engine);
+
+      engine.clearArenaDeck();
+
+      expect(engine.getState().cardTracking).toMatchObject({
         gameKey: "no-game",
         friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
       });
+      expect(findAncientOutcomeSections(engine)).toBeUndefined();
+
+      engine.resetForGame();
+      expectResetSensitiveLifecycleCanReplay(engine);
     });
   });
 });
@@ -1871,11 +1933,74 @@ function createLifecycleEngine(deckText?: string) {
     { id: 3, cardId: "LATE_USE", name: "晚揭示使用牌", type: "SPELL" },
     { id: 4, cardId: "AUTO_SPELL", name: "古神子法术", type: "SPELL" },
     { id: 5, cardId: "BURNED_CARD", name: "烧毁测试牌", type: "SPELL" },
-    { id: 6, cardId: "ATTACHMENT", name: "附属测试实体", type: "ENCHANTMENT" }
+    { id: 6, cardId: "ATTACHMENT", name: "附属测试实体", type: "ENCHANTMENT" },
+    {
+      id: 7,
+      cardId: "TOY_372",
+      name: "匣中古神",
+      type: "SPELL",
+      text: "随机施放5个法术。"
+    },
+    { id: 8, cardId: "RESET_OUTCOME", name: "重置结果法术", type: "SPELL" }
   ]);
   const engine = new TrackerEngine({ cardDatabase, deckText });
   engine.setFriendlyController(1);
   return engine;
+}
+
+function seedResetSensitiveLifecycle(engine: TrackerEngine) {
+  engine.applyText([
+    "D 17:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+    ...createResetSensitiveLifecycleLines()
+  ].join("\n"));
+  expect(engine.getState().cardTracking!.friendly).toMatchObject({
+    used: { totalCount: 2 },
+    burned: { totalCount: 1 }
+  });
+  expect(findAncientOutcomeSections(engine)).toHaveLength(1);
+}
+
+function expectResetSensitiveLifecycleCanReplay(engine: TrackerEngine) {
+  engine.applyText(createResetSensitiveLifecycleLines().join("\n"));
+  expect(engine.getState().cardTracking!.friendly).toMatchObject({
+    used: { totalCount: 2 },
+    burned: { totalCount: 1 }
+  });
+  expect(findAncientOutcomeSections(engine)).toHaveLength(1);
+}
+
+function createResetSensitiveLifecycleLines() {
+  return [
+    "D 17:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]",
+    "D 17:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
+    ...createHandEntityLines(10, 1, 300),
+    "D 17:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=46 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD",
+    "D 17:00:30.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND",
+    "D 17:00:31.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1]",
+    "D 17:00:32.000 GameState.DebugPrintPower() - BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1]",
+    "D 17:00:33.000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=71 CardID=RESET_OUTCOME",
+    "D 17:00:34.000 GameState.DebugPrintPower() - BLOCK_END",
+    "D 17:00:35.000 GameState.DebugPrintPower() - BLOCK_END"
+  ];
+}
+
+function findAncientOutcomeSections(engine: TrackerEngine) {
+  const state = engine.getState();
+  return [...state.deck, ...(state.friendlyHand ?? [])]
+    .find((card) => card.cardId === "TOY_372")
+    ?.details?.cardOutcomeSections;
+}
+
+function expectSingleOutsideDatabaseUse(engine: TrackerEngine) {
+  expect(engine.getState().cardTracking!.friendly.used).toMatchObject({
+    totalCount: 1,
+    items: [
+      expect.objectContaining({
+        entityId: "91",
+        card: expect.objectContaining({ cardId: "OUTSIDE_DB", name: "数据库外卡牌" })
+      })
+    ]
+  });
 }
 
 function createHandEntityLines(count: number, controller: number, startId = 100) {
