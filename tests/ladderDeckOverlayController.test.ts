@@ -1,16 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { LadderDeckOverlayController, resolveLadderDeckMode } from "../src/main/ladderDeckOverlayController";
 import type { PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-function state(overrides: Partial<PublicTrackerState> = {}): PublicTrackerState {
-  return {
+function state(
+  overrides: Parameters<typeof createPublicTrackerState>[0] = {}
+): PublicTrackerState {
+  return createPublicTrackerState({
     status: "watching",
     deck: [],
-    opponentPlayed: [],
     events: [],
     summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
     ...overrides
-  };
+  });
 }
 
 describe("LadderDeckOverlayController", () => {

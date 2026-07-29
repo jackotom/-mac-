@@ -1,15 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/renderer/App";
-import type { CardLibraryResult, PublicTrackerState } from "../src/shared/types";
+import type { CardLibraryResult } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const trackerState: PublicTrackerState = {
+const trackerState = createPublicTrackerState({
   status: "missing-log",
   deck: [],
-  opponentPlayed: [],
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-};
+});
 
 const libraryResult: CardLibraryResult = {
   status: "ok",

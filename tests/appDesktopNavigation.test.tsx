@@ -2,15 +2,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/renderer/App";
 import { DEFAULT_TRACKER_SETTINGS } from "../src/main/trackerSettingsStore";
-import type { PublicTrackerState, TrackerSettings } from "../src/shared/types";
+import type { TrackerSettings } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const trackerState: PublicTrackerState = {
+const trackerState = createPublicTrackerState({
   status: "watching",
   deck: [],
-  opponentPlayed: [],
   events: [],
   summary: { totalCards: 30, remainingCards: 23, drawnCards: 7, opponentPlayedCount: 4 }
-};
+});
 
 const settings: TrackerSettings = {
   ...structuredClone(DEFAULT_TRACKER_SETTINGS)
@@ -38,7 +38,7 @@ describe("desktop navigation shell", () => {
     expect(screen.getByRole("article", { name: "游戏动态" })).toHaveTextContent("当前状态正在监听尚无进行中的对局");
 
     fireEvent.click(screen.getByRole("button", { name: "实时对局" }));
-    expect(screen.getByLabelText("当前对局概览")).toHaveTextContent("牌库剩余23 / 30已抽7对手已出4当前状态监听中");
+    expect(screen.getByLabelText("当前对局概览")).toHaveTextContent("牌库剩余23 / 30已抽7对手已出0当前状态监听中");
 
     fireEvent.click(screen.getByRole("button", { name: "软件设置" }));
     expect(await screen.findByRole("heading", { name: "设置", level: 1 })).toBeInTheDocument();

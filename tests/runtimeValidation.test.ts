@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { parsePublicTrackerState } from "../src/renderer/runtimeValidation";
 import {
   createEmptyCardTracking,
-  createLegacyPublicTrackerState,
   createPublicTrackerState
 } from "./fixtures/publicTrackerState";
 
@@ -57,16 +56,11 @@ function createDetailsWithOutcomeSections() {
 }
 
 describe("card tracking runtime validation", () => {
-  it("accepts legacy states during migration and keeps normal states complete", () => {
-    expect(parsePublicTrackerState(createLegacyPublicTrackerState()).cardTracking).toBeUndefined();
-    expect(parsePublicTrackerState(createPublicTrackerState()).cardTracking?.schemaVersion).toBe(1);
-  });
+  it("rejects states without required card tracking", () => {
+    const state = createPublicTrackerState() as unknown as Record<string, unknown>;
+    delete state.cardTracking;
 
-  it("rejects an explicit undefined card tracking override in the normal factory", () => {
-    expect(() => {
-      // @ts-expect-error 正常工厂在类型层也禁止显式传入 undefined。
-      createPublicTrackerState({ cardTracking: undefined });
-    }).toThrow(/cardTracking/);
+    expect(() => parsePublicTrackerState(state)).toThrow(/卡牌生命周期数据无效/);
   });
 
   it("rejects empty game keys and invalid card tracking overrides in the normal factory", () => {
@@ -109,7 +103,7 @@ describe("card tracking runtime validation", () => {
       .not.toBe(second.cardTracking.friendly.used.items);
   });
 
-  it("deeply clones all caller-owned state overrides in both factories", () => {
+  it("deeply clones all caller-owned state overrides", () => {
     const overrides = {
       deck: [{
         name: "火球术",
@@ -133,16 +127,12 @@ describe("card tracking runtime validation", () => {
       }
     };
 
-    const normal = createPublicTrackerState(overrides);
-    const legacy = createLegacyPublicTrackerState(overrides);
-
-    for (const state of [normal, legacy]) {
-      expect(state.deck).not.toBe(overrides.deck);
-      expect(state.deck[0]).not.toBe(overrides.deck[0]);
-      expect(state.events).not.toBe(overrides.events);
-      expect(state.events[0]).not.toBe(overrides.events[0]);
-      expect(state.summary).not.toBe(overrides.summary);
-    }
+    const state = createPublicTrackerState(overrides);
+    expect(state.deck).not.toBe(overrides.deck);
+    expect(state.deck[0]).not.toBe(overrides.deck[0]);
+    expect(state.events).not.toBe(overrides.events);
+    expect(state.events[0]).not.toBe(overrides.events[0]);
+    expect(state.summary).not.toBe(overrides.summary);
   });
 
   it("rejects known groups whose total differs from the known count", () => {

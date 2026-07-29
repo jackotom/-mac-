@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/renderer/App";
 import type { PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 const emptySummary = {
   totalCards: 0,
@@ -35,15 +36,14 @@ function installApi(state: PublicTrackerState) {
 
 describe("log repair guidance", () => {
   it("keeps a waiting watching state in tracking mode even when Player.log is the current path", async () => {
-    installApi({
+    installApi(createPublicTrackerState({
       status: "watching",
       gameActive: false,
       logPath: "/Users/test/Logs/Player.log",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: emptySummary
-    });
+    }));
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "实时对局" }));
@@ -54,14 +54,13 @@ describe("log repair guidance", () => {
   });
 
   it("shows one repair instruction and replaces it with visible restart guidance after repair", async () => {
-    const { ensureLogConfig } = installApi({
+    const { ensureLogConfig } = installApi(createPublicTrackerState({
       status: "missing-log",
       error: "没有找到可用的 Power.log。",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: emptySummary
-    });
+    }));
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "实时对局" }));

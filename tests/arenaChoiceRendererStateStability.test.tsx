@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const ratedState: PublicTrackerState = {
+const ratedState = createPublicTrackerState({
   status: "watching",
   deck: [],
-  opponentPlayed: [],
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
   arena: {
@@ -36,7 +36,7 @@ const ratedState: PublicTrackerState = {
     picks: [],
     deck: []
   }
-};
+});
 
 function installTrackerApi() {
   let emit!: (state: PublicTrackerState) => void;

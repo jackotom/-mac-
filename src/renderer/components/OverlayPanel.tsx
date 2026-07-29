@@ -1,11 +1,9 @@
-import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Hand, Layers3, Settings, X } from "lucide-react";
 import type { OverlayCardItem, OverlayPanelProps, OverlayStatusTone } from "../types";
 import { CardHoverPreview } from "./CardHoverPreview";
 import { CardTrackingGroups } from "./CardTrackingGroups";
 import { PublicMatchCounters } from "./PublicMatchCounters";
-
-const MAX_REASONABLE_OTHER_CARD_COUNT = 100;
 
 export function OverlayPanel({ view, className = "overlay-shell", style, onClose, onOpenSettings, isLoading = false, loadError }: OverlayPanelProps) {
   const needsLogRepair = view.status.tone === "offline";
@@ -67,88 +65,23 @@ export function OverlayPanel({ view, className = "overlay-shell", style, onClose
 }
 
 function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
-  const [activeCardId, setActiveCardId] = useState<string>();
   const deckIdentity = resolveDeckIdentity(view);
   const globalEffects = view.globalEffects ?? [];
-  const handCards = view.handCards ?? [];
-  const otherCards = view.otherCards ?? [];
-  const remainingDeck = view.deckIdentity?.status === "arena"
-    ? view.remainingDeck.filter((item) => !isUnresolvedCard(item))
-    : view.remainingDeck;
-  const identifiedRemainingDeck = remainingDeck.filter((item) => !isUnresolvedCard(item));
-  const activeCard = [...globalEffects, ...remainingDeck, ...handCards, ...otherCards]
-    .find((item) => item.id === activeCardId);
-  const handleActiveCardChange = (card: OverlayCardItem | undefined) => setActiveCardId(card?.id);
-  useEffect(() => {
-    if (activeCardId && !activeCard) {
-      setActiveCardId(undefined);
-    }
-  }, [activeCard, activeCardId]);
-  const handCount = countCards(handCards);
-  const otherCount = countCards(otherCards);
-  const remainingDeckCount = view.summary.remainingCards;
-  const visibleRemainingDeckCount = countCards(identifiedRemainingDeck);
-  const remainingDeckDifference = remainingDeckCount === undefined
-    ? 0
-    : remainingDeckCount - visibleRemainingDeckCount;
-  const isRecognizingDeck = /正在识别|识别中/u.test(
-    `${view.deckIdentity?.name ?? ""} ${view.deckIdentity?.detail ?? ""}`
-  );
-  const hasObservedFriendlyCards = handCount + otherCount > 0;
-  const isUnknownDeckCount =
-    remainingDeckCount === undefined ||
-    (
-      remainingDeckCount === 0 &&
-      deckIdentity.tone === "waiting" &&
-      remainingDeck.length === 0 &&
-      (hasObservedFriendlyCards || isRecognizingDeck || view.status.tone === "error")
-    );
-  const unknownDeckCountLabel = view.status.tone === "error"
-    ? "不可用"
-    : isRecognizingDeck
-      ? "识别中"
-      : "待识别";
-  const unknownDeckEmptyLabel = unknownDeckCountLabel === "不可用"
-    ? "牌库数据不可用"
-    : unknownDeckCountLabel === "识别中"
-      ? "正在识别牌库"
-      : "牌库数量待识别";
-  const hasMissingDeckDetails =
-    view.deckIdentity?.status !== "arena" &&
-    !isUnknownDeckCount &&
-    remainingDeckCount !== undefined &&
-    remainingDeckCount > 0 &&
-    remainingDeck.length === 0;
-  const hasImplausibleOtherCount = otherCount > MAX_REASONABLE_OTHER_CARD_COUNT;
-  const hasRemainingDeckDifference =
-    view.deckIdentity?.status !== "arena" &&
-    remainingDeckDifference !== 0;
-  const hasDataIntegrityWarning =
-    hasMissingDeckDetails ||
-    hasImplausibleOtherCount ||
-    hasRemainingDeckDifference;
-  const deckIntegrityDetail = hasRemainingDeckDifference && remainingDeckDifference > 0
-    ? `；还有 ${remainingDeckDifference} 张未识别或未显示`
-    : hasRemainingDeckDifference && remainingDeckDifference < 0
-      ? `；明细比摘要多 ${Math.abs(remainingDeckDifference)} 张`
-      : "";
+  const handCount = view.cardTracking.current.hand.countLabel;
+  const remainingDeckCount = view.cardTracking.current.deck.countLabel;
   const deckTotal = view.arena?.deckCount;
   const unresolvedCount = view.arena?.unresolvedCount ?? 0;
   const confirmedCount = view.arena?.confirmedCount ?? 0;
   const deckCountLabel = unresolvedCount > 0
     ? `已确认 ${confirmedCount}，总计 ${confirmedCount + unresolvedCount}`
     : deckTotal === undefined
-      ? isUnknownDeckCount
-        ? `牌库剩余${unknownDeckCountLabel}`
-        : "牌库剩余"
-      : `牌库剩余 ${remainingDeckCount ?? "待识别"}，总计 ${deckTotal}`;
+      ? `牌库剩余 ${remainingDeckCount}`
+      : `牌库剩余 ${remainingDeckCount}，总计 ${deckTotal}`;
   const deckCountText = unresolvedCount > 0
     ? `${confirmedCount}/${confirmedCount + unresolvedCount}`
     : deckTotal === undefined
-      ? isUnknownDeckCount
-        ? "?"
-        : String(remainingDeckCount)
-      : `${remainingDeckCount ?? "?"}/${deckTotal}`;
+      ? remainingDeckCount
+      : `${remainingDeckCount}/${deckTotal}`;
 
   return (
     <div className="overlay-normal">
@@ -171,59 +104,23 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
 
       <PublicMatchCounters side="friendly" counters={view.friendlyCounters} />
 
-      {hasDataIntegrityWarning ? (
-        <p
-          className="overlay-unresolved-warning overlay-data-integrity-warning"
-          role="alert"
-          aria-label="牌库数据异常"
-          title="当前计数仅供排障，不会被隐藏或自动改写"
-        >
-          牌库数据异常，正在重新识别{deckIntegrityDetail}
-        </p>
-      ) : unresolvedCount > 0 ? (
+      {unresolvedCount > 0 ? (
         <p className="overlay-unresolved-warning" role="status" aria-label="牌库完整度">
           {unresolvedCount} 张待识别
         </p>
       ) : null}
 
-      {view.cardTracking?.status === "ready" ? (
-        <CardTrackingGroups view={view.cardTracking} />
-      ) : (
-        <div className="overlay-card-groups">
+      <div className="overlay-card-groups">
+        {globalEffects.length > 0 ? (
           <CollapsibleCardGroup
             label="影响全局"
             count={countCards(globalEffects)}
             items={globalEffects}
             emptyLabel="暂无全局影响"
-            activeCard={activeCard}
-            onActiveCardChange={handleActiveCardChange}
           />
-          <CollapsibleCardGroup
-            label="牌库中"
-            count={isUnknownDeckCount ? unknownDeckCountLabel : remainingDeckCount ?? "待识别"}
-            items={remainingDeck}
-            emptyLabel={isUnknownDeckCount ? unknownDeckEmptyLabel : "牌库中暂无卡牌"}
-            activeCard={activeCard}
-            onActiveCardChange={handleActiveCardChange}
-          />
-          <CollapsibleCardGroup
-            label="手牌中"
-            count={handCount}
-            items={handCards}
-            emptyLabel="手牌中暂无卡牌"
-            activeCard={activeCard}
-            onActiveCardChange={handleActiveCardChange}
-          />
-          <CollapsibleCardGroup
-            label="其他"
-            count={otherCount}
-            items={otherCards}
-            emptyLabel="暂无其他卡牌"
-            activeCard={activeCard}
-            onActiveCardChange={handleActiveCardChange}
-          />
-        </div>
-      )}
+        ) : null}
+        <CardTrackingGroups view={view.cardTracking} />
+      </div>
     </div>
   );
 }

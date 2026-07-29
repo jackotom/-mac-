@@ -2,14 +2,14 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/renderer/App";
 import type { PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const trackerState: PublicTrackerState = {
+const trackerState = createPublicTrackerState({
   status: "missing-log",
   deck: [],
-  opponentPlayed: [],
   events: [],
   summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-};
+});
 
 const validHistory = {
   status: "ok",
@@ -73,21 +73,21 @@ describe("match history route", () => {
 
     render(<App />);
     expect(await screen.findByText("元素法")).toBeInTheDocument();
-    expect(getMatchHistory).toHaveBeenCalledTimes(1);
+    expect(getMatchHistory).toHaveBeenCalledTimes(2);
 
     fireEvent.click(await screen.findByRole("button", { name: "对局历史" }));
 
     expect(await screen.findByText("元素法")).toBeInTheDocument();
-    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(3));
     expect(screen.getByRole("button", { name: "打开卡牌数据库" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "首页" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "打开卡牌数据库" }));
     fireEvent.click(await screen.findByRole("button", { name: "首页" }));
-    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(4));
     fireEvent.click(screen.getByRole("button", { name: "对局历史" }));
     expect(await screen.findByText("元素法")).toBeInTheDocument();
-    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(5));
   });
 
   it("refreshes the home history after the active game ends", async () => {

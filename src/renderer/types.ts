@@ -171,14 +171,6 @@ export interface OverlayCardTrackingView {
   readonly secretSlots: readonly OverlaySecretSlot[];
 }
 
-export interface OverlayCardTrackingUnavailableView {
-  readonly status: "unready";
-  readonly side: "friendly" | "opponent";
-  readonly message: "生命周期数据未就绪";
-}
-
-export type OverlayCardTrackingState = OverlayCardTrackingView | OverlayCardTrackingUnavailableView;
-
 export interface OverlayStatusView {
   tone: OverlayStatusTone;
   label: string;
@@ -251,23 +243,13 @@ export interface OverlayPublicMatchCounters {
 }
 
 export interface OverlayPanelViewModel {
-  cardTracking?: OverlayCardTrackingState;
+  cardTracking: OverlayCardTrackingView;
   summary: OverlayDeckSummary;
   deckIdentity: OverlayDeckIdentity;
   remainingDeck: OverlayCardItem[];
-  handCards?: OverlayCardItem[];
-  otherCards?: OverlayCardItem[];
   recentDraws: OverlayCardItem[];
-  opponentRecentPlays: OverlayCardItem[];
   globalEffects?: OverlayCardItem[];
   opponentGlobalEffects?: OverlayCardItem[];
-  opponentDeck?: OverlayCardItem[];
-  opponentHand?: OverlayCardItem[];
-  opponentOther?: OverlayCardItem[];
-  opponentDeckCount?: number;
-  opponentHandCount?: number;
-  opponentUnknownHandCount?: number;
-  opponentSecrets?: OverlaySecretSlot[];
   boardAttack?: OverlayBoardAttack;
   friendlyCounters?: OverlayPublicMatchCounters;
   opponentCounters?: OverlayPublicMatchCounters;

@@ -1,21 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
 import type { PublicTrackerState } from "../src/shared/types";
-import { createEmptyCardTracking, createLegacyPublicTrackerState } from "./fixtures/publicTrackerState";
+import { createEmptyCardTracking, createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 describe("overlay view", () => {
-  it("marks missing lifecycle data as unready without translating legacy other cards", () => {
-    const state = createLegacyPublicTrackerState({
+  it("ignores legacy mixed card fields when lifecycle data is present", () => {
+    const state = createPublicTrackerState({
       friendlyOther: [{ name: "旧其他区猜测", count: 9 }]
     });
 
     const view = toOverlayPanelViewModel(state);
 
-    expect(view.cardTracking).toEqual({
-      status: "unready",
-      side: "friendly",
-      message: "生命周期数据未就绪"
-    });
+    expect(view.cardTracking).toMatchObject({ status: "ready", side: "friendly" });
+    expect(view).not.toHaveProperty("otherCards");
   });
 
   it("keeps opponent secret slots when candidate prediction is disabled", () => {
@@ -32,7 +29,7 @@ describe("overlay view", () => {
       candidates: [{ cardId: "SECRET_1", name: "候选奥秘", status: "possible" }]
     }];
     const state: PublicTrackerState = {
-      ...createLegacyPublicTrackerState(),
+      ...createPublicTrackerState(),
       cardTracking
     };
 
@@ -47,11 +44,12 @@ describe("overlay view", () => {
       current: { secret: { countLabel: "当前 1" } },
       secretSlots: [{ id: "secret-1", candidates: [] }]
     });
-    expect(view.opponentSecrets).toEqual([]);
+    expect(view).not.toHaveProperty("opponentSecrets");
   });
 
   it("maps an idle watcher to one green waiting-for-game message", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       gameActive: false,
       error: "已识别炉石，等待开局。",
@@ -70,6 +68,7 @@ describe("overlay view", () => {
 
   it("keeps a distinct watcher warning without turning the waiting state into a repair error", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       gameActive: false,
       error: "套牌识别暂不可用，但日志监听正常。",
@@ -88,6 +87,7 @@ describe("overlay view", () => {
 
   it("does not call an active Arena draft a waiting-for-game state", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       gameActive: false,
       deck: [],
@@ -116,6 +116,7 @@ describe("overlay view", () => {
 
   it("uses the backend waiting-for-game message without repeating its status prefix", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       gameActive: false,
       error: "已识别炉石，正在等待开局；开始对局后会自动连接 Power.log。",
@@ -134,6 +135,7 @@ describe("overlay view", () => {
 
   it("keeps a real missing log as an explicit repair state", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "missing-log",
       error: "缺少 Power.log。",
       deck: [],
@@ -149,60 +151,77 @@ describe("overlay view", () => {
     });
   });
 
-  it("maps opponent zones, aggregates hidden hand cards, and accepts missing global effects", () => {
-    const state: PublicTrackerState = {
+  it("maps opponent lifecycle zones and keeps global effects separate", () => {
+    const tracking = structuredClone(createEmptyCardTracking("game-opponent"));
+    const current = tracking.opponent.current as unknown as Record<string, unknown>;
+    current.deck = {
+      status: "partial",
+      knownCount: 1,
+      totalCount: 21,
+      cards: [{ cardKey: "known-deck", name: "已知牌库牌", count: 1 }]
+    };
+    current.hand = {
+      status: "partial",
+      knownCount: 2,
+      totalCount: 5,
+      cards: [{ cardKey: "known-hand", name: "已知手牌", count: 2 }]
+    };
+    const state = createPublicTrackerState({
       status: "watching",
-      deck: [],
       opponentDeck: [{ name: "已知牌库牌", count: 1 }],
       opponentHand: [{ name: "已知手牌", count: 2 }],
       opponentOther: [{ name: "已知其他牌", count: 1 }],
       opponentGlobalEffects: [{ name: "对手全局效果", count: 1 }],
       opponentDeckCount: 21,
       opponentHandCount: 5,
-      opponentPlayed: [],
-      events: [],
-      summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+      cardTracking: tracking
+    });
 
-    const view = toOverlayPanelViewModel(state);
+    const view = toOverlayPanelViewModel(state, { side: "opponent" });
 
-    expect(view.opponentDeck).toEqual([expect.objectContaining({ name: "已知牌库牌", count: 1 })]);
-    expect(view.opponentHand).toEqual([expect.objectContaining({ name: "已知手牌", count: 2 })]);
-    expect(view.opponentUnknownHandCount).toBe(3);
-    expect(view.opponentOther).toEqual([expect.objectContaining({ name: "已知其他牌", count: 1 })]);
-    expect(view.opponentDeckCount).toBe(21);
+    expect(view.cardTracking.current.deck).toMatchObject({ knownCount: 1, totalCount: 21 });
+    expect(view.cardTracking.current.hand).toMatchObject({ knownCount: 2, totalCount: 5 });
+    expect(view).not.toHaveProperty("opponentDeck");
+    expect(view).not.toHaveProperty("opponentHand");
+    expect(view).not.toHaveProperty("opponentOther");
     expect(view.globalEffects).toEqual([]);
     expect(view.opponentGlobalEffects).toEqual([expect.objectContaining({ name: "对手全局效果" })]);
   });
 
   it("keeps hidden opponent hand identities undisclosed while preserving their public count", () => {
-    const state: PublicTrackerState = {
+    const tracking = structuredClone(createEmptyCardTracking("game-hidden-hand"));
+    const current = tracking.opponent.current as unknown as Record<string, unknown>;
+    current.hand = {
+      status: "partial",
+      knownCount: 1,
+      totalCount: 3,
+      cards: [{ cardKey: "REVEALED_001", cardId: "REVEALED_001", name: "已揭示手牌", count: 1 }]
+    };
+    const state = createPublicTrackerState({
       status: "watching",
       gameActive: true,
-      deck: [],
       opponentHand: [
         { name: "未知卡牌", count: 2 },
         { name: "已揭示手牌", count: 1, cardId: "REVEALED_001" }
       ],
       opponentHandCount: 3,
-      opponentPlayed: [],
-      events: [],
-      summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+      cardTracking: tracking
+    });
 
-    const view = toOverlayPanelViewModel(state);
+    const view = toOverlayPanelViewModel(state, { side: "opponent" });
 
-    expect(view.opponentHand).toEqual([
+    expect(view.cardTracking.current.hand.cards).toEqual([
       expect.objectContaining({ name: "已揭示手牌", count: 1 })
     ]);
-    expect(view.opponentUnknownHandCount).toBe(2);
-    expect(view.opponentHand).not.toEqual(
+    expect(view.cardTracking.current.hand.totalCount).toBe(3);
+    expect(view.cardTracking.current.hand.cards).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "未知卡牌" })])
     );
   });
 
   it("maps global effects and clears them on the next reset state", () => {
     const base: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -221,6 +240,7 @@ describe("overlay view", () => {
 
   it("maps both players' public match counters without inventing missing values", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       gameActive: true,
       deck: [],
@@ -245,99 +265,9 @@ describe("overlay view", () => {
     });
   });
 
-  it("maps independent opponent secret slots and both board attack totals", () => {
-    const state = {
-      status: "watching",
-      deck: [],
-      opponentPlayed: [],
-      events: [],
-      summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
-      opponentSecrets: [
-        {
-          entityId: "secret-11",
-          candidates: [
-            { cardId: "EX1_287", name: "法术反制", status: "possible" },
-            { cardId: "EX1_289", name: "寒冰屏障", status: "excluded" }
-          ]
-        },
-        {
-          entityId: "secret-12",
-          candidates: [{ cardId: "EX1_294", name: "镜像实体", status: "possible" }]
-        }
-      ],
-      boardAttack: { friendly: 7, opponent: 12 }
-    } as unknown as PublicTrackerState;
-
-    const view = toOverlayPanelViewModel(state);
-
-    expect(view.boardAttack).toEqual({ friendly: 7, opponent: 12 });
-    expect(view.opponentSecrets).toEqual([
-      {
-        id: "secret-11",
-        label: "? 1",
-        candidates: [
-          { id: "EX1_287", name: "法术反制", status: "possible" },
-          { id: "EX1_289", name: "寒冰屏障", status: "excluded" }
-        ]
-      },
-      {
-        id: "secret-12",
-        label: "? 2",
-        candidates: [{ id: "EX1_294", name: "镜像实体", status: "possible" }]
-      }
-    ]);
-  });
-
-  it("builds mana-sorted deck, hand, and other groups for the compact overlay", () => {
-    const oneCostDetails = {
-      dbfId: 1,
-      name: "一费牌",
-      manaCost: 1,
-      cardType: "法术",
-      isSpell: true,
-      relatedCards: []
-    };
-    const fourCostDetails = {
-      dbfId: 4,
-      name: "四费牌",
-      manaCost: 4,
-      cardType: "随从",
-      isSpell: false,
-      relatedCards: []
-    };
-    const state = {
-      status: "watching",
-      deckName: "费用排序套牌",
-      autoMatchedDeckId: "mana-deck",
-      deck: [
-        { name: "四费牌", count: 2, remaining: 1, drawn: 1, played: 0, details: fourCostDetails },
-        { name: "一费牌", count: 2, remaining: 2, drawn: 0, played: 0, details: oneCostDetails }
-      ],
-      friendlyHand: [{ name: "四费牌", count: 1, details: fourCostDetails }],
-      friendlyOther: [{ name: "一费牌", count: 1, details: oneCostDetails }],
-      opponentPlayed: [],
-      events: [],
-      summary: { totalCards: 4, remainingCards: 3, drawnCards: 1, opponentPlayedCount: 0 }
-    } as PublicTrackerState & {
-      friendlyHand: Array<{ name: string; count: number; details: typeof fourCostDetails }>;
-      friendlyOther: Array<{ name: string; count: number; details: typeof oneCostDetails }>;
-    };
-
-    const view = toOverlayPanelViewModel(state) as ReturnType<typeof toOverlayPanelViewModel> & {
-      handCards?: Array<{ name: string; count?: number; cost?: number }>;
-      otherCards?: Array<{ name: string; count?: number; cost?: number }>;
-    };
-
-    expect(view.remainingDeck.map((card) => [card.name, card.cost])).toEqual([
-      ["一费牌", 1],
-      ["四费牌", 4]
-    ]);
-    expect(view.handCards).toEqual([expect.objectContaining({ name: "四费牌", count: 1, cost: 4 })]);
-    expect(view.otherCards).toEqual([expect.objectContaining({ name: "一费牌", count: 1, cost: 1 })]);
-  });
-
   it("keeps a card row identity stable when an earlier live row disappears", () => {
     const base: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       gameActive: true,
       deckName: "稳定悬停测试套牌",
@@ -365,6 +295,7 @@ describe("overlay view", () => {
 
   it("exposes the automatically matched deck identity", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deckName: "奥术法师",
       autoMatchedDeckId: "collection-arcane-mage",
@@ -385,6 +316,7 @@ describe("overlay view", () => {
 
   it("exposes a waiting deck identity before a match is found", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -403,6 +335,7 @@ describe("overlay view", () => {
 
   it("shows a Standard recognition state without stale deck rows", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       constructedScreenMode: "standard",
       deck: [{ name: "旧标准卡牌", count: 2, remaining: 2, drawn: 0, played: 0 }],
@@ -421,11 +354,11 @@ describe("overlay view", () => {
     expect(view.summary).toEqual({ totalCards: 0, remainingCards: 0, drawnCards: 0 });
     expect(view.remainingDeck).toEqual([]);
     expect(view.recentDraws).toEqual([]);
-    expect(view.opponentRecentPlays).toEqual([]);
   });
 
   it("shows the screen permission error in the constructed waiting state", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       constructedScreenMode: "standard",
       deck: [],
@@ -446,6 +379,7 @@ describe("overlay view", () => {
 
   it("shows a Wild recognition state without stale deck rows", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       constructedScreenMode: "wild",
       deck: [{ name: "旧狂野卡牌", count: 2, remaining: 1, drawn: 1, played: 0 }],
@@ -464,7 +398,6 @@ describe("overlay view", () => {
     expect(view.summary).toEqual({ totalCards: 0, remainingCards: 0, drawnCards: 0 });
     expect(view.remainingDeck).toEqual([]);
     expect(view.recentDraws).toEqual([]);
-    expect(view.opponentRecentPlays).toEqual([]);
   });
 
   it("keeps every remaining deck row for the scrollable overlay list", () => {
@@ -476,6 +409,7 @@ describe("overlay view", () => {
       played: 0
     }));
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck,
       opponentPlayed: [],
@@ -487,8 +421,9 @@ describe("overlay view", () => {
     expect(toOverlayPanelViewModel(state, { maxDeckRows: 40 }).remainingDeck).toHaveLength(18);
   });
 
-  it("keeps draw tracking and opponent aggregation independent from the recent-draw display", () => {
+  it("keeps draw tracking independent from lifecycle history", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [{ name: "火球术", count: 2, remaining: 1, drawn: 1, played: 0, cardId: "CS2_029" }],
       opponentPlayed: [{ name: "伺机待发", count: 0, remaining: 0, drawn: 0, played: 2, cardId: "EX1_145" }],
@@ -503,33 +438,12 @@ describe("overlay view", () => {
 
     expect(view.summary).toEqual({ totalCards: 2, remainingCards: 1, drawnCards: 1 });
     expect(view.remainingDeck).toEqual([expect.objectContaining({ name: "火球术", count: 1, detail: "剩 1/2" })]);
-    expect(view.opponentRecentPlays).toEqual([
-      expect.objectContaining({ name: "伺机待发", count: 2, detail: "本局已出" })
-    ]);
-  });
-
-  it("uses aggregated opponent cards and omits log-field labels from the opponent window", () => {
-    const state: PublicTrackerState = {
-      status: "watching",
-      deck: [],
-      opponentPlayed: [
-        { name: "伺机待发", count: 0, remaining: 0, drawn: 0, played: 2, cardId: "EX1_145" },
-        { name: "Cost - 2", count: 0, remaining: 0, drawn: 0, played: 3 }
-      ],
-      events: [
-        { id: "event-1", kind: "opponent-play", player: "opponent", at: "2026-07-11T09:30:29.000Z", cardName: "伺机待发" },
-        { id: "event-2", kind: "opponent-play", player: "opponent", at: "2026-07-11T09:30:29.000Z", cardName: "Cost - 2" }
-      ],
-      summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 5 }
-    };
-
-    expect(toOverlayPanelViewModel(state, { maxRecentRows: 40 }).opponentRecentPlays).toEqual([
-      expect.objectContaining({ name: "伺机待发", count: 2, detail: "本局已出" })
-    ]);
+    expect(view).not.toHaveProperty("opponentRecentPlays");
   });
 
   it("identifies an active Arena run as the Arena deck", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -556,6 +470,7 @@ describe("overlay view", () => {
 
   it("does not expose an incomplete Arena choice frame to the overlay", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -586,6 +501,7 @@ describe("overlay view", () => {
 
   it("exposes Arena progress, scored choices, and the generated deck", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -634,6 +550,7 @@ describe("overlay view", () => {
 
   it("exposes Arena deck stats before a match and strips them once play starts", () => {
     const base: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -671,6 +588,7 @@ describe("overlay view", () => {
       deckImpact: index - 17
     }));
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -706,6 +624,7 @@ describe("overlay view", () => {
       relatedCards: []
     });
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -736,6 +655,7 @@ describe("overlay view", () => {
 
   it("keeps scoreless legendary-team choices and exposes all Firestone rates", () => {
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deck: [],
       opponentPlayed: [],
@@ -802,6 +722,7 @@ describe("overlay view", () => {
       ? [{ name: "不应渲染的占位", count: unresolvedCount, unresolved: true as const }]
       : [];
     const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
       status: "watching",
       deckName: "竞技场牌库",
       deck: [

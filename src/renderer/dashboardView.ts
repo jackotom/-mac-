@@ -244,9 +244,9 @@ function toDeckCard(card: CardTrackerRow, index: number): DashboardDeckCardView 
 
 export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardOpponentView {
   const tracking = tracker.cardTracking;
-  const opponent = tracking?.opponent;
-  const detailsByCardKey = tracking?.detailsByCardKey;
-  const playedCards = opponent?.used.items.map((item) => {
+  const opponent = tracking.opponent;
+  const detailsByCardKey = tracking.detailsByCardKey;
+  const playedCards = opponent.used.items.map((item) => {
     const card = item.card;
     return {
       id: item.id,
@@ -254,26 +254,24 @@ export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardO
       cardId: card?.cardId,
       count: 1,
       turn: "?" as const,
-      details: card ? detailsByCardKey?.[card.cardKey] : undefined
+      details: card ? detailsByCardKey[card.cardKey] : undefined
     };
-  }) ?? [];
-  const deckCount = toZoneCount(opponent?.current.deck);
-  const handCount = toZoneCount(opponent?.current.hand);
-  const secretCount = toZoneCount(opponent?.current.secret);
+  });
+  const deckCount = toZoneCount(opponent.current.deck);
+  const handCount = toZoneCount(opponent.current.hand);
+  const secretCount = toZoneCount(opponent.current.secret);
   const hasOpponentData = Boolean(
-    tracking && (
-      tracker.gameActive ||
-      opponent?.used.totalCount ||
-      deckCount !== undefined ||
-      handCount !== undefined ||
-      secretCount !== undefined
-    )
+    tracker.gameActive ||
+    opponent.used.totalCount ||
+    deckCount !== undefined ||
+    handCount !== undefined ||
+    secretCount !== undefined
   );
 
   return {
     state: hasOpponentData ? "ready" : "empty",
     message: hasOpponentData ? undefined : "尚无对手的已确认数据。",
-    playedCount: opponent?.used.totalCount ?? 0,
+    playedCount: opponent.used.totalCount,
     deckCount,
     handCount,
     secretCount,

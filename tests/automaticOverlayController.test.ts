@@ -5,17 +5,19 @@ import {
   type AutomaticOverlayHost
 } from "../src/main/automaticOverlayController";
 import type { PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-function makeState(overrides: Partial<PublicTrackerState> = {}): PublicTrackerState {
-  return {
+function makeState(
+  overrides: Parameters<typeof createPublicTrackerState>[0] = {}
+): PublicTrackerState {
+  return createPublicTrackerState({
     status: "watching",
     trackerMode: "ladder",
     deck: [],
-    opponentPlayed: [],
     events: [],
     summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
     ...overrides
-  };
+  });
 }
 
 function makeHost(initialState: PublicTrackerState) {

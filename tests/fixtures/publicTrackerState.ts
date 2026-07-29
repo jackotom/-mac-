@@ -6,20 +6,9 @@ import type {
 } from "../../src/shared/types";
 import { parsePublicTrackerState } from "../../src/renderer/runtimeValidation";
 
-type TrackerStateOverrides = Omit<Partial<PublicTrackerState>, "cardTracking"> & {
+type TrackerStateOverrides = Partial<Omit<PublicTrackerState, "cardTracking">> & {
   readonly cardTracking?: PublicCardTracking;
 };
-
-type CompletePublicTrackerState = PublicTrackerState & {
-  readonly cardTracking: PublicCardTracking;
-};
-
-type RejectExplicitUndefinedCardTracking<T> =
-  "cardTracking" extends keyof T
-    ? T extends { readonly cardTracking: infer Value }
-      ? [Value] extends [undefined] ? never : unknown
-      : unknown
-    : unknown;
 
 function createKnownEmptyZone(): PublicCardZoneGroup {
   return {
@@ -76,30 +65,14 @@ function createBaseTrackerState(): PublicTrackerState {
       remainingCards: 0,
       drawnCards: 0,
       opponentPlayedCount: 0
-    }
+    },
+    cardTracking: createEmptyCardTracking("no-game")
   };
 }
 
-export function createLegacyPublicTrackerState(
-  overrides: Omit<Partial<PublicTrackerState>, "cardTracking"> = {}
-): PublicTrackerState {
-  return structuredClone({
-    ...createBaseTrackerState(),
-    ...overrides
-  });
-}
-
-export function createPublicTrackerState(): CompletePublicTrackerState;
-export function createPublicTrackerState<const T extends TrackerStateOverrides>(
-  overrides: T & RejectExplicitUndefinedCardTracking<T>
-): CompletePublicTrackerState;
 export function createPublicTrackerState(
   overrides: TrackerStateOverrides = {}
-): CompletePublicTrackerState {
-  if (Object.prototype.hasOwnProperty.call(overrides, "cardTracking") &&
-      overrides.cardTracking === undefined) {
-    throw new Error("cardTracking 不能显式设为 undefined");
-  }
+): PublicTrackerState {
   const { cardTracking, ...rest } = overrides;
   const state = structuredClone({
     ...createBaseTrackerState(),
@@ -109,7 +82,7 @@ export function createPublicTrackerState(
       : cardTracking
   });
   try {
-    return parsePublicTrackerState(state) as CompletePublicTrackerState;
+    return parsePublicTrackerState(state);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`cardTracking 或状态覆盖无效：${reason}`);

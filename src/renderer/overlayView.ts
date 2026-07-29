@@ -40,15 +40,9 @@ export function toOverlayPanelViewModel(
   const maxRecentRows = normalizeLimit(options.maxRecentRows, defaultMaxRecentRows);
   const side = options.side ?? "friendly";
   const showSecretCandidates = options.showSecretCandidates ?? true;
-  const cardTracking = state.cardTracking
-    ? toCardTrackingView(state.cardTracking, side, {
-        showSecretCandidates
-      })
-    : {
-        status: "unready" as const,
-        side,
-        message: "生命周期数据未就绪" as const
-      };
+  const cardTracking = toCardTrackingView(state.cardTracking, side, {
+    showSecretCandidates
+  });
   const recentEvents = [...state.events].reverse();
   const logIssueStatus = toLogIssueStatus(state);
   const isRecognizingConstructedDeck = Boolean(state.constructedScreenMode && !state.autoMatchedDeckId);
@@ -77,10 +71,6 @@ export function toOverlayPanelViewModel(
       }
     : undefined;
   const arena = hasActiveArena && state.arena && !logIssueStatus ? toArenaView(state.arena, maxDeckRows) : undefined;
-  const visibleOpponentHand = (state.opponentHand ?? []).filter((card) => !isHiddenOpponentHandCard(card));
-  const visibleOpponentHandCount = countZoneCards(visibleOpponentHand);
-  const opponentHandCount = state.opponentHandCount ?? countZoneCards(state.opponentHand ?? []);
-
   return {
     cardTracking,
     summary: {
@@ -94,29 +84,11 @@ export function toOverlayPanelViewModel(
     },
     deckIdentity: toDeckIdentity(state),
     remainingDeck: shouldClearTrackedData ? [] : toRemainingDeckItems(state.deck, maxDeckRows),
-    handCards: shouldClearTrackedData ? [] : toZoneCardItems(state.friendlyHand ?? [], "hand", maxDeckRows),
-    otherCards: shouldClearTrackedData ? [] : toZoneCardItems(state.friendlyOther ?? [], "other", maxDeckRows),
     recentDraws: shouldClearTrackedData
       ? []
       : recentEvents.filter(isFriendlyDraw).slice(0, maxRecentRows).map((event) => toDrawItem(event, state.deck)),
-    opponentRecentPlays: shouldClearTrackedData ? [] : toOpponentPlayedItems(state.opponentPlayed, maxRecentRows),
     globalEffects: shouldClearTrackedData ? [] : toZoneCardItems(state.globalEffects ?? [], "global", maxDeckRows),
     opponentGlobalEffects: shouldClearTrackedData ? [] : toZoneCardItems(state.opponentGlobalEffects ?? [], "opponent-global", maxDeckRows),
-    opponentDeck: shouldClearTrackedData ? [] : toZoneCardItems(state.opponentDeck ?? [], "opponent-deck", maxDeckRows),
-    opponentHand: shouldClearTrackedData ? [] : toZoneCardItems(visibleOpponentHand, "opponent-hand", maxDeckRows),
-    opponentOther: shouldClearTrackedData ? [] : toZoneCardItems(state.opponentOther ?? [], "opponent-other", maxDeckRows),
-    opponentDeckCount: shouldClearTrackedData ? 0 : state.opponentDeckCount ?? countZoneCards(state.opponentDeck ?? []),
-    opponentHandCount: shouldClearTrackedData ? 0 : opponentHandCount,
-    opponentUnknownHandCount: shouldClearTrackedData
-      ? 0
-      : Math.max(0, opponentHandCount - visibleOpponentHandCount),
-    opponentSecrets: shouldClearTrackedData
-      ? []
-      : cardTracking.status === "ready" && cardTracking.side === "opponent" && showSecretCandidates
-        ? [...cardTracking.secretSlots]
-        : cardTracking.status === "ready" && cardTracking.side === "opponent"
-          ? []
-          : toOpponentSecretSlots(state.opponentSecrets ?? []),
     boardAttack: shouldClearTrackedData ? { friendly: 0, opponent: 0 } : state.boardAttack ?? { friendly: 0, opponent: 0 },
     friendlyCounters: shouldClearTrackedData ? undefined : state.matchCounters?.friendly,
     opponentCounters: shouldClearTrackedData ? undefined : state.matchCounters?.opponent,
@@ -131,18 +103,6 @@ export function toOverlayPanelViewModel(
     },
     arena
   };
-}
-
-function toOpponentSecretSlots(slots: NonNullable<PublicTrackerState["opponentSecrets"]>) {
-  return slots.map((slot, slotIndex) => ({
-    id: slot.entityId,
-    label: `? ${slotIndex + 1}`,
-    candidates: slot.candidates.map((candidate) => ({
-      id: candidate.cardId,
-      name: candidate.name,
-      status: candidate.status
-    }))
-  }));
 }
 
 function toDeckIdentity(state: PublicTrackerState): OverlayDeckIdentity {
@@ -304,14 +264,6 @@ function toZoneCardItems(rows: readonly TrackerZoneCard[], prefix: string, maxRo
     }));
 }
 
-function countZoneCards(rows: readonly TrackerZoneCard[]): number {
-  return rows.reduce((total, row) => total + row.count, 0);
-}
-
-function isHiddenOpponentHandCard(card: TrackerZoneCard): boolean {
-  return /^(?:未知卡牌|未公开|unknown (?:card|entity))$/iu.test(card.name.trim());
-}
-
 function compareCardsByMana(
   left: Pick<CardTrackerRow | DeckCard | TrackerZoneCard, "name" | "details">,
   right: Pick<CardTrackerRow | DeckCard | TrackerZoneCard, "name" | "details">
@@ -336,30 +288,6 @@ function toDrawItem(event: TrackerEvent, rows: readonly CardTrackerRow[]): Overl
     detail: `抽牌 ${formatTimeLabel(event.at)}`,
     details: findDetails(rows, event)
   };
-}
-
-function toOpponentPlayedItems(rows: readonly CardTrackerRow[], maxRows: number): OverlayCardItem[] {
-  return rows
-    .filter((row) => row.played > 0 && isDisplayableOpponentCardName(row.name))
-    .sort((left, right) => right.played - left.played || left.name.localeCompare(right.name, "zh-CN"))
-    .slice(0, maxRows)
-    .map((row) => ({
-      id: `opponent-${stableCardIdentity(row)}`,
-      name: row.name,
-      count: row.played,
-      detail: "本局已出",
-      thumbnailUrl: row.details?.cropImageUrl ?? row.details?.imageUrl,
-      details: row.details
-    }));
-}
-
-function isDisplayableOpponentCardName(value: string): boolean {
-  const name = value.trim();
-  if (!name) {
-    return false;
-  }
-
-  return !/^(?:cost|attack|health|durability)\s*[-:]?\s*\d+$/i.test(name);
 }
 
 function findDetails(rows: readonly CardTrackerRow[], event: TrackerEvent) {

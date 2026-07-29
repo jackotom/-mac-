@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEmptyCardTracking, createLegacyPublicTrackerState } from "./fixtures/publicTrackerState";
+import { createEmptyCardTracking, createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 afterEach(() => {
   window.history.replaceState({}, "", "/");
@@ -21,10 +21,11 @@ describe("tracker overlay preload boundary", () => {
       entityId: "secret-1",
       candidates: [{ cardId: "SECRET_1", name: "候选奥秘", status: "possible" }]
     }];
-    const state = {
-      ...createLegacyPublicTrackerState({ status: "watching", gameActive: true }),
+    const state = createPublicTrackerState({
+      status: "watching",
+      gameActive: true,
       cardTracking
-    };
+    });
     window.history.replaceState({}, "", "/?opponent-overlay=1&show-secret-prediction=0");
     window.hearthstoneTracker = {
       getState: vi.fn(async () => state),
@@ -40,19 +41,15 @@ describe("tracker overlay preload boundary", () => {
   });
 
   it("renders with the minimal tracker-overlay API", async () => {
-    const state = {
+    const state = createPublicTrackerState({
       status: "watching",
       gameActive: false,
       deckName: "测试牌库",
       deck: [],
-      friendlyHand: [],
-      friendlyOther: [],
-      opponentPlayed: [],
-      opponentSecrets: [],
       events: [],
       summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
       lastUpdated: new Date().toISOString()
-    };
+    });
     window.history.replaceState({}, "", "/?overlay=1");
     window.hearthstoneTracker = {
       getState: vi.fn(async () => state),
@@ -71,13 +68,12 @@ describe("tracker overlay preload boundary", () => {
   });
 
   it("closes through the dedicated friendly-overlay capability without a toggle API", async () => {
-    const state = {
+    const state = createPublicTrackerState({
       status: "watching",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+    });
     const closeFriendlyOverlay = vi.fn(async () => undefined);
     window.history.replaceState({}, "", "/?overlay=1");
     window.hearthstoneTracker = {
@@ -94,13 +90,12 @@ describe("tracker overlay preload boundary", () => {
   });
 
   it("clears a rejected live-state error after the next valid update", async () => {
-    const validState = {
+    const validState = createPublicTrackerState({
       status: "watching",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+    });
     let emit!: (state: unknown) => void;
     window.history.replaceState({}, "", "/?overlay=1");
     window.hearthstoneTracker = {
@@ -139,17 +134,14 @@ describe("tracker overlay preload boundary", () => {
   });
 
   it("renders hand and other cards from a live tracker update", async () => {
-    const initialState = {
+    const initialState = createPublicTrackerState({
       status: "watching",
       deckName: "法术法师",
       autoMatchedDeckId: "spell-mage",
       deck: [],
-      friendlyHand: [],
-      friendlyOther: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 30, remainingCards: 25, drawnCards: 5, opponentPlayedCount: 0 }
-    };
+    });
     let emit!: (state: unknown) => void;
     window.history.replaceState({}, "", "/?overlay=1");
     window.hearthstoneTracker = {
@@ -165,33 +157,45 @@ describe("tracker overlay preload boundary", () => {
     const { default: App } = await import("../src/renderer/App.js");
 
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /手牌中.*0/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /手牌.*0/ })).toBeInTheDocument());
 
+    const updatedTracking = createEmptyCardTracking("live-update");
+    const friendlyCurrent = updatedTracking.friendly.current as unknown as Record<string, unknown>;
+    friendlyCurrent.hand = {
+      status: "known",
+      knownCount: 3,
+      totalCount: 3,
+      cards: [
+        { cardKey: "流水档案管理员", name: "流水档案管理员", count: 2 },
+        { cardKey: "霜崖十字绣", name: "霜崖十字绣", count: 1 }
+      ]
+    };
+    friendlyCurrent.graveyard = {
+      status: "known",
+      knownCount: 1,
+      totalCount: 1,
+      cards: [{ cardKey: "烈焰风暴", name: "烈焰风暴", count: 1 }]
+    };
     act(() => emit({
       ...initialState,
-      friendlyHand: [
-        { name: "流水档案管理员", count: 2 },
-        { name: "霜崖十字绣", count: 1 }
-      ],
-      friendlyOther: [{ name: "烈焰风暴", count: 1 }]
+      cardTracking: updatedTracking
     }));
 
-    expect(await screen.findByRole("button", { name: /手牌中.*3/ })).toHaveTextContent("手牌中 (3)");
+    expect(await screen.findByRole("button", { name: /手牌.*3/ })).toHaveTextContent("手牌 (3)");
     expect(screen.getByText("流水档案管理员")).toBeInTheDocument();
     expect(screen.getByText("霜崖十字绣")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /其他.*1/ })).toHaveTextContent("其他 (1)");
+    fireEvent.click(screen.getByRole("button", { name: /墓地.*1/ }));
     expect(screen.getByText("烈焰风暴")).toBeInTheDocument();
   });
 
   it("does not render an unresolved tracker row as a real card in the main deck", async () => {
-    const state = {
+    const state = createPublicTrackerState({
       status: "watching",
       deckName: "竞技场牌库",
       deck: [
         { name: "真实竞技场牌", count: 24, remaining: 24, drawn: 0, played: 0 },
         { name: "未解析竞技场牌", count: 6, remaining: 6, drawn: 0, played: 0, unresolved: true }
       ],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 30, remainingCards: 30, drawnCards: 0, opponentPlayedCount: 0 },
       arena: {
@@ -202,7 +206,7 @@ describe("tracker overlay preload boundary", () => {
         picks: [],
         deck: [{ name: "真实竞技场牌", count: 24 }]
       }
-    };
+    });
     window.hearthstoneTracker = {
       discoverLogs: vi.fn(async () => []),
       getState: vi.fn(async () => state),
@@ -218,7 +222,7 @@ describe("tracker overlay preload boundary", () => {
   });
 
   it("renders an unresolved inserted-card placeholder in a constructed deck", async () => {
-    const state = {
+    const state = createPublicTrackerState({
       status: "watching",
       gameActive: true,
       deckName: "测试套牌",
@@ -227,10 +231,9 @@ describe("tracker overlay preload boundary", () => {
         { name: "原始牌", count: 1, remaining: 1, drawn: 0, played: 0 },
         { name: "未知塞入牌", count: 2, remaining: 2, drawn: 0, played: 0, unresolved: true }
       ],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 3, remainingCards: 3, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+    });
     window.hearthstoneTracker = {
       discoverLogs: vi.fn(async () => []),
       getState: vi.fn(async () => state),

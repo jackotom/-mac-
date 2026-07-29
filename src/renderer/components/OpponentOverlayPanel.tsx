@@ -15,18 +15,7 @@ export function OpponentOverlayPanel({
   loadError
 }: OpponentOverlayPanelProps) {
   const needsLogRepair = view.status.tone === "offline";
-  const secretCount = view.cardTracking?.status === "ready"
-    ? view.cardTracking.secretSlots.length
-    : view.opponentSecrets?.length ?? 0;
-  const opponentDeck = view.opponentDeck ?? [];
-  const knownHand = view.opponentHand ?? [];
-  const unknownHandCount = view.opponentUnknownHandCount ??
-    Math.max(0, (view.opponentHandCount ?? countCards(knownHand)) - countCards(knownHand));
-  const opponentHand = unknownHandCount > 0
-    ? [...knownHand, ...createUndisclosedHandSlots(unknownHandCount)]
-    : knownHand;
-  const opponentOther = mergeCards(view.opponentOther ?? [], view.opponentRecentPlays);
-  const otherCount = countCards(opponentOther) + secretCount;
+  const secretCount = view.cardTracking.secretSlots.length;
 
   if (isCollapsed) {
     return (
@@ -73,61 +62,23 @@ export function OpponentOverlayPanel({
           <strong>{view.status.label}</strong>
           <p>先点修复日志，完全退出并重新打开炉石，然后进入一局。</p>
         </section>
-      ) : view.cardTracking?.status === "ready" ? (
+      ) : (
         <>
           <section className="opponent-tracking-summary" aria-label="对手概览">
             <span>牌库 <strong>{view.cardTracking.current.deck.countLabel}</strong></span>
             <span>手牌 <strong>{view.cardTracking.current.hand.countLabel}</strong></span>
             <span>奥秘 <strong>{view.cardTracking.secretSlots.length}</strong></span>
           </section>
-          <CardTrackingGroups view={view.cardTracking} opponent />
-        </>
-      ) : (
-        <>
           <PublicMatchCounters side="opponent" counters={view.opponentCounters} />
-          <div className="overlay-card-groups opponent-overlay-card-groups">
+          {view.opponentGlobalEffects?.length ? (
             <CollapsibleCardGroup
               label="影响全局"
-              count={countCards(view.opponentGlobalEffects ?? [])}
-              items={view.opponentGlobalEffects ?? []}
+              count={countCards(view.opponentGlobalEffects)}
+              items={view.opponentGlobalEffects}
               emptyLabel="暂无全局影响"
             />
-            <CollapsibleCardGroup
-              label="牌库中"
-              count={view.opponentDeckCount ?? countCards(opponentDeck)}
-              items={opponentDeck}
-              emptyLabel="牌库中暂无已知卡牌"
-            />
-            <CollapsibleCardGroup
-              label="手牌中"
-              count={view.opponentHandCount ?? countCards(opponentHand)}
-              items={opponentHand}
-              emptyLabel="手牌中暂无卡牌"
-            />
-            <CollapsibleCardGroup label="其他" count={otherCount} items={opponentOther} emptyLabel="暂无其他卡牌">
-              {view.opponentSecrets?.length ? (
-                <section className="opponent-secret-section" aria-label="对手奥秘">
-                  {view.opponentSecrets.map((secret, index) => (
-                    <section
-                      key={secret.id}
-                      className="opponent-secret-slot"
-                      aria-label={`奥秘 ${index + 1} 候选`}
-                    >
-                      <strong className="opponent-secret-slot-label">奥秘 {index + 1}</strong>
-                      <ul className="opponent-secret-candidates" aria-label={`${secret.label} 候选奥秘`}>
-                        {secret.candidates.map((candidate) => (
-                          <li key={candidate.id} className={`secret-candidate-${candidate.status}`}>
-                            <strong>{candidate.name}</strong>
-                            <span>{candidate.status === "excluded" ? "已排除" : "可能"}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  ))}
-                </section>
-              ) : null}
-            </CollapsibleCardGroup>
-          </div>
+          ) : null}
+          <CardTrackingGroups view={view.cardTracking} opponent />
         </>
       )}
     </section>
@@ -144,19 +95,6 @@ function StatusPill({ tone, label }: { tone: OverlayStatusTone; label: string })
 
 function countCards(items: readonly OverlayCardItem[]): number {
   return items.reduce((total, item) => total + (item.count ?? 1), 0);
-}
-
-function createUndisclosedHandSlots(count: number): OverlayCardItem[] {
-  return Array.from({ length: count }, (_value, index) => ({
-    id: `opponent-undisclosed-hand-${index + 1}`,
-    name: "未公开",
-    count: 1
-  }));
-}
-
-function mergeCards(current: readonly OverlayCardItem[], played: readonly OverlayCardItem[]): OverlayCardItem[] {
-  const currentNames = new Set(current.map((item) => item.name.trim()));
-  return [...current, ...played.filter((item) => !currentNames.has(item.name.trim()))];
 }
 
 const statusToneStyles: Record<OverlayStatusTone, CSSProperties> = {

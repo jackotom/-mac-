@@ -1,79 +1,36 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { OverlayPanel } from "../src/renderer/components/OverlayPanel";
-import type { OverlayPanelViewModel } from "../src/renderer/types";
+import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
+import { createEmptyCardTracking, createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const inconsistentView: OverlayPanelViewModel = {
-  summary: { totalCards: 30, remainingCards: 18, drawnCards: 12 },
-  deckIdentity: { name: "当前套牌", status: "automatic", detail: "已自动识别当前对局" },
-  remainingDeck: [],
-  handCards: [{ id: "hand-1", name: "已知手牌", count: 1 }],
-  otherCards: [{ id: "other-1", name: "异常区域记录", count: 967 }],
-  recentDraws: [],
-  opponentRecentPlays: [],
-  status: { tone: "tracking", label: "监听中", detail: "同步中", updatedAtLabel: "刚刚" }
-};
-
-describe("OverlayPanel inconsistent count states", () => {
-  it("warns without hiding or rewriting suspicious deck and other-zone counts", () => {
-    const { rerender } = render(<OverlayPanel view={inconsistentView} />);
-
-    expect(screen.getByRole("alert", { name: "牌库数据异常" })).toHaveTextContent("牌库数据异常，正在重新识别");
-    expect(screen.getByRole("button", { name: /牌库中.*18/ })).toHaveTextContent("牌库中 (18)");
-    expect(screen.getByRole("button", { name: /手牌中.*1/ })).toHaveTextContent("手牌中 (1)");
-    expect(screen.getByRole("button", { name: /其他.*967/ })).toHaveTextContent("其他 (967)");
-
-    const otherGroup = screen.getByRole("region", { name: /其他.*967/ });
-    expect(within(otherGroup).getByText("异常区域记录")).toBeInTheDocument();
-    expect(within(otherGroup).getByLabelText("数量 967")).toHaveTextContent("967");
-
-    rerender(
-      <OverlayPanel
-        view={{
-          ...inconsistentView,
-          otherCards: [{ id: "other-1", name: "异常区域记录", count: 5696 }]
-        }}
-      />
-    );
-
-    expect(screen.getByRole("alert", { name: "牌库数据异常" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /手牌中.*1/ })).toHaveTextContent("手牌中 (1)");
-    expect(screen.getByRole("button", { name: /其他.*5696/ })).toHaveTextContent("其他 (5696)");
-  });
-
-  it("does not warn for a valid empty deck, an arena deck, or a reasonable other-zone count", () => {
-    const validEmptyView: OverlayPanelViewModel = {
-      ...inconsistentView,
-      summary: { totalCards: 0, remainingCards: 0, drawnCards: 0 },
-      remainingDeck: [],
-      handCards: [],
-      otherCards: []
+describe("OverlayPanel lifecycle counts", () => {
+  it("uses validated lifecycle counts instead of conflicting legacy summaries", () => {
+    const tracking = createEmptyCardTracking("truthful-counts");
+    const current = tracking.friendly.current as unknown as Record<string, unknown>;
+    current.deck = {
+      status: "partial",
+      knownCount: 1,
+      totalCount: 18,
+      cards: [{ cardKey: "known-deck", name: "已知牌库牌", count: 1 }]
     };
-    const { rerender } = render(<OverlayPanel view={validEmptyView} />);
+    current.hand = {
+      status: "known",
+      knownCount: 1,
+      totalCount: 1,
+      cards: [{ cardKey: "known-hand", name: "已知手牌", count: 1 }]
+    };
+    const state = createPublicTrackerState({
+      status: "watching",
+      gameActive: true,
+      summary: { totalCards: 999, remainingCards: 999, drawnCards: 0, opponentPlayedCount: 0 },
+      cardTracking: tracking
+    });
 
-    expect(screen.queryByRole("alert", { name: "牌库数据异常" })).not.toBeInTheDocument();
+    render(<OverlayPanel view={toOverlayPanelViewModel(state)} />);
 
-    rerender(
-      <OverlayPanel
-        view={{
-          ...validEmptyView,
-          summary: { totalCards: 30, remainingCards: 30, drawnCards: 0 },
-          deckIdentity: { name: "竞技场牌库", status: "arena", detail: "等待精确牌库" }
-        }}
-      />
-    );
-
-    expect(screen.queryByRole("alert", { name: "牌库数据异常" })).not.toBeInTheDocument();
-
-    rerender(
-      <OverlayPanel
-        view={{
-          ...validEmptyView,
-          otherCards: [{ id: "other-limit", name: "合理边界记录", count: 100 }]
-        }}
-      />
-    );
-
-    expect(screen.queryByRole("alert", { name: "牌库数据异常" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "牌库 ≥1" })).toHaveTextContent("牌库 (≥1)");
+    expect(screen.getByRole("region", { name: "手牌 1" })).toHaveTextContent("已知手牌");
+    expect(screen.queryByText("999")).not.toBeInTheDocument();
   });
 });

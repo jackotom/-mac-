@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { preserveArenaChoiceStatistics } from "../src/renderer/arenaChoiceStability";
 import type { ArenaCardChoice, PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 function trackerState(
   heroClass: string,
   currentChoices: readonly ArenaCardChoice[]
 ): PublicTrackerState {
-  return {
+  return createPublicTrackerState({
     status: "watching",
     deck: [],
-    opponentPlayed: [],
     events: [],
     summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
     arena: {
@@ -21,7 +21,7 @@ function trackerState(
       picks: [],
       deck: []
     }
-  };
+  });
 }
 
 const ratedChoice: ArenaCardChoice = {

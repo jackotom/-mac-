@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { toDashboardViewModel } from "../src/renderer/dashboardView";
 import type { LadderDeckRecommendationResult } from "../src/shared/ladderDeckRecommendation";
 import type { MatchHistoryResult, PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const liveState: PublicTrackerState = {
+const liveState = createPublicTrackerState({
   status: "watching",
   gameActive: true,
   logPath: "/Logs/Power.log",
@@ -32,16 +33,16 @@ const liveState: PublicTrackerState = {
     hero: { name: "法师" },
     currentChoices: [],
     picks: [],
-    deck: [],
-    draftCount: 12,
+    deck: [{ name: "已确认牌", count: 27 }],
+    draftCount: 27,
     unresolvedCount: 3,
     scoreSource: "HearthArena 简中"
   },
   summary: { totalCards: 30, remainingCards: 21, drawnCards: 9, opponentPlayedCount: 2 },
   lastUpdated: "2026-07-22T04:31:00.000Z"
-};
+});
 
-const truthfulLiveState: PublicTrackerState = {
+const truthfulLiveState = createPublicTrackerState({
   ...liveState,
   opponentDeckCount: 99,
   opponentHandCount: 88,
@@ -62,35 +63,35 @@ const truthfulLiveState: PublicTrackerState = {
       ...emptyPlayerTracking(),
       current: {
         ...emptyPlayerTracking().current,
-        hand: { status: "known", knownCount: 7, totalCount: 7, cards: [] },
-        deck: { status: "known", knownCount: 0, totalCount: 23, cards: [] },
-        secret: { status: "known", knownCount: 1, totalCount: 1, cards: [] }
+        hand: { status: "partial", knownCount: 0, totalCount: 7, cards: [] },
+        deck: { status: "partial", knownCount: 0, totalCount: 23, cards: [] },
+        secret: { status: "partial", knownCount: 0, totalCount: 1, cards: [] }
       },
       used: {
         totalCount: 2,
         truncated: false,
         items: [
           {
-            id: "used-11",
-            sequence: 11,
-            entityId: "entity-11",
+            id: "used-12",
+            sequence: 12,
+            entityId: "entity-12",
             card: { cardKey: "CS2_024", cardId: "CS2_024", name: "寒冰箭" },
             confidence: "confirmed"
           },
           {
-            id: "used-12",
-            sequence: 12,
-            entityId: "entity-12",
+            id: "used-11",
+            sequence: 11,
+            entityId: "entity-11",
             card: { cardKey: "CS2_024", cardId: "CS2_024", name: "寒冰箭" },
             confidence: "confirmed"
           }
         ]
       }
     },
-    opponentSecretSlots: [],
+    opponentSecretSlots: [{ entityId: "secret-1", candidates: [] }],
     detailsByCardKey: {}
   }
-};
+});
 
 function emptyPlayerTracking(): NonNullable<PublicTrackerState["cardTracking"]>["friendly"] {
   const known = () => ({ status: "known" as const, knownCount: 0, totalCount: 0, cards: [] });
@@ -168,7 +169,7 @@ describe("dashboard view model", () => {
       status: "drafting",
       statusLabel: "选牌中",
       hero: "法师",
-      confirmedCount: 12,
+      confirmedCount: 27,
       unresolvedCount: 3,
       scoreSource: "HearthArena 简中"
     });
@@ -191,8 +192,8 @@ describe("dashboard view model", () => {
       currentTurn: "?",
       fatigueDamage: 3,
       playedCards: [
-        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" },
-        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" }
+        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" },
+        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" }
       ]
     });
     expect(view.events.items).toEqual([
@@ -216,30 +217,29 @@ describe("dashboard view model", () => {
   });
 
   it("leaves unavailable opponent counts unset instead of estimating them", () => {
-    const state: PublicTrackerState = {
+    const state = createPublicTrackerState({
       ...liveState,
       opponentDeckCount: undefined,
       opponentHandCount: undefined,
       opponentSecrets: undefined
-    };
+    });
 
     const view = toDashboardViewModel(state, realHistory);
 
     expect(view.opponent.deckCount).toBeUndefined();
     expect(view.opponent.handCount).toBeUndefined();
-    expect(view.opponent.secretCount).toBeUndefined();
+    expect(view.opponent.secretCount).toBe(0);
     expect(view.opponent.currentTurn).toBe("?");
     expect(view.opponent.fatigueDamage).toBeUndefined();
   });
 
   it("returns explicit empty states when no real dashboard data exists", () => {
-    const state: PublicTrackerState = {
+    const state = createPublicTrackerState({
       status: "missing-log",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+    });
 
     const view = toDashboardViewModel(state);
 
@@ -247,12 +247,12 @@ describe("dashboard view model", () => {
     expect(view.deck).toMatchObject({ state: "empty", totalCards: 0, remainingCards: 0, drawnCards: 0, cards: [] });
     expect(view.deck.message).toContain("Power.log");
     expect(view.opponent).toEqual({
-      state: "empty",
-      message: "尚无对手的已确认数据。",
+      state: "ready",
+      message: undefined,
       playedCount: 0,
       deckCount: undefined,
       handCount: undefined,
-      secretCount: undefined,
+      secretCount: 0,
       currentTurn: "?",
       fatigueDamage: undefined,
       playedCards: []

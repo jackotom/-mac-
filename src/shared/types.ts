@@ -291,6 +291,9 @@ export interface PublicCardTracking {
   readonly detailsByCardKey: Readonly<Record<string, CardDetails>>;
 }
 
+export const LEGACY_USED_ROWS_KEY: "opponentPlayed" = "opponentPlayed";
+export const LEGACY_USED_COUNT_KEY: "opponentPlayedCount" = "opponentPlayedCount";
+
 export interface PublicTrackerState {
   status: "idle" | "watching" | "paused" | "missing-log" | "error";
   trackerMode?: TrackerMode;
@@ -320,7 +323,7 @@ export interface PublicTrackerState {
   arena?: ArenaState;
   lastUpdated?: string;
   error?: string;
-  readonly cardTracking?: PublicCardTracking;
+  readonly cardTracking: PublicCardTracking;
 }
 
 export interface CardLibraryQuery {

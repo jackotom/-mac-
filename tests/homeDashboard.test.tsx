@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { HomeDashboard } from "../src/renderer/components/HomeDashboard";
 import type { LadderDeckRecommendationResult } from "../src/shared/ladderDeckRecommendation";
 import type { MatchHistoryResult, PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const liveState: PublicTrackerState = {
+const liveState = createPublicTrackerState({
   status: "watching",
   gameActive: true,
   trackerMode: "arena",
@@ -13,7 +14,6 @@ const liveState: PublicTrackerState = {
     { name: "火球术", cardId: "CS2_029", count: 2, remaining: 1, drawn: 1, played: 0 },
     { name: "寒冰箭", cardId: "CS2_024", count: 2, remaining: 2, drawn: 0, played: 0 }
   ],
-  opponentPlayed: [],
   events: [],
   summary: { totalCards: 30, remainingCards: 27, drawnCards: 3, opponentPlayedCount: 2 },
   arena: {
@@ -21,12 +21,12 @@ const liveState: PublicTrackerState = {
     hero: { name: "法师" },
     currentChoices: [],
     picks: [],
-    deck: [],
+    deck: [{ name: "已确认牌", count: 18 }],
     draftCount: 18,
-    unresolvedCount: 2,
+    unresolvedCount: 12,
     scoreSource: "HearthArena 简中"
   }
-};
+});
 
 const history: MatchHistoryResult = {
   status: "ok",
@@ -122,14 +122,13 @@ describe("home dashboard", () => {
   });
 
   it("shows explicit empty and unavailable states without fake values", () => {
-    const emptyState: PublicTrackerState = {
+    const emptyState = createPublicTrackerState({
       status: "missing-log",
       error: "缺少 Power.log。",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+    });
     const unavailable: LadderDeckRecommendationResult = {
       status: "unavailable",
       errorCode: "patch-unavailable",
@@ -176,7 +175,7 @@ describe("home dashboard", () => {
 
     const activity = screen.getByRole("article", { name: "游戏动态" });
     expect(activity).toHaveTextContent("竞技场选牌中");
-    expect(activity).toHaveTextContent("已确认 18 张 · 待识别 2 张");
+    expect(activity).toHaveTextContent("已确认 18 张 · 待识别 12 张");
     expect(activity).toHaveTextContent("天梯推荐：暂无经过验证的国服公开统计接口。");
     expect(screen.queryByRole("article", { name: "天梯推荐" })).not.toBeInTheDocument();
     expect(container.querySelector(".home-dashboard-grid")).toHaveClass("is-ladder-unavailable");

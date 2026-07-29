@@ -1,21 +1,20 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/renderer/App";
-import type { PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
-const state: PublicTrackerState = {
+const state = createPublicTrackerState({
   status: "watching",
   gameActive: true,
   logPath: "/Logs/Power.log",
   deck: [],
-  opponentPlayed: [],
   events: [
     { id: "event-1", at: "2026-07-30T01:00:00.000Z", kind: "draw", player: "friendly", cardName: "火球术" },
     { id: "event-2", at: "2026-07-30T01:00:01.000Z", kind: "opponent-play", player: "opponent", cardName: "寒冰箭" },
     { id: "event-3", at: "2026-07-30T01:00:02.000Z", kind: "zone-change", player: "unknown" }
   ],
   summary: { totalCards: 30, remainingCards: 29, drawnCards: 1, opponentPlayedCount: 1 }
-};
+});
 
 afterEach(() => {
   window.history.replaceState({}, "", "/");

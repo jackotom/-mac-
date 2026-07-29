@@ -5,7 +5,7 @@ import {
   shouldRequestCardLibrary
 } from "../src/renderer/frontendStability";
 import { parsePublicTrackerState, parseTrackerSettings } from "../src/renderer/runtimeValidation";
-import { createLegacyPublicTrackerState } from "./fixtures/publicTrackerState";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 describe("frontend stability helpers", () => {
   it("shows initialization errors before live errors and notices", () => {
@@ -44,15 +44,13 @@ describe("frontend stability helpers", () => {
   });
 
   it("accepts the minimum valid tracker state", () => {
-    const state = createLegacyPublicTrackerState();
+    const state = createPublicTrackerState();
     expect(parsePublicTrackerState(state)).toEqual(state);
   });
 
-  it("accepts omitted optional zone data and validates supplied zone/global-effect data", () => {
-    const base = { status: "idle", deck: [], opponentPlayed: [], events: [], summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 } };
+  it("validates supplied global-effect data", () => {
+    const base = createPublicTrackerState();
     expect(parsePublicTrackerState(base)).toEqual(base);
-    expect(() => parsePublicTrackerState({ ...base, opponentHandCount: 2, opponentHand: [{ name: "", count: 1 }] }))
-      .toThrow(/对手区域数据无效/);
     expect(() => parsePublicTrackerState({ ...base, globalEffects: "bad" })).toThrow(/全局影响数据无效/);
     expect(() => parsePublicTrackerState({ ...base, opponentGlobalEffects: [{ name: "失败", count: 0 }] }))
       .toThrow(/全局影响数据无效/);
@@ -61,13 +59,12 @@ describe("frontend stability helpers", () => {
   });
 
   it("accepts public match counters and rejects malformed or negative values", () => {
-    const base = {
+    const base = createPublicTrackerState({
       status: "watching",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 }
-    };
+    });
     const matchCounters = {
       friendly: { nextFatigueDamage: 0, corpses: 6, spellsPlayed: 8 },
       opponent: { nextFatigueDamage: 3 }
@@ -170,12 +167,8 @@ describe("frontend stability helpers", () => {
     [29, 1],
     [30, 0]
   ])("accepts an Arena state with %i confirmed and %i unresolved cards", (confirmedCount, unresolvedCount) => {
-    const state = {
+    const state = createPublicTrackerState({
       status: "watching",
-      deck: [],
-      opponentPlayed: [],
-      events: [],
-      summary: { totalCards: 30, remainingCards: 30, drawnCards: 0, opponentPlayedCount: 0 },
       arena: {
         status: "complete",
         draftCount: confirmedCount,
@@ -184,16 +177,15 @@ describe("frontend stability helpers", () => {
         picks: [],
         deck: [{ name: "已确认牌", count: confirmedCount }]
       }
-    };
+    });
 
     expect(parsePublicTrackerState(state).arena).toMatchObject({ draftCount: confirmedCount, unresolvedCount });
   });
 
   it("validates optional Arena deck statistics at the renderer boundary", () => {
-    const base = {
+    const base = createPublicTrackerState({
       status: "watching",
       deck: [],
-      opponentPlayed: [],
       events: [],
       summary: { totalCards: 30, remainingCards: 30, drawnCards: 0, opponentPlayedCount: 0 },
       arena: {
@@ -204,20 +196,20 @@ describe("frontend stability helpers", () => {
         picks: [],
         deck: [{ name: "参考牌", count: 30, pickRate: 75.6, deckImpact: -9.13 }]
       }
-    };
+    });
 
     expect(parsePublicTrackerState(base).arena?.deck[0]).toMatchObject({ pickRate: 75.6, deckImpact: -9.13 });
     expect(() => parsePublicTrackerState({
       ...base,
-      arena: { ...base.arena, deck: [{ ...base.arena.deck[0], pickRate: Number.NaN }] }
+      arena: { ...base.arena!, deck: [{ ...base.arena!.deck[0], pickRate: Number.NaN }] }
     })).toThrow(/竞技场状态数据无效/);
     expect(() => parsePublicTrackerState({
       ...base,
-      arena: { ...base.arena, deck: [{ ...base.arena.deck[0], pickRate: -0.01 }] }
+      arena: { ...base.arena!, deck: [{ ...base.arena!.deck[0], pickRate: -0.01 }] }
     })).toThrow(/竞技场状态数据无效/);
     expect(() => parsePublicTrackerState({
       ...base,
-      arena: { ...base.arena, deck: [{ ...base.arena.deck[0], pickRate: 100.01 }] }
+      arena: { ...base.arena!, deck: [{ ...base.arena!.deck[0], pickRate: 100.01 }] }
     })).toThrow(/竞技场状态数据无效/);
     expect(() => parsePublicTrackerState({
       ...base,
@@ -235,7 +227,7 @@ describe("frontend stability helpers", () => {
     })).toThrow(/竞技场状态数据无效/);
     expect(() => parsePublicTrackerState({
       ...base,
-      arena: { ...base.arena, deck: [{ ...base.arena.deck[0], deckImpact: "-9.13" }] }
+      arena: { ...base.arena!, deck: [{ ...base.arena!.deck[0], deckImpact: "-9.13" }] }
     })).toThrow(/竞技场状态数据无效/);
   });
 });

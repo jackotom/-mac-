@@ -19,15 +19,11 @@ const MAX_OUTCOME_TREE_NODES = 512;
 
 export function parsePublicTrackerState(value: unknown): PublicTrackerState {
   if (!isRecord(value) || typeof value.status !== "string" || !trackerStatuses.has(value.status) || !Array.isArray(value.deck) ||
-      !Array.isArray(value.opponentPlayed) || !Array.isArray(value.events) || !isSummary(value.summary)) {
+      !Array.isArray(value.events) || !isSummary(value.summary)) {
     throw new Error("记牌器状态数据无效，已拒绝更新界面。");
   }
   if (value.arena !== undefined && !isArenaState(value.arena)) {
     throw new Error("竞技场状态数据无效，已拒绝更新界面。");
-  }
-  if (!["opponentDeck", "opponentHand", "opponentOther"].every((key) => isOptionalZoneCards(value[key])) ||
-      !["opponentDeckCount", "opponentHandCount"].every((key) => isOptionalNonNegativeInteger(value[key]))) {
-    throw new Error("对手区域数据无效，已拒绝更新界面。");
   }
   if (!isOptionalZoneCards(value.globalEffects) || !isOptionalZoneCards(value.opponentGlobalEffects)) {
     throw new Error("全局影响数据无效，已拒绝更新界面。");
@@ -35,7 +31,7 @@ export function parsePublicTrackerState(value: unknown): PublicTrackerState {
   if (!isOptionalMatchCounters(value.matchCounters)) {
     throw new Error("本局公开计数数据无效，已拒绝更新界面。");
   }
-  if (value.cardTracking !== undefined && !isPublicCardTracking(value.cardTracking)) {
+  if (!isPublicCardTracking(value.cardTracking)) {
     throw new Error("卡牌生命周期数据无效，已拒绝更新界面。");
   }
   return value as unknown as PublicTrackerState;
@@ -73,7 +69,7 @@ export function parseMatchHistoryResult(value: unknown): MatchHistoryResult {
 }
 
 function isSummary(value: unknown): boolean {
-  return isRecord(value) && ["totalCards", "remainingCards", "drawnCards", "opponentPlayedCount"]
+  return isRecord(value) && ["totalCards", "remainingCards", "drawnCards"]
     .every((key) => typeof value[key] === "number" && Number.isFinite(value[key]));
 }
 

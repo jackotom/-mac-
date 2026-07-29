@@ -23,18 +23,21 @@ import { shouldApplyInitialTrackerState } from "./stateInitialization";
 import { createSynchronousActionLock, selectVisibleNotice, shouldRequestCardLibrary } from "./frontendStability";
 import { preserveArenaChoiceStatistics } from "./arenaChoiceStability";
 import { parseMatchHistoryResult, parsePublicTrackerState, parseTrackerSettings } from "./runtimeValidation";
-import type {
-  CardTrackerRow,
-  ArenaState,
-  CollectionDeckScanResult,
-  CollectionDeckSummary,
-  LogCandidate,
-  MatchHistoryResult,
-  PublicCardTracking,
-  PublicTrackerState,
-  TrackerSettings,
-  TrackerEvent
+import {
+  LEGACY_USED_COUNT_KEY,
+  LEGACY_USED_ROWS_KEY,
+  type ArenaState,
+  type CardTrackerRow,
+  type CollectionDeckScanResult,
+  type CollectionDeckSummary,
+  type LogCandidate,
+  type MatchHistoryResult,
+  type PublicCardTracking,
+  type PublicTrackerState,
+  type TrackerEvent,
+  type TrackerSettings
 } from "../shared/types";
+/* card lifecycle migration: legacy payload keys remain only to construct shared-state compatibility objects. */
 import type { CardDetails } from "../shared/cardDatabase";
 import type { LadderDeckRecommendation, LadderDeckRecommendationResult, LadderMode } from "../shared/ladderDeckRecommendation";
 import type { ArenaHeroWinRateRankingResult } from "../shared/arenaHeroStats";
@@ -136,9 +139,9 @@ function createQaOpponentCardTracking(): PublicCardTracking {
 const demoState: PublicTrackerState = {
   status: "missing-log",
   deck: [],
-  opponentPlayed: [],
+  [LEGACY_USED_ROWS_KEY]: [],
   events: [],
-  summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 0 },
+  summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, [LEGACY_USED_COUNT_KEY]: 0 },
   cardTracking: createAppCardTracking("app-demo"),
   error: "缺少 Power.log。先点“修复日志”，完全退出并重新打开炉石，然后进入一局。"
 };
@@ -164,32 +167,14 @@ const qaOpponentOverlayState: PublicTrackerState = {
   gameActive: true,
   logPath: "/QA/Power.log",
   deck: [],
-  opponentPlayed: [
-    { name: "伺机待发", cardId: "EX1_145", count: 0, remaining: 0, drawn: 0, played: 1 }
-  ],
-  opponentSecrets: [
-    {
-      entityId: "qa-secret-1",
-      candidates: [
-        { cardId: "EX1_287", name: "法术反制", status: "possible" },
-        { cardId: "EX1_289", name: "寒冰屏障", status: "excluded" }
-      ]
-    },
-    {
-      entityId: "qa-secret-2",
-      candidates: [
-        { cardId: "EX1_294", name: "镜像实体", status: "possible" },
-        { cardId: "EX1_295", name: "扰咒术", status: "excluded" }
-      ]
-    }
-  ],
+  [LEGACY_USED_ROWS_KEY]: [],
   boardAttack: { friendly: 7, opponent: 12 },
   matchCounters: {
     friendly: { nextFatigueDamage: 2, corpses: 6, spellsPlayed: 8 },
     opponent: { nextFatigueDamage: 3, corpses: 4, spellsPlayed: 5 }
   },
   events: [],
-  summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, opponentPlayedCount: 1 },
+  summary: { totalCards: 0, remainingCards: 0, drawnCards: 0, [LEGACY_USED_COUNT_KEY]: 1 },
   cardTracking: createQaOpponentCardTracking(),
   lastUpdated: "2026-07-12T12:00:00.000Z"
 };
@@ -612,8 +597,8 @@ function App() {
   );
   const events = useMemo(() => (logIssue ? [] : toGameEvents(state.events)), [logIssue, state.events]);
   const opponentOverview = useMemo(() => toOpponentOverview(state), [state]);
-  const opponentPlayedCards = useMemo(
-    () => (logIssue ? [] : toOpponentPlayedCards(state)),
+  const opponentUsedCards = useMemo(
+    () => (logIssue ? [] : toOpponentUsedCards(state)),
     [logIssue, state]
   );
   const autoMatchNotice = !logIssue && state.autoMatchedDeckId
@@ -1154,7 +1139,7 @@ function App() {
               {state.arena && state.arena.status !== "inactive" ? (
                 <ArenaPanel state={state.arena} />
               ) : (
-                <OpponentPanel overview={opponentOverview} playedCards={opponentPlayedCards} />
+                <OpponentPanel overview={opponentOverview} playedCards={opponentUsedCards} />
               )}
             </section>
           </>
@@ -1329,7 +1314,7 @@ function DashboardOverview({ state, status }: { state: PublicTrackerState; statu
       icon: Layers3
     },
     { label: "已抽", value: state.summary.drawnCards.toLocaleString("zh-CN"), icon: Activity },
-    { label: "对手已出", value: state.summary.opponentPlayedCount.toLocaleString("zh-CN"), icon: Swords },
+    { label: "对手已出", value: state.cardTracking.opponent.used.totalCount.toLocaleString("zh-CN"), icon: Swords },
     { label: "当前状态", value: status.isLoading ? "正在读取" : trackerStatusLabels[status.state], icon: Activity }
   ];
 
@@ -1750,7 +1735,7 @@ function toOpponentOverview(state: PublicTrackerState): OpponentOverview {
   };
 }
 
-function toOpponentPlayedCards(state: PublicTrackerState): OpponentPlayedCard[] {
+function toOpponentUsedCards(state: PublicTrackerState): OpponentPlayedCard[] {
   return toDashboardOpponentView(state).playedCards.map((card) => ({
     id: card.id,
     name: card.name,
