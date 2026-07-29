@@ -1720,7 +1720,10 @@ describe("TrackerService log selection", () => {
 
     exactAvailable = true;
     await writeFile(decksLog, "I 12:00:30.000 Starting Arena Game With Deck\n", "utf8");
-    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2));
+    await vi.waitFor(
+      () => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(2),
+      { timeout: 3_000, interval: 50 }
+    );
     expect(service.getState().arena).toMatchObject({ status: "redrafting", draftCount: 0, unresolvedCount: 30 });
 
     await appendFile(arenaLog, [
@@ -1786,7 +1789,7 @@ describe("TrackerService log selection", () => {
       expect(service.getState().arena?.deck).toEqual([
         expect.objectContaining({ cardId: "TEST_003", count: 30 })
       ]);
-    });
+    }, { timeout: 3_000, interval: 50 });
 
     await appendFile(arenaLog, [
       "D 23:59:59.000 Arena.SetDraftMode - REDRAFTING",

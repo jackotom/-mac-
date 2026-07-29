@@ -43,6 +43,7 @@ describe("release verification entrypoint", () => {
     expect(script).toContain("unresolvedCount");
     expect(script).toContain('["选取率", "卡牌", "影响"]');
     expect(script).toContain('arena?.status !== "playing"');
+    expect(script).toContain('body.includes("牌库 (29)")');
     expect(script).toContain('body.includes("等待开局")');
     expect(script).toContain('body.includes("影响全局")');
     expect(script).toContain("日志缺失的竞技场牌");

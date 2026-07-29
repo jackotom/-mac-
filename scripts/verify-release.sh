@@ -192,7 +192,7 @@ run_capture() {
         const arena = report.trackerState.arena;
         const body = String(report.bodyText);
         if (arena?.status !== "playing" || report.trackerState.gameActive !== true || report.trackerState.summary?.remainingCards !== 29) process.exit(22);
-        if (!body.includes("牌库中") || body.includes("等待开局")) process.exit(23);
+        if (!body.includes("牌库 (29)") || body.includes("等待开局")) process.exit(23);
         if (["选取率", "卡牌", "影响"].every((label) => body.includes(label))) process.exit(24);
       }
     }
