@@ -76,19 +76,29 @@ export class CardDataService {
         return this.toResult(cached.database, cached.version);
       }
 
-      return this.refreshOfficial(cached);
+      return this.refreshOfficial(cached, Boolean(options.forceRefresh));
     }
 
     return this.refreshOfficial(undefined);
   }
 
-  private async refreshOfficial(cached: CachedCardDatabaseLoadResult | undefined): Promise<CardDatabaseLoadResult> {
+  private async refreshOfficial(
+    cached: CachedCardDatabaseLoadResult | undefined,
+    forceRefresh = false
+  ): Promise<CardDatabaseLoadResult> {
     let legacyDatabase: CardDatabase | undefined;
     const overallStartTime = Date.now();
 
     try {
       const version = await this.fetchOfficialSourceVersion();
-      if (cached?.database && cached.version && cached.version === version && !cached.requiresRelatedCardRefresh) {
+      if (
+        !forceRefresh &&
+        cached?.database &&
+        cached.version &&
+        cached.version === version &&
+        !cached.isStale &&
+        !cached.requiresRelatedCardRefresh
+      ) {
         return this.toResult(cached.database, version);
       }
 

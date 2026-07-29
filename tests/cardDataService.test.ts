@@ -100,9 +100,34 @@ describe("CardDataService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("checks the official version without re-downloading cards when the version is unchanged", async () => {
+  it("uses a fresh versioned cache without fetching", async () => {
     const { CardDataService } = await import("../src/main/cardDataService.js");
     const root = await mkdtemp(path.join(os.tmpdir(), "official-card-version-service-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "official-cards.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "Blizzard 官方卡牌浏览器",
+        version: "https://hs.res.netease.com/pc/zt/version/js/cards/index_test.js",
+        fetchedAt: new Date().toISOString(),
+        cards: [{ dbfId: 1001, name: "缓存卡", cardId: "TEST_001" }]
+      }),
+      "utf8"
+    );
+    const fetchMock = vi.fn(async (url: string) =>
+      responseText('<script src="https://hs.res.netease.com/pc/zt/version/js/cards/index_test.js"></script>')
+    );
+
+    const result = await new CardDataService(cachePath, fetchMock as never).loadCardDatabase();
+
+    expect(result.database?.["1001"]).toEqual(expect.objectContaining({ name: "缓存卡" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("re-downloads official cards when a same-version cache is stale", async () => {
+    const { CardDataService } = await import("../src/main/cardDataService.js");
+    const root = await mkdtemp(path.join(os.tmpdir(), "official-card-stale-version-service-"));
     tempDirs.push(root);
     const cachePath = path.join(root, "official-cards.json");
     await writeFile(
@@ -115,14 +140,51 @@ describe("CardDataService", () => {
       }),
       "utf8"
     );
-    const fetchMock = vi.fn(async (url: string) =>
-      responseText('<script src="https://hs.res.netease.com/pc/zt/version/js/cards/index_test.js"></script>')
-    );
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "https://hs.blizzard.cn/cards/") {
+        return responseText('<script src="https://hs.res.netease.com/pc/zt/version/js/cards/index_test.js"></script>');
+      }
+      if (url.includes("hs-cards-api-server")) {
+        return responseJson({ code: 0, data: { total: 1, list: [{ id: 1001, name: "官网最新卡" }] } });
+      }
+      return response([{ dbfId: 1001, id: "TEST_001", name: "旧编号卡" }]);
+    });
 
     const result = await new CardDataService(cachePath, fetchMock as never).loadCardDatabase();
 
-    expect(result.database?.["1001"]).toEqual(expect.objectContaining({ name: "缓存卡" }));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.database?.["1001"]).toEqual(expect.objectContaining({ name: "官网最新卡" }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("force-refreshes official cards even when the source version is unchanged", async () => {
+    const { CardDataService } = await import("../src/main/cardDataService.js");
+    const root = await mkdtemp(path.join(os.tmpdir(), "official-card-force-version-service-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "official-cards.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "Blizzard 官方卡牌浏览器",
+        version: "https://hs.res.netease.com/pc/zt/version/js/cards/index_test.js",
+        fetchedAt: new Date().toISOString(),
+        cards: [{ dbfId: 1001, name: "缓存卡", cardId: "TEST_001" }]
+      }),
+      "utf8"
+    );
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "https://hs.blizzard.cn/cards/") {
+        return responseText('<script src="https://hs.res.netease.com/pc/zt/version/js/cards/index_test.js"></script>');
+      }
+      if (url.includes("hs-cards-api-server")) {
+        return responseJson({ code: 0, data: { total: 1, list: [{ id: 1001, name: "强制刷新卡" }] } });
+      }
+      return response([{ dbfId: 1001, id: "TEST_001", name: "旧编号卡" }]);
+    });
+
+    const result = await new CardDataService(cachePath, fetchMock as never).loadCardDatabase({ forceRefresh: true });
+
+    expect(result.database?.["1001"]).toEqual(expect.objectContaining({ name: "强制刷新卡" }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("uses a stale local cache immediately during automatic startup", async () => {
