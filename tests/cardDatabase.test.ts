@@ -55,6 +55,140 @@ describe("card database details", () => {
     });
   });
 
+  it("lists collectible spells for cards that cast random spells without explicit child ids", () => {
+    const database = createCardDatabase([
+      {
+        id: 103270,
+        cardId: "TOY_372",
+        name: "匣中古神",
+        collectible: 1,
+        card_type_id: 5,
+        mana_cost: 7,
+        text: "随机施放5个法术。如果你的牌库里没有随从牌，则这些法术的法力值消耗大于或等于（5）点。"
+      },
+      {
+        id: 9001,
+        cardId: "TEST_LOW_COST_SPELL",
+        name: "低费法术",
+        collectible: 1,
+        card_type_id: 5,
+        mana_cost: 2
+      },
+      {
+        id: 9002,
+        cardId: "TEST_HIGH_COST_SPELL",
+        name: "高费法术",
+        collectible: 1,
+        card_type_id: 5,
+        mana_cost: 6
+      },
+      {
+        id: 9003,
+        cardId: "TEST_MINION",
+        name: "测试随从",
+        collectible: 1,
+        card_type_id: 4,
+        mana_cost: 6
+      },
+      {
+        id: 9004,
+        cardId: "TEST_TOKEN_SPELL",
+        name: "不可收藏法术",
+        collectible: 0,
+        card_type_id: 5,
+        mana_cost: 6
+      }
+    ]);
+
+    const details = toCardDetails(database, getCardInfo(database, 103270)!);
+    expect(details).toMatchObject({
+      relatedCards: [],
+      cardPoolSections: [
+        {
+          key: "random-spells",
+          title: "卡库可见的随机法术候选",
+          cards: [
+            expect.objectContaining({ dbfId: 9001, name: "低费法术" }),
+            expect.objectContaining({ dbfId: 9002, name: "高费法术" })
+          ]
+        },
+        {
+          key: "random-spells-min-cost-5",
+          title: "牌库无随从时：卡库可见的5费及以上候选",
+          cards: [
+            expect.objectContaining({ dbfId: 9002, name: "高费法术" })
+          ]
+        }
+      ]
+    });
+    expect(toCardDetails(database, getCardInfo(database, 103270)!).cardPoolSections)
+      .toBe(details.cardPoolSections);
+  });
+
+  it("narrows visible random-spell candidates by explicit cost, class, school, and deck-dependent conditions", () => {
+    const database = createCardDatabase([
+      {
+        id: 8101,
+        cardId: "COST_POOL",
+        name: "低费随机施法",
+        collectible: 1,
+        type: "SPELL",
+        text: "随机施放一个法力值消耗小于或等于（3）点的法术。"
+      },
+      {
+        id: 8102,
+        cardId: "CLASS_POOL",
+        name: "德鲁伊随机施法",
+        collectible: 1,
+        type: "MINION",
+        text: "随机施放8个德鲁伊法术。"
+      },
+      {
+        id: 8103,
+        cardId: "SCHOOL_POOL",
+        name: "自然随机施法",
+        collectible: 1,
+        type: "MINION",
+        text: "随机施放2个自然法术。"
+      },
+      {
+        id: 8104,
+        cardId: "DECK_POOL",
+        name: "牌库随机施法",
+        collectible: 1,
+        type: "MINION",
+        text: "从你的牌库中随机施放一个法力值消耗小于或等于（2）点的法术。"
+      },
+      { id: 8201, cardId: "MAGE_FIRE_TWO", name: "法师火焰二费", collectible: 1, card_type_id: 5, class_id: 4, spellSchoolId: 2, mana_cost: 2 },
+      { id: 8202, cardId: "DRUID_NATURE_TWO", name: "德鲁伊自然二费", collectible: 1, card_type_id: 5, class_id: 2, spellSchoolId: 4, mana_cost: 2 },
+      { id: 8203, cardId: "DRUID_NATURE_FIVE", name: "德鲁伊自然五费", collectible: 1, card_type_id: 5, class_id: 2, spellSchoolId: 4, mana_cost: 5 }
+    ]);
+
+    expect(toCardDetails(database, getCardInfo(database, 8101)!).cardPoolSections?.[0]).toMatchObject({
+      title: "卡库可见的3费及以下法术候选",
+      cards: expect.arrayContaining([
+        expect.objectContaining({ cardId: "MAGE_FIRE_TWO" }),
+        expect.objectContaining({ cardId: "DRUID_NATURE_TWO" })
+      ])
+    });
+    expect(toCardDetails(database, getCardInfo(database, 8102)!).cardPoolSections?.[0]).toMatchObject({
+      title: "卡库可见的德鲁伊法术候选",
+      cards: [
+        expect.objectContaining({ cardId: "DRUID_NATURE_TWO" }),
+        expect.objectContaining({ cardId: "DRUID_NATURE_FIVE" })
+      ]
+    });
+    expect(toCardDetails(database, getCardInfo(database, 8103)!).cardPoolSections?.[0]).toMatchObject({
+      title: "卡库可见的自然法术候选",
+      cards: [
+        expect.objectContaining({ cardId: "DRUID_NATURE_TWO" }),
+        expect.objectContaining({ cardId: "DRUID_NATURE_FIVE" })
+      ]
+    });
+    expect(toCardDetails(database, getCardInfo(database, 8104)!).cardPoolSections?.[0]?.title)
+      .toBe("卡库可见的2费及以下法术候选（实际按当时牌库缩小）");
+  });
+
   it("maps official minion_type_id values to race names without waiting for a cache refresh", () => {
     const types = [
       [2, "DRAENEI"],

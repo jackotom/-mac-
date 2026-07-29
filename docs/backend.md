@@ -74,6 +74,9 @@ Collection deck import requires `Decks.log`. The service does not read memory, a
 - `card-played` from `BLOCK_START BlockType=PLAY`
 - `entity-revealed` from `SHOW_ENTITY` and `FULL_ENTITY`
 - generated-entity markers from `DISPLAYED_CREATOR`; after setup these drive inserted-deck entity tracking, exact deduplication, and unknown-to-known card replacement
+- block boundaries from every `BLOCK_START` / `BLOCK_END`; random-spell outcomes are collected under the actual source card, preserve nested casts, and deduplicate the mirrored `GameState` / `PowerTaskList` block.
+
+A full-hand burn can first appear as an unknown `DECK -> GRAVEYARD` entity and reveal its card id on the following `SHOW_ENTITY`. The tracker keeps that pending entity until reveal, then decrements the matching deck row exactly once. This uses the same path for every card, not a card-name exception.
 
 `Player.log` currently emits:
 

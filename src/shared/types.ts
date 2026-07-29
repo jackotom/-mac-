@@ -359,6 +359,14 @@ export interface ActionBoundaryLogEvent {
   raw: string;
 }
 
+export interface BlockBoundaryLogEvent {
+  type: "block-boundary";
+  phase: "start" | "end";
+  blockType?: string;
+  entity?: EntitySnapshot;
+  raw: string;
+}
+
 export interface CausalTriggerLogEvent {
   type: "causal-trigger";
   phase: "start" | "end";
@@ -452,6 +460,7 @@ export type ParsedLogEvent =
   | ControllerLogEvent
   | AttackLogEvent
   | ActionBoundaryLogEvent
+  | BlockBoundaryLogEvent
   | CausalTriggerLogEvent
   | EntityReferenceLogEvent
   | GameStartLogEvent

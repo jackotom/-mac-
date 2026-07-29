@@ -45,9 +45,31 @@ export interface CardSynergyInfo extends RelatedCardInfo {
 export interface CardDetails extends CardInfo {
   readonly isSpell: boolean;
   readonly relatedCards: readonly RelatedCardInfo[];
+  readonly cardPoolSections?: readonly CardPoolSection[];
+  readonly cardOutcomeSections?: readonly CardOutcomeSection[];
   readonly synergyCards?: readonly CardSynergyInfo[];
   readonly playedSpellsThisGame?: readonly RelatedCardInfo[];
   readonly gameContextSections?: readonly GameContextSection[];
+}
+
+export interface CardPoolSection {
+  readonly key: string;
+  readonly title: string;
+  readonly emptyText: string;
+  readonly cards: readonly RelatedCardInfo[];
+}
+
+export interface CardOutcomeNode {
+  readonly key: string;
+  readonly card: RelatedCardInfo;
+  readonly children?: readonly CardOutcomeNode[];
+}
+
+export interface CardOutcomeSection {
+  readonly key: string;
+  readonly title: string;
+  readonly emptyText: string;
+  readonly cards: readonly CardOutcomeNode[];
 }
 
 export interface GameContextSection {
@@ -147,14 +169,134 @@ export function toCardDetails(cardDb: CardDatabase, card: CardInfo): CardDetails
     .map((dbfId) => getCardInfo(cardDb, dbfId))
     .filter((related): related is CardInfo => related !== undefined)
     .map(toRelatedCardInfo);
+  const cardPoolSections = inferCardPoolSections(cardDb, card);
   const synergyCards = inferCardSynergies(cardDb, card);
 
   return {
     ...card,
     isSpell: card.cardTypeId === 5 || card.cardType === "法术" || card.cardType?.toUpperCase() === "SPELL",
     relatedCards,
+    ...(cardPoolSections.length > 0 ? { cardPoolSections } : {}),
     ...(synergyCards.length > 0 ? { synergyCards } : {})
   };
+}
+
+const RANDOM_SPELL_POOL_PATTERN = /随机施放[^。；\n]{0,48}?(?:法术|奥秘)/;
+const RANDOM_SPELL_MIN_COST_PATTERN = /这些法术的法力值消耗(?:大于或等于|不低于)[（(]?\s*(\d+)\s*[）)]?点?/;
+const SPELL_SCHOOL_IDS: Readonly<Record<string, number>> = {
+  奥术: 1,
+  火焰: 2,
+  冰霜: 3,
+  自然: 4,
+  神圣: 5,
+  暗影: 6,
+  邪能: 7
+};
+const RANDOM_SPELL_CLASS_NAMES = [
+  "死亡骑士",
+  "恶魔猎手",
+  "萨满祭司",
+  "圣骑士",
+  "德鲁伊",
+  "潜行者",
+  "术士",
+  "法师",
+  "牧师",
+  "猎人",
+  "战士"
+] as const;
+const cardPoolSectionCache = new WeakMap<CardDatabase, Map<number, readonly CardPoolSection[]>>();
+const collectibleSpellPoolCache = new WeakMap<CardDatabase, readonly CardInfo[]>();
+
+function inferCardPoolSections(cardDb: CardDatabase, source: CardInfo): readonly CardPoolSection[] {
+  let sectionsByCard = cardPoolSectionCache.get(cardDb);
+  if (!sectionsByCard) {
+    sectionsByCard = new Map();
+    cardPoolSectionCache.set(cardDb, sectionsByCard);
+  }
+  const cached = sectionsByCard.get(source.dbfId);
+  if (cached) {
+    return cached;
+  }
+  const text = source.text ?? "";
+  if (!isRandomSpellPoolCard(source)) {
+    sectionsByCard.set(source.dbfId, []);
+    return [];
+  }
+
+  let allSpells = collectibleSpellPoolCache.get(cardDb);
+  if (!allSpells) {
+    allSpells = listCardInfos(cardDb)
+      .filter((card) => card.collectible === true && card.cardType === "法术")
+      .sort(compareCardInfo);
+    collectibleSpellPoolCache.set(cardDb, allSpells);
+  }
+  const pool = resolveRandomSpellPool(text, allSpells.filter((card) => card.dbfId !== source.dbfId));
+  const spells = pool.cards.map(toRelatedCardInfo);
+  const sections: CardPoolSection[] = [{
+    key: "random-spells",
+    title: pool.title,
+    emptyText: "当前卡牌库没有可匹配的法术",
+    cards: spells
+  }];
+  const minimumCost = numberValue(text.match(RANDOM_SPELL_MIN_COST_PATTERN)?.[1]);
+  if (minimumCost !== undefined) {
+    sections.push({
+      key: `random-spells-min-cost-${minimumCost}`,
+      title: `牌库无随从时：卡库可见的${minimumCost}费及以上候选`,
+      emptyText: `当前卡牌库没有${minimumCost}费及以上的法术`,
+      cards: spells.filter((card) => (card.manaCost ?? -1) >= minimumCost)
+    });
+  }
+  sectionsByCard.set(source.dbfId, sections);
+  return sections;
+}
+
+export function isRandomSpellPoolCard(card: CardInfo): boolean {
+  return RANDOM_SPELL_POOL_PATTERN.test(card.text ?? "");
+}
+
+function resolveRandomSpellPool(
+  text: string,
+  allSpells: readonly CardInfo[]
+): { readonly title: string; readonly cards: readonly CardInfo[] } {
+  const phrase = text.match(RANDOM_SPELL_POOL_PATTERN)?.[0] ?? "";
+  const minimum = numberValue(phrase.match(/(?:大于或等于|不低于)[（(]?\s*(\d+)/)?.[1]);
+  const maximum = numberValue(phrase.match(/(?:小于或等于|不高于)[（(]?\s*(\d+)/)?.[1]);
+  const exact = minimum === undefined && maximum === undefined
+    ? numberValue(phrase.match(/法力值消耗为[（(]?\s*(\d+)/)?.[1])
+    : undefined;
+  const heroClass = RANDOM_SPELL_CLASS_NAMES.find((name) => phrase.includes(`${name}法术`));
+  const school = Object.keys(SPELL_SCHOOL_IDS).find((name) => phrase.includes(`${name}法术`));
+  const isSecretPool = phrase.includes("奥秘");
+  let cards = allSpells.filter((card) =>
+    (minimum === undefined || (card.manaCost ?? -1) >= minimum) &&
+    (maximum === undefined || (card.manaCost ?? Number.MAX_SAFE_INTEGER) <= maximum) &&
+    (exact === undefined || card.manaCost === exact) &&
+    (!heroClass || (card.heroClasses ?? []).includes(normalizeHeroClass(heroClass)!)) &&
+    (!school || card.spellSchoolId === SPELL_SCHOOL_IDS[school] || card.spellSchool === school) &&
+    (!isSecretPool || card.mechanics?.includes("SECRET") || card.text?.startsWith("奥秘："))
+  );
+  const qualifier = heroClass
+    ? normalizeHeroClass(heroClass)
+    : school
+      ? school
+      : exact !== undefined
+        ? `${exact}费`
+        : minimum !== undefined
+          ? `${minimum}费及以上`
+          : maximum !== undefined ? `${maximum}费及以下` : undefined;
+  let title = qualifier
+    ? `卡库可见的${qualifier}${isSecretPool ? "奥秘" : "法术"}候选`
+    : `卡库可见的随机${isSecretPool ? "奥秘" : "法术"}候选`;
+  if (/从你的牌库中随机施放/.test(text)) {
+    title += "（实际按当时牌库缩小）";
+  } else if (/法力值消耗(?:相同|增加|减少)/.test(phrase) || /法力值消耗为[（(]\s*[）)]/.test(phrase)) {
+    title += "（实际按当时费用缩小）";
+  } else if (/另一职业/.test(phrase)) {
+    title += "（实际按当时职业缩小）";
+  }
+  return { title, cards };
 }
 
 type SynergyRole = "produce" | "consume";
@@ -328,7 +470,7 @@ function findLatestAction(text: string, actions: readonly string[]): { readonly 
   );
 }
 
-function toRelatedCardInfo(
+export function toRelatedCardInfo(
   { dbfId, name, cardId, manaCost, cardType, rarity, text, imageUrl, cropImageUrl }: CardInfo
 ): RelatedCardInfo {
   return { dbfId, name, cardId, manaCost, cardType, rarity, text, imageUrl, cropImageUrl };
@@ -379,7 +521,10 @@ function parseCardInfo(value: unknown): CardInfo | undefined {
     numberValue(value.rarityId) ?? numberValue(value.rarity_id)
   );
   const spellSchoolId = numberValue(value.spellSchoolId) ?? numberValue(value.spell_school_id);
-  const spellSchool = stringValue(value.spellSchool) ?? stringValue(value.spell_school);
+  const spellSchool =
+    stringValue(value.spellSchool) ??
+    stringValue(value.spell_school) ??
+    Object.entries(SPELL_SCHOOL_IDS).find(([, id]) => id === spellSchoolId)?.[0];
   const heroClasses = parseHeroClasses(value);
   const races = parseCardRaces(value);
   const relatedCardIds = uniqueNumbers([
@@ -506,8 +651,34 @@ function parseHeroClasses(value: Record<string, unknown>): string[] {
     value.heroClass
   ];
 
-  return uniqueStrings(sourceValues.flatMap(extractHeroClassValues));
+  const numericClassIds = [
+    numberValue(value.classId),
+    numberValue(value.class_id),
+    ...numberArray(value.multiClassIds),
+    ...numberArray(value.multi_class_ids)
+  ].filter((id): id is number => id !== undefined);
+  return uniqueStrings([
+    ...sourceValues.flatMap(extractHeroClassValues),
+    ...numericClassIds
+      .map((id) => OFFICIAL_HERO_CLASSES[id])
+      .filter((heroClass): heroClass is string => heroClass !== undefined)
+  ]);
 }
+
+const OFFICIAL_HERO_CLASSES: Readonly<Record<number, string>> = {
+  1: "死亡骑士",
+  2: "德鲁伊",
+  3: "猎人",
+  4: "法师",
+  5: "圣骑士",
+  6: "牧师",
+  7: "盗贼",
+  8: "萨满祭司",
+  9: "术士",
+  10: "战士",
+  12: "中立",
+  14: "恶魔猎手"
+};
 
 const OFFICIAL_MINION_TYPE_RACES: Readonly<Record<number, string>> = {
   2: "DRAENEI",

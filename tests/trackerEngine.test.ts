@@ -146,10 +146,10 @@ describe("parseLogLine", () => {
       "D 20:46:33.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=普通光环 id=43 zone=PLAY cardId=NORMAL_AURA player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=START_OF_GAME_KEYWORD"
     );
 
-    expect(globalEffect).toEqual([
+    expect(globalEffect.filter((event) => event.type === "global-effect")).toEqual([
       expect.objectContaining({ type: "global-effect", entity: expect.objectContaining({ cardId: "JAIL_397", controller: 2 }) })
     ]);
-    expect(ordinaryTrigger).toEqual([]);
+    expect(ordinaryTrigger.some((event) => event.type === "global-effect")).toBe(false);
   });
 
   it("emits a persistent effect only for an explicitly whitelisted played card", () => {
@@ -361,6 +361,136 @@ D 08:22:00.0000000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Enti
     );
   });
 
+  it("records the actual nested spells cast by a random-spell card", () => {
+    const richDb = createCardDatabase([
+      {
+        id: 103270,
+        cardId: "TOY_372",
+        name: "匣中古神",
+        collectible: 1,
+        type: "SPELL",
+        text: "随机施放5个法术。"
+      },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: 9001 + index,
+        cardId: `SPELL_${index + 1}`,
+        name: `第${index + 1}张法术`,
+        collectible: 1,
+        type: "SPELL"
+      }))
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 08:18:06.3615000 GameState.DebugPrintPower() - CREATE_GAME
+D 08:18:32.0537060 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK zonePos=0 cardId=TOY_372 player=2] tag=ZONE value=HAND
+D 08:20:53.4861770 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND zonePos=1 cardId=TOY_372 player=2] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1
+D 08:20:53.5000000 GameState.DebugPrintPower() -     BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY zonePos=0 cardId=TOY_372 player=2]
+D 08:20:53.5000000 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=71 CardID=SPELL_1
+D 08:20:53.5000000 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=72 CardID=SPELL_2
+D 08:20:53.5000000 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=73 CardID=SPELL_3
+D 08:20:53.5000000 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=74 CardID=SPELL_4
+D 08:20:53.5000000 GameState.DebugPrintPower() -         FULL_ENTITY - Creating ID=75 CardID=SPELL_5
+D 08:20:53.5200000 GameState.DebugPrintPower() -         BLOCK_START BlockType=POWER Entity=[entityName=第2张法术 id=72 zone=PLAY zonePos=0 cardId=SPELL_2 player=2]
+D 08:20:53.5200000 GameState.DebugPrintPower() -             FULL_ENTITY - Creating ID=76 CardID=SPELL_6
+D 08:20:53.5300000 GameState.DebugPrintPower() -         BLOCK_END
+D 08:20:53.5400000 GameState.DebugPrintPower() -     BLOCK_END
+D 08:20:53.5500000 GameState.DebugPrintPower() - BLOCK_END
+`);
+
+    const section = (engine.getState().friendlyHand ?? [])
+      .find((card) => card.cardId === "TOY_372")
+      ?.details?.cardOutcomeSections?.[0];
+    expect(section?.cards).toHaveLength(5);
+    expect(section?.cards?.[1]).toMatchObject({
+      card: expect.objectContaining({ cardId: "SPELL_2", name: "第2张法术" })
+    });
+    expect(section?.cards[1]?.children).toBeUndefined();
+  });
+
+  it("keeps ten doubled outcomes, nested random casts, controller isolation, duplicate-log deduplication, and clears on a new game", () => {
+    const richDb = createCardDatabase([
+      {
+        id: 103270,
+        cardId: "TOY_372",
+        name: "匣中古神",
+        collectible: 1,
+        type: "SPELL",
+        text: "随机施放5个法术。"
+      },
+      ...Array.from({ length: 11 }, (_, index) => ({
+        id: 9100 + index,
+        cardId: `RANDOM_SPELL_${index + 1}`,
+        name: `随机法术${index + 1}`,
+        collectible: 1,
+        type: "SPELL"
+      }))
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    const blockLines = [
+      ["08:20:01.0000000", "BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=2]"],
+      ["08:20:02.0000000", "    BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=2]"],
+      ...Array.from({ length: 5 }, (_, index) => [
+        "08:20:02.0000000",
+        `        FULL_ENTITY - Creating ID=${71 + index} CardID=RANDOM_SPELL_${index + 1}`
+      ]),
+      ["08:20:03.0000000", "    BLOCK_END"],
+      ["08:20:04.0000000", "    BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=2]"],
+      ...Array.from({ length: 4 }, (_, index) => [
+        "08:20:04.0000000",
+        `        FULL_ENTITY - Creating ID=${81 + index} CardID=RANDOM_SPELL_${index + 6}`
+      ]),
+      ["08:20:04.0000000", "        FULL_ENTITY - Creating ID=90 CardID=TOY_372"],
+      ["08:20:05.0000000", "        BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=90 zone=PLAY cardId=TOY_372 player=2]"],
+      ["08:20:05.0000000", "            FULL_ENTITY - Creating ID=91 CardID=RANDOM_SPELL_10"],
+      ["08:20:06.0000000", "        BLOCK_END"],
+      ["08:20:07.0000000", "    BLOCK_END"],
+      ["08:20:08.0000000", "BLOCK_END"]
+    ] as const;
+    const renderBlock = (source: "GameState" | "PowerTaskList") =>
+      blockLines.map(([time, payload]) => `D ${time} ${source}.DebugPrintPower() - ${payload}`);
+    engine.applyText([
+      "D 08:18:06.3615000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 08:18:32.0537060 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=2] tag=ZONE value=HAND",
+      ...renderBlock("GameState"),
+      ...renderBlock("PowerTaskList"),
+      "D 08:21:00.0000000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=160 zone=HAND cardId=TOY_372 player=1]",
+      "D 08:21:01.0000000 GameState.DebugPrintPower() - BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=160 zone=PLAY cardId=TOY_372 player=1]",
+      "D 08:21:01.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=161 CardID=RANDOM_SPELL_11",
+      "D 08:21:01.0000000 GameState.DebugPrintPower() - BLOCK_END",
+      "D 08:21:02.0000000 GameState.DebugPrintPower() - BLOCK_END",
+      "D 08:21:03.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=160 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=PLAY"
+    ].join("\n"));
+
+    const outcomeSection = (engine.getState().friendlyHand ?? [])
+      .find((card) => card.cardId === "TOY_372")
+      ?.details?.cardOutcomeSections?.[0];
+    expect(outcomeSection?.cards).toHaveLength(10);
+    expect(outcomeSection?.cards?.[9]).toMatchObject({
+      card: expect.objectContaining({ cardId: "TOY_372" }),
+      children: [
+        expect.objectContaining({ card: expect.objectContaining({ cardId: "RANDOM_SPELL_10" }) })
+      ]
+    });
+    expect((engine.getState().friendlyHand ?? [])
+      .find((card) => card.cardId === "TOY_372")
+      ?.details?.cardOutcomeSections).toHaveLength(1);
+    expect((engine.getState().opponentPlayed ?? [])
+      .find((card) => card.cardId === "TOY_372")
+      ?.details?.cardOutcomeSections?.[0]?.cards).toEqual([
+        expect.objectContaining({ card: expect.objectContaining({ cardId: "RANDOM_SPELL_11" }) })
+      ]);
+
+    engine.applyText(`
+D 08:26:11.3028700 GameState.DebugPrintPower() - CREATE_GAME
+D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=260 zone=DECK cardId=TOY_372 player=2] tag=ZONE value=HAND
+`);
+    expect((engine.getState().friendlyHand ?? [])
+      .find((card) => card.cardId === "TOY_372")
+      ?.details?.cardOutcomeSections).toBeUndefined();
+  });
+
   it("同一法术实体回手后再次施放会重复记录且新局清空历史", () => {
     const richDb = createCardDatabase([
       { id: 103354, cardId: "TOY_378", name: "星空投影球", type: "SPELL", cost: 10 },
@@ -405,6 +535,26 @@ D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=�
         details: expect.objectContaining({ playedSpellsThisGame: [] })
       })
     );
+  });
+
+  it("removes a revealed card burned directly from deck while keeping it in the graveyard section", () => {
+    const richDb = createCardDatabase([
+      { id: 126662, cardId: "JAIL_732", name: "虚空灵魂", collectible: 1, type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ deckText: "1x 虚空灵魂", cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 19:52:00.0000000 GameState.DebugPrintPower() - CREATE_GAME
+D 19:52:01.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=43 zone=DECK zonePos=1 cardId= player=2] tag=ZONE value=GRAVEYARD
+D 19:52:01.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=43 zone=GRAVEYARD zonePos=0 cardId= player=2] CardID=JAIL_732
+`);
+
+    expect(engine.getState()).toMatchObject({
+      deck: [expect.objectContaining({ cardId: "JAIL_732", remaining: 0, drawn: 1 })],
+      friendlyHand: [],
+      friendlyOther: [expect.objectContaining({ cardId: "JAIL_732", name: "虚空灵魂" })],
+      summary: expect.objectContaining({ remainingCards: 0, drawnCards: 1 })
+    });
   });
 
   it("replays the reported Power.log death order for Endgame and ignores duplicate and opponent deaths", () => {

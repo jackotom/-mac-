@@ -2,9 +2,13 @@ import { createEmptyDeckRows, deckCardKey, parseDeckText } from "./deck.js";
 import { normalizeZone, parseLogLine, type FriendlyDeckSnapshot } from "./powerLogParser.js";
 import {
   createCardIdNameLookup,
+  isRandomSpellPoolCard,
   listCardInfos,
   normalizeCardId,
   toCardDetails,
+  toRelatedCardInfo,
+  type CardOutcomeNode,
+  type CardOutcomeSection,
   type CardDatabase,
   type CardDetails,
   type CardInfo
@@ -40,6 +44,38 @@ interface FriendlyObservation {
   readonly toZone: Zone;
   readonly raw: string;
   applied: boolean;
+}
+
+type CardOutcomeSide = "friendly" | "opponent";
+
+interface RecordedCardOutcomeNode {
+  readonly key: string;
+  readonly entityId?: string;
+  readonly card: CardInfo;
+  readonly children: RecordedCardOutcomeNode[];
+}
+
+interface RecordedCardOutcome {
+  readonly key: string;
+  readonly source: CardInfo;
+  readonly cards: RecordedCardOutcomeNode[];
+  readonly keepWhenEmpty: boolean;
+}
+
+interface CardOutcomeBlockFrame {
+  readonly key: string;
+  readonly blockType?: string;
+  readonly entityId?: string;
+  readonly parentCards?: RecordedCardOutcomeNode[];
+  readonly parentSourceEntityId?: string;
+  readonly parentAcceptsFullEntityOutcomes?: boolean;
+  side?: CardOutcomeSide;
+  sourceEntityId?: string;
+  cards?: RecordedCardOutcomeNode[];
+  acceptsFullEntityOutcomes?: boolean;
+  capture?: RecordedCardOutcome;
+  configured?: boolean;
+  suppressed?: boolean;
 }
 
 const GENERATED_DECK_ROW_NAME = "对局生成的未知牌";
@@ -92,6 +128,7 @@ export class TrackerEngine {
   private cardDatabase: CardDatabase | undefined;
   private pendingControllerEvents: ParsedLogEvent[] = [];
   private unresolvedDrawEntityIds = new Set<string>();
+  private pendingUnknownDeckExitZones = new Map<string, Zone>();
   private generatedEntityIds = new Set<string>();
   private insertedDeckEntityRowKeys = new Map<string, string>();
   private pendingEntityDetail: EntitySnapshot | undefined;
@@ -108,6 +145,11 @@ export class TrackerEngine {
   private opponentDeadMinionsThisGame: CardInfo[] = [];
   private recordedCardPlayEntityIds = new Set<string>();
   private recordedDeathEntityIds = new Set<string>();
+  private cardOutcomeBlockStack: CardOutcomeBlockFrame[] = [];
+  private friendlyCardOutcomes = new Map<string, RecordedCardOutcome[]>();
+  private opponentCardOutcomes = new Map<string, RecordedCardOutcome[]>();
+  private completedCardOutcomeKeys = new Set<string>();
+  private lastBlockBoundaryFingerprint: string | undefined;
   private pendingKnownEntityReturn: EntitySnapshot | undefined;
   private pendingKnownEntityReturnCandidateIds = new Set<string>();
   private secretTracker: SecretTracker;
@@ -474,7 +516,7 @@ export class TrackerEngine {
       opponentGlobalEffects: this.buildGlobalEffects(this.opponentGlobalEffects),
       opponentDeckCount: opponentZones.deckCount,
       opponentHandCount: opponentZones.handCount,
-      opponentPlayed: opponentPlayed.map((row) => this.withCardDetails(row)),
+      opponentPlayed: opponentPlayed.map((row) => this.withCardDetails(row, "opponent")),
       opponentSecrets: this.secretTracker.getSlots(),
       boardAttack: this.buildBoardAttack(),
       matchCounters: this.buildMatchCounters(),
@@ -534,6 +576,11 @@ export class TrackerEngine {
       return;
     }
 
+    if (event.type === "block-boundary") {
+      this.applyCardOutcomeBoundary(event);
+      return;
+    }
+
     if (event.type === "causal-trigger") {
       if (event.phase === "end") {
         this.finalizePendingKnownEntityReturn();
@@ -573,6 +620,11 @@ export class TrackerEngine {
       }
       if (merged?.id) {
         this.reconcileInsertedDeckEntity(merged.id);
+        this.resolvePendingUnknownDeckExit(merged, event.raw);
+        this.resolveCurrentCardOutcomeFrame(merged);
+        if (/\bFULL_ENTITY\b/.test(event.raw)) {
+          this.recordFullEntityCardOutcome(merged);
+        }
       }
       const info = event.entity.cardId ? this.cardInfoByCardId.get(normalizeCardId(event.entity.cardId)) : undefined;
       if (this.isKnownOpponentController(event.entity.controller) && info?.cardType === "英雄") {
@@ -680,6 +732,15 @@ export class TrackerEngine {
     }
 
     if (!cardName) {
+      if (
+        event.entityId &&
+        isFriendly &&
+        fromZone === "DECK" &&
+        event.toZone !== "DECK" &&
+        event.toZone !== "HAND"
+      ) {
+        this.pendingUnknownDeckExitZones.set(event.entityId, event.toZone);
+      }
       if (insertedDeckRow && fromZone !== event.toZone) {
         if (fromZone === "DECK") {
           decrementRemaining(insertedDeckRow);
@@ -744,6 +805,15 @@ export class TrackerEngine {
       deckRow.drawn += 1;
       this.addEvent("draw", "friendly", { cardName, cardId, fromZone, toZone: event.toZone, raw: event.raw });
       return;
+    }
+
+    if (deckRow && isFriendly && fromZone === "DECK" && event.toZone !== "DECK") {
+      decrementRemaining(deckRow);
+      deckRow.drawn += 1;
+      this.addEvent("zone-change", "friendly", { cardName, cardId, fromZone, toZone: event.toZone, raw: event.raw });
+      if (event.toZone !== "PLAY") {
+        return;
+      }
     }
 
     if (deckRow && isFriendly && fromZone === "HAND" && event.toZone === "DECK") {
@@ -1382,7 +1452,7 @@ export class TrackerEngine {
       name,
       count: 1,
       ...(cardId ? { cardId } : {}),
-      ...(cardInfo && this.cardDatabase ? { details: toCardDetails(this.cardDatabase, cardInfo) } : {})
+      ...(cardInfo && this.cardDatabase ? { details: this.buildOpponentCardDetails(cardInfo) } : {})
     };
   }
 
@@ -1533,7 +1603,7 @@ export class TrackerEngine {
     });
   }
 
-  private withCardDetails(row: CardTrackerRow, includeFriendlyMatchContext = false): CardTrackerRow {
+  private withCardDetails(row: CardTrackerRow, context: "none" | "friendly" | "opponent" | true = "none"): CardTrackerRow {
     if (!this.cardDatabase) {
       return row;
     }
@@ -1543,9 +1613,11 @@ export class TrackerEngine {
       return row;
     }
 
-    const details = includeFriendlyMatchContext
+    const details = context === "friendly" || context === true
       ? this.buildFriendlyCardDetails(card)
-      : toCardDetails(this.cardDatabase, card);
+      : context === "opponent"
+        ? this.buildOpponentCardDetails(card)
+        : toCardDetails(this.cardDatabase, card);
     return { ...row, details };
   }
 
@@ -1574,6 +1646,12 @@ export class TrackerEngine {
     this.opponentDeadMinionsThisGame = [];
     this.recordedCardPlayEntityIds.clear();
     this.recordedDeathEntityIds.clear();
+    this.pendingUnknownDeckExitZones.clear();
+    this.cardOutcomeBlockStack = [];
+    this.friendlyCardOutcomes.clear();
+    this.opponentCardOutcomes.clear();
+    this.completedCardOutcomeKeys.clear();
+    this.lastBlockBoundaryFingerprint = undefined;
   }
 
   private buildFriendlyCardDetails(card: CardInfo): CardDetails {
@@ -1589,12 +1667,215 @@ export class TrackerEngine {
     const playedSpellsThisGame = cardId === GALACTIC_PROJECTION_ORB_CARD_ID
       ? this.friendlyCardsUsedThisGame.filter((usedCard) => usedCard.cardType === "法术")
       : undefined;
+    const cardOutcomeSections = this.buildCardOutcomeSections(card, this.friendlyCardOutcomes);
     return {
       ...details,
       ...(gameContextSections.length > 0 ? { gameContextSections } : {}),
+      ...(cardOutcomeSections.length > 0 ? { cardOutcomeSections } : {}),
       ...(playedSpellsThisGame ? { playedSpellsThisGame } : {})
     };
   }
+
+  private buildOpponentCardDetails(card: CardInfo): CardDetails {
+    const details = toCardDetails(this.cardDatabase!, card);
+    const cardOutcomeSections = this.buildCardOutcomeSections(card, this.opponentCardOutcomes);
+    return {
+      ...details,
+      ...(cardOutcomeSections.length > 0 ? { cardOutcomeSections } : {})
+    };
+  }
+
+  private applyCardOutcomeBoundary(event: Extract<ParsedLogEvent, { type: "block-boundary" }>) {
+    const fingerprint = blockBoundaryFingerprint(event);
+    if (event.phase === "start" && fingerprint === this.lastBlockBoundaryFingerprint) {
+      return;
+    }
+    this.lastBlockBoundaryFingerprint = event.phase === "start" ? fingerprint : undefined;
+
+    if (event.phase === "end") {
+      const frame = this.cardOutcomeBlockStack.pop();
+      if (frame?.capture && !frame.suppressed) {
+        this.completeCardOutcome(frame.capture, frame.side);
+      }
+      return;
+    }
+
+    const parent = this.cardOutcomeBlockStack.at(-1);
+    const rootKey = `${event.blockType ?? "UNKNOWN"}:${event.entity?.id ?? "unknown"}:${fingerprint}`;
+    const frame: CardOutcomeBlockFrame = {
+      key: rootKey,
+      blockType: event.blockType,
+      entityId: event.entity?.id,
+      parentCards: parent?.cards,
+      parentSourceEntityId: parent?.sourceEntityId,
+      parentAcceptsFullEntityOutcomes: parent?.acceptsFullEntityOutcomes,
+      side: this.cardOutcomeSide(event.entity?.controller) ?? parent?.side,
+      suppressed: parent?.suppressed || (!parent && this.completedCardOutcomeKeys.has(rootKey))
+    };
+    this.cardOutcomeBlockStack.push(frame);
+    if (!frame.suppressed) {
+      const existing = event.entity?.id ? this.entities.get(event.entity.id) : undefined;
+      const entity = existing ? { ...existing, ...event.entity } : event.entity;
+      if (entity) {
+        this.configureCardOutcomeFrame(frame, entity);
+      }
+    }
+  }
+
+  private resolveCurrentCardOutcomeFrame(entity: EntitySnapshot) {
+    const frame = [...this.cardOutcomeBlockStack]
+      .reverse()
+      .find((candidate) => !candidate.configured && candidate.entityId === entity.id);
+    if (frame && !frame.suppressed) {
+      this.configureCardOutcomeFrame(frame, entity);
+    }
+  }
+
+  private configureCardOutcomeFrame(frame: CardOutcomeBlockFrame, entity: EntitySnapshot) {
+    const card = this.findCardInfo(entity.cardId, entity.name);
+    if (!card) {
+      return;
+    }
+    frame.configured = true;
+    frame.side ??= this.cardOutcomeSide(entity.controller);
+
+    if (card.cardType !== "法术") {
+      frame.cards = frame.parentCards;
+      frame.sourceEntityId = frame.parentSourceEntityId;
+      frame.acceptsFullEntityOutcomes = frame.parentAcceptsFullEntityOutcomes;
+      return;
+    }
+
+    if (entity.id && entity.id === frame.parentSourceEntityId) {
+      frame.cards = frame.parentCards;
+      frame.sourceEntityId = frame.parentSourceEntityId;
+      frame.acceptsFullEntityOutcomes = frame.parentAcceptsFullEntityOutcomes;
+      return;
+    }
+
+    if (frame.parentCards) {
+      const node = frame.parentCards.find((candidate) => candidate.entityId === entity.id) ?? {
+        key: frame.key,
+        entityId: entity.id,
+        card,
+        children: []
+      };
+      if (!frame.parentCards.includes(node)) {
+        frame.parentCards.push(node);
+      }
+      frame.cards = node.children;
+    } else {
+      frame.cards = [];
+    }
+    frame.sourceEntityId = entity.id;
+    frame.acceptsFullEntityOutcomes = isRandomSpellPoolCard(card);
+    if (!frame.parentCards) {
+      frame.capture = {
+        key: frame.key,
+        source: card,
+        cards: frame.cards,
+        keepWhenEmpty: isRandomSpellPoolCard(card)
+      };
+    }
+  }
+
+  private recordFullEntityCardOutcome(entity: EntitySnapshot) {
+    const frame = this.cardOutcomeBlockStack.at(-1);
+    if (
+      !frame?.cards ||
+      !frame.acceptsFullEntityOutcomes ||
+      frame.suppressed ||
+      !entity.id ||
+      entity.id === frame.sourceEntityId
+    ) {
+      return;
+    }
+    const card = this.findCardInfo(entity.cardId, entity.name);
+    if (card?.cardType !== "法术" || frame.cards.some((candidate) => candidate.entityId === entity.id)) {
+      return;
+    }
+    frame.cards.push({
+      key: `entity:${entity.id}`,
+      entityId: entity.id,
+      card,
+      children: []
+    });
+  }
+
+  private completeCardOutcome(outcome: RecordedCardOutcome, side: CardOutcomeSide | undefined) {
+    if (!side || (!outcome.keepWhenEmpty && outcome.cards.length === 0) || this.completedCardOutcomeKeys.has(outcome.key)) {
+      return;
+    }
+    this.completedCardOutcomeKeys.add(outcome.key);
+    const target = side === "friendly" ? this.friendlyCardOutcomes : this.opponentCardOutcomes;
+    const cardId = normalizeCardId(outcome.source.cardId ?? outcome.source.id ?? "");
+    if (!cardId) {
+      return;
+    }
+    const records = target.get(cardId) ?? [];
+    records.push(outcome);
+    target.set(cardId, records);
+  }
+
+  private buildCardOutcomeSections(
+    card: CardInfo,
+    outcomesByCardId: ReadonlyMap<string, readonly RecordedCardOutcome[]>
+  ): readonly CardOutcomeSection[] {
+    const cardId = normalizeCardId(card.cardId ?? card.id ?? "");
+    const outcomes = outcomesByCardId.get(cardId) ?? [];
+    return outcomes.map((outcome, index) => ({
+      key: outcome.key,
+      title: outcomes.length === 1 ? "本次实际施放" : `第${index + 1}次实际施放`,
+      emptyText: "日志中没有识别到实际施放的法术",
+      cards: outcome.cards.map(toPublicCardOutcomeNode)
+    }));
+  }
+
+  private cardOutcomeSide(controller: number | undefined): CardOutcomeSide | undefined {
+    return this.isFriendlyController(controller)
+      ? "friendly"
+      : this.isKnownOpponentController(controller) ? "opponent" : undefined;
+  }
+
+  private resolvePendingUnknownDeckExit(entity: EntitySnapshot, raw: string) {
+    if (!entity.id || !entity.cardId || !this.pendingUnknownDeckExitZones.has(entity.id)) {
+      return;
+    }
+    const toZone = this.pendingUnknownDeckExitZones.get(entity.id)!;
+    this.pendingUnknownDeckExitZones.delete(entity.id);
+    const card = this.findCardInfo(entity.cardId, entity.name);
+    const deckRow = this.resolveDeckRow(card?.name ?? entity.name, entity.cardId);
+    if (!deckRow) {
+      return;
+    }
+    if (!deckRow.cardId) {
+      deckRow.cardId = entity.cardId;
+      this.deckRowsByCardId.set(normalizeCardId(entity.cardId), deckRow);
+    }
+    decrementRemaining(deckRow);
+    deckRow.drawn += 1;
+    this.addEvent("zone-change", "friendly", {
+      cardName: card?.name ?? entity.name,
+      cardId: entity.cardId,
+      fromZone: "DECK",
+      toZone,
+      raw
+    });
+  }
+}
+
+function toPublicCardOutcomeNode(node: RecordedCardOutcomeNode): CardOutcomeNode {
+  return {
+    key: node.key,
+    card: toRelatedCardInfo(node.card),
+    ...(node.children.length > 0 ? { children: node.children.map(toPublicCardOutcomeNode) } : {})
+  };
+}
+
+function blockBoundaryFingerprint(event: Extract<ParsedLogEvent, { type: "block-boundary" }>): string {
+  const timestamp = event.raw.match(/\b\d{2}:\d{2}:\d{2}\.\d+\b/)?.[0] ?? "";
+  const boundary = event.raw.slice(Math.max(event.raw.indexOf("BLOCK_START"), event.raw.indexOf("BLOCK_END")));
+  return `${event.phase}:${timestamp}:${boundary}`;
 }
 
 function scoreCollectionDeck(deck: CollectionDeck, observations: readonly FriendlyObservation[]): number {

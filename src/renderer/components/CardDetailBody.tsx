@@ -1,4 +1,7 @@
-import type { CardDetails } from "../../shared/cardDatabase";
+import { useState, type ReactNode } from "react";
+import type { CardDetails, CardOutcomeNode, RelatedCardInfo } from "../../shared/cardDatabase";
+
+const CARD_POOL_BATCH_SIZE = 60;
 
 export function CardDetailBody({ details, className }: { details?: CardDetails; className?: string }) {
   if (!details) {
@@ -12,6 +15,8 @@ export function CardDetailBody({ details, className }: { details?: CardDetails; 
     !details.isSpell && details.health !== undefined && details.health > 0 ? `生命 ${details.health}` : undefined
   ].filter((value): value is string => value !== undefined);
   const playedSpells = details.playedSpellsThisGame;
+  const cardPoolSections = details.cardPoolSections ?? [];
+  const cardOutcomeSections = details.cardOutcomeSections ?? [];
   const gameContextSections = details.gameContextSections ?? (
     playedSpells === undefined
       ? []
@@ -51,54 +56,197 @@ export function CardDetailBody({ details, className }: { details?: CardDetails; 
         {stats.length > 0 ? <div className="card-detail-stats">{stats.join(" · ")}</div> : null}
         {details.spellSchool ? <div className="card-detail-meta">法术派系：{details.spellSchool}</div> : null}
         {details.text ? <p className="card-detail-text">{details.text}</p> : null}
-        {details.relatedCards.length > 0 ? (
-          <div className="card-related-list">
-            <span>{details.isSpell ? "生成/关联法术" : "关联牌"}</span>
-            <div className="card-related-cards">
-              {details.relatedCards.map((card) => (
-                <div className="card-related-card" key={card.dbfId}>
-                  {card.cropImageUrl || card.imageUrl ? (
-                    <img src={card.cropImageUrl ?? card.imageUrl} alt="" loading="eager" />
-                  ) : null}
-                  <div>
-                    <strong title={card.name}>{card.name}</strong>
-                    <small>
-                      {card.manaCost === undefined ? "" : `${card.manaCost} 费`}
-                      {card.cardType ? `${card.manaCost === undefined ? "" : " · "}${card.cardType}` : ""}
-                    </small>
-                    {card.text ? <p>{card.text}</p> : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </div>
-      {gameContextSections.map((section) => (
-        <div className="card-related-list card-spell-history card-game-context" key={section.key}>
-          <span>{section.title}（{section.cards.length}）</span>
-          {section.cards.length > 0 ? (
-            <div className="card-related-cards">
-              {section.cards.map((card, index) => (
-                <div className="card-related-card" key={`${card.cardId ?? card.dbfId}-${index}`}>
-                  {card.cropImageUrl || card.imageUrl ? (
-                    <img src={card.cropImageUrl ?? card.imageUrl} alt="" loading="eager" />
-                  ) : null}
-                  <div>
-                    <strong title={card.name}>{card.name}</strong>
-                    <small>
-                      {card.manaCost === undefined ? "" : `${card.manaCost} 费`}
-                      {card.cardType ? `${card.manaCost === undefined ? "" : " · "}${card.cardType}` : ""}
-                    </small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="card-spell-history-empty">{section.emptyText}</div>
-          )}
-        </div>
+      <CardListSection
+        cards={details.relatedCards}
+        className="card-detail-related"
+        emptyText={details.isSpell ? "暂无生成或关联法术资料" : "暂无关联牌资料"}
+        title={details.isSpell ? "生成/关联法术" : "关联牌"}
+        showText
+      />
+      {cardPoolSections.map((section) => (
+        <CardPoolSection
+          cards={section.cards}
+          emptyText={section.emptyText}
+          key={`${details.cardId ?? details.dbfId}:${section.key}`}
+          title={section.title}
+        />
       ))}
+      {cardOutcomeSections.map((section) => (
+        <CardOutcomeSection
+          cards={section.cards}
+          emptyText={section.emptyText}
+          key={section.key}
+          title={section.title}
+        />
+      ))}
+      {gameContextSections.map((section) => (
+        <CardListSection
+          cards={section.cards}
+          className="card-game-context"
+          emptyText={section.emptyText}
+          key={section.key}
+          title={section.title}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CardPoolSection({
+  cards,
+  emptyText,
+  title
+}: {
+  readonly cards: readonly RelatedCardInfo[];
+  readonly emptyText: string;
+  readonly title: string;
+}) {
+  const [visibleCount, setVisibleCount] = useState(CARD_POOL_BATCH_SIZE);
+  const visibleCards = cards.slice(0, visibleCount);
+  const remainingCount = cards.length - visibleCards.length;
+  const nextBatchCount = Math.min(CARD_POOL_BATCH_SIZE, remainingCount);
+
+  return (
+    <CardListSection
+      cards={visibleCards}
+      className="card-pool-section"
+      emptyText={emptyText}
+      footer={remainingCount > 0 ? (
+        <button
+          className="card-pool-load-more"
+          onClick={() => setVisibleCount((current) => current + CARD_POOL_BATCH_SIZE)}
+          type="button"
+        >
+          继续显示 {nextBatchCount} 张（剩余 {remainingCount} 张）
+        </button>
+      ) : undefined}
+      showText
+      title={title}
+      totalCount={cards.length}
+    />
+  );
+}
+
+function CardListSection({
+  cards,
+  className,
+  emptyText,
+  footer,
+  title,
+  showText = false,
+  totalCount = cards.length
+}: {
+  readonly cards: readonly RelatedCardInfo[];
+  readonly className: string;
+  readonly emptyText: string;
+  readonly footer?: ReactNode;
+  readonly title: string;
+  readonly showText?: boolean;
+  readonly totalCount?: number;
+}) {
+  return (
+    <div
+      aria-label={`${title}，共 ${totalCount} 张`}
+      className={`card-related-list card-spell-history ${className}`}
+      role="region"
+    >
+      <span>{title}（{totalCount}）</span>
+      {cards.length > 0 ? (
+        <div className="card-related-cards" role="list">
+          {cards.map((card, index) => (
+            <RelatedCardRow
+              card={card}
+              key={`${card.cardId ?? card.dbfId}-${index}`}
+              role="listitem"
+              showText={showText}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="card-spell-history-empty">{emptyText}</div>
+      )}
+      {footer}
+    </div>
+  );
+}
+
+function CardOutcomeSection({
+  cards,
+  emptyText,
+  title
+}: {
+  readonly cards: readonly CardOutcomeNode[];
+  readonly emptyText: string;
+  readonly title: string;
+}) {
+  return (
+    <div
+      aria-label={`${title}，共 ${cards.length} 张`}
+      className="card-related-list card-spell-history card-outcome-section"
+      role="region"
+    >
+      <span>{title}（{cards.length}）</span>
+      {cards.length > 0 ? (
+        <div className="card-outcome-tree" role="list">
+          {cards.map((node) => <CardOutcomeNodeView key={node.key} node={node} />)}
+        </div>
+      ) : (
+        <div className="card-spell-history-empty">{emptyText}</div>
+      )}
+    </div>
+  );
+}
+
+function CardOutcomeNodeView({ node }: { readonly node: CardOutcomeNode }) {
+  const children = node.children ?? [];
+  const childLabel = `由「${node.card.name}」触发`;
+
+  return (
+    <div className="card-outcome-node" role="listitem">
+      <RelatedCardRow card={node.card} />
+      {children.length > 0 ? (
+        <div
+          aria-label={`${childLabel}，共 ${children.length} 张`}
+          className="card-outcome-children"
+          role="group"
+        >
+          <span>{childLabel}（{children.length}）</span>
+          <div className="card-outcome-tree" role="list">
+            {children.map((child) => <CardOutcomeNodeView key={child.key} node={child} />)}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RelatedCardRow({
+  card,
+  role,
+  showText = false
+}: {
+  readonly card: RelatedCardInfo;
+  readonly role?: "listitem";
+  readonly showText?: boolean;
+}) {
+  return (
+    <div className="card-related-card" role={role}>
+      <div className="card-related-art">
+        {card.cropImageUrl || card.imageUrl ? (
+          <img src={card.cropImageUrl ?? card.imageUrl} alt="" loading="eager" />
+        ) : (
+          <span aria-label={`${card.name}无卡图`}>无图</span>
+        )}
+      </div>
+      <div>
+        <strong title={card.name}>{card.name}</strong>
+        <small>
+          {card.manaCost === undefined ? "" : `${card.manaCost} 费`}
+          {card.cardType ? `${card.manaCost === undefined ? "" : " · "}${card.cardType}` : ""}
+        </small>
+        {showText && card.text ? <p>{card.text}</p> : null}
+      </div>
     </div>
   );
 }

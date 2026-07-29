@@ -2160,8 +2160,10 @@ html body:has(.desktop-frame):not(:has(.overlay-shell)) :is(.card-related-card, 
   background: #181109;
 }
 
-html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-related-card > img {
+html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-related-art {
   border-color: rgba(198, 137, 43, 0.4);
+  color: var(--replica-muted);
+  background: #0e0a05;
 }
 
 html body:has(.desktop-frame):not(:has(.overlay-shell)) .card-related-card strong {

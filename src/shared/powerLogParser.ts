@@ -64,6 +64,7 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
 
   if (/BLOCK_END\b/.test(line)) {
     return [
+      { type: "block-boundary", phase: "end", raw: line },
       { type: "action-boundary", phase: "end", action: "other", raw: line },
       { type: "causal-trigger", phase: "end", raw: line }
     ];
@@ -71,7 +72,13 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
 
   if (/BLOCK_START\b.*BlockType=TRIGGER\b/.test(line)) {
     const entity = parseEntity(line);
-    const events: ParsedLogEvent[] = [];
+    const events: ParsedLogEvent[] = [{
+      type: "block-boundary",
+      phase: "start",
+      blockType: "TRIGGER",
+      entity,
+      raw: line
+    }];
     if (/TriggerKeyword=DEATHRATTLE\b/i.test(line) && entity.id) {
       events.push({
         type: "causal-trigger",
@@ -107,12 +114,24 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
   if (/BLOCK_START\b.*BlockType=PLAY\b/.test(line)) {
     const entity = parseEntity(line);
     const events: ParsedLogEvent[] = [
+      { type: "block-boundary", phase: "start", blockType: "PLAY", entity, raw: line },
       { type: "action-boundary", phase: "start", action: "play", entity, raw: line }
     ];
     if (entity.cardId && PLAYED_GLOBAL_EFFECT_CARD_IDS.has(entity.cardId.toLocaleUpperCase())) {
       events.push({ type: "global-effect", source: "played", entity, raw: line });
     }
     return events;
+  }
+
+  const blockStart = line.match(/\bBLOCK_START\b.*?\bBlockType=([A-Z_]+)\b/i);
+  if (blockStart) {
+    return [{
+      type: "block-boundary",
+      phase: "start",
+      blockType: blockStart[1].toUpperCase(),
+      entity: parseEntity(line),
+      raw: line
+    }];
   }
 
   const events: ParsedLogEvent[] = [];
