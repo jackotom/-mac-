@@ -82,8 +82,11 @@ export function CardTrackingGroups({
   useEffect(() => {
     if (previousGameKeyRef.current === view.gameKey) return;
     previousGameKeyRef.current = view.gameKey;
-    previousSecretCountRef.current = view.secretSlots.length;
-    const next = initialSelection(view, layoutMode);
+    const secretCount = view.secretSlots.length;
+    previousSecretCountRef.current = secretCount;
+    const next = secretCount > 0
+      ? { page: "current" as const, expanded: new Set<TrackingGroupKey>(["secret"]) }
+      : initialSelection(view, layoutMode);
     setPage(next.page);
     setExpanded(next.expanded);
     setOrigin("system");
@@ -126,12 +129,12 @@ export function CardTrackingGroups({
   }, [expanded, page]);
 
   const handlePageChange = (nextPage: TrackingPage) => {
+    setOrigin("user");
     if (nextPage === page) return;
     const mode = layoutMode === "opponent" ? "short" : layoutMode;
     const next = resolveFriendlyDefault(mode, nextPage);
     setPage(nextPage);
     setExpanded(next.expanded);
-    setOrigin("user");
     lastActivatedRef.current = firstExpanded(next.expanded, nextPage);
   };
 

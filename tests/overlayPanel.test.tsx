@@ -147,6 +147,39 @@ describe("standard tracker overlay", () => {
     expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "history");
   });
 
+  it("treats clicking the already-active current page as a user selection", () => {
+    setViewportHeight(200);
+    const firstSecret: OverlaySecretSlot = {
+      id: "secret-1",
+      label: "? 1",
+      candidates: []
+    };
+    const preview = render(<OverlayPanel view={lifecycleView("game-1")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "当前" }));
+    preview.rerender(<OverlayPanel view={lifecycleView("game-1", [firstSecret])} />);
+
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "current");
+    expect(preview.container.querySelector('[data-group-key="deck"]')).toHaveAttribute("data-expanded", "true");
+    expect(preview.container.querySelector('[data-group-key="secret"]')).toHaveAttribute("data-expanded", "false");
+  });
+
+  it("promotes a first secret delivered together with a new game key", () => {
+    setViewportHeight(200);
+    const firstSecret: OverlaySecretSlot = {
+      id: "new-game-secret-1",
+      label: "? 1",
+      candidates: []
+    };
+    const preview = render(<OverlayPanel view={lifecycleView("game-1")} />);
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+
+    preview.rerender(<OverlayPanel view={lifecycleView("game-2", [firstSecret])} />);
+
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "current");
+    expect(preview.container.querySelector('[data-group-key="secret"]')).toHaveAttribute("data-expanded", "true");
+  });
+
   it("resets user selection when a new game key arrives", () => {
     setViewportHeight(200);
     const preview = render(<OverlayPanel view={lifecycleView("game-1")} />);
