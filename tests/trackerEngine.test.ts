@@ -6,6 +6,7 @@ import { parseDeckText } from "../src/shared/deck";
 import { createCardDatabase, type CardDatabase } from "../src/shared/cardDatabase";
 import { parseLogLine } from "../src/shared/powerLogParser";
 import { TrackerEngine } from "../src/shared/trackerEngine";
+import { parsePublicTrackerState } from "../src/renderer/runtimeValidation";
 import type { CollectionDeck, DeckCard } from "../src/shared/types";
 
 const cardDb = sampleCardDb as CardDatabase;
@@ -1676,7 +1677,212 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
       expect.objectContaining({ name: "Twin Card", cardId: "CARD_B", played: 1 })
     ]);
   });
+
+  describe("public card lifecycle tracking", () => {
+    it("records friendly, opponent, duplicate, hidden, and late-revealed PLAY actions once", () => {
+      const engine = createLifecycleEngine();
+      engine.applyText(`
+D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]
+D 12:00:01.100 GameState.DebugPrintPower() - BLOCK_END
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]
+D 12:00:01.100 PowerTaskList.DebugPrintPower() - BLOCK_END
+D 12:00:02.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=对手使用牌 id=61 zone=HAND cardId=OPP_USE player=2]
+D 12:00:02.100 GameState.DebugPrintPower() - BLOCK_END
+D 12:00:03.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=UNKNOWN ENTITY id=71 zone=HAND cardId= player=1]
+D 12:00:03.100 GameState.DebugPrintPower() - BLOCK_END
+D 12:00:04.000 GameState.DebugPrintPower() - BLOCK_START BlockType=POWER Entity=[entityName=古神子法术 id=81 zone=PLAY cardId=AUTO_SPELL player=1]
+D 12:00:04.100 GameState.DebugPrintPower() - BLOCK_END
+`);
+
+      const beforeReveal = engine.getState().cardTracking!;
+      expect(beforeReveal.friendly.used.totalCount).toBe(2);
+      expect(beforeReveal.opponent.used.totalCount).toBe(1);
+      expect(beforeReveal.friendly.used.items.find((item) => item.entityId === "71")).toMatchObject({
+        confidence: "confirmed"
+      });
+      expect(beforeReveal.friendly.used.items.find((item) => item.entityId === "71")?.card).toBeUndefined();
+      expect(beforeReveal.friendly.used.items.find((item) => item.entityId === "51")?.id)
+        .toMatch(/^game-1:use:\d+$/);
+
+      engine.applyLine(
+        "D 12:00:05.000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=晚揭示使用牌 id=71 zone=PLAY cardId= player=1] CardID=LATE_USE"
+      );
+
+      const afterReveal = engine.getState().cardTracking!;
+      expect(afterReveal.friendly.used.totalCount).toBe(2);
+      expect(afterReveal.friendly.used.items.find((item) => item.entityId === "71")).toMatchObject({
+        card: expect.objectContaining({ cardId: "LATE_USE", name: "晚揭示使用牌" })
+      });
+      expect(() => parsePublicTrackerState(engine.getState())).not.toThrow();
+    });
+
+    it("creates a new usageId only after the same entity truly returns to hand", () => {
+      const engine = createLifecycleEngine();
+      engine.applyText(`
+D 13:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 13:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=90 zone=HAND cardId=FRIEND_USE player=1]
+D 13:00:01.100 GameState.DebugPrintPower() - BLOCK_END
+D 13:00:01.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=90 zone=HAND cardId=FRIEND_USE player=1]
+D 13:00:01.100 PowerTaskList.DebugPrintPower() - BLOCK_END
+D 13:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=友方使用牌 id=90 zone=PLAY cardId=FRIEND_USE player=1] tag=ZONE value=HAND
+D 13:00:03.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=90 zone=HAND cardId=FRIEND_USE player=1]
+D 13:00:03.100 GameState.DebugPrintPower() - BLOCK_END
+`);
+
+      const used = engine.getState().cardTracking!.friendly.used;
+      expect(used.totalCount).toBe(2);
+      expect(used.items.map((item) => item.entityId)).toEqual(["90", "90"]);
+      expect(new Set(used.items.map((item) => item.id)).size).toBe(2);
+      expect(used.items.map((item) => item.sequence)).toEqual([2, 1]);
+    });
+
+    it("records an inferred burn once, updates all physical zones, and allows a later real reburn", () => {
+      const engine = createLifecycleEngine("2x 烧毁测试牌");
+      engine.applyText([
+        "D 14:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        ...createHandEntityLines(10, 1),
+        "D 14:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=43 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD",
+        "D 14:00:20.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=43 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD"
+      ].join("\n"));
+
+      const first = engine.getState().cardTracking!;
+      expect(first.friendly.current.deck.totalCount).toBe(1);
+      expect(first.friendly.current.hand.totalCount).toBe(10);
+      expect(first.friendly.current.graveyard).toMatchObject({
+        totalCount: 1,
+        cards: [expect.objectContaining({ cardId: "BURNED_CARD", name: "烧毁测试牌", count: 1 })]
+      });
+      expect(first.friendly.burned).toMatchObject({
+        totalCount: 1,
+        items: [expect.objectContaining({
+          id: expect.stringMatching(/^game-1:burn:\d+$/),
+          entityId: "43",
+          confidence: "inferred"
+        })]
+      });
+      expect(first.friendly.used.totalCount).toBe(0);
+
+      engine.applyText(`
+D 14:01:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=43 zone=GRAVEYARD cardId=BURNED_CARD player=1] tag=ZONE value=DECK
+D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=43 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD
+`);
+      const second = engine.getState().cardTracking!;
+      expect(second.friendly.burned.totalCount).toBe(2);
+      expect(new Set(second.friendly.burned.items.map((item) => item.id)).size).toBe(2);
+    });
+
+    it("keeps a hidden burn action and fills its identity without adding another event", () => {
+      const engine = createLifecycleEngine("1x 烧毁测试牌");
+      engine.applyText([
+        "D 15:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        ...createHandEntityLines(10, 1),
+        "D 15:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=44 zone=DECK cardId= player=1] tag=ZONE value=GRAVEYARD"
+      ].join("\n"));
+
+      expect(engine.getState().cardTracking!.friendly.burned).toMatchObject({
+        totalCount: 1,
+        items: [expect.objectContaining({ entityId: "44" })]
+      });
+      expect(engine.getState().cardTracking!.friendly.burned.items[0]?.card).toBeUndefined();
+
+      engine.applyLine(
+        "D 15:00:21.000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=烧毁测试牌 id=44 zone=GRAVEYARD cardId= player=1] CardID=BURNED_CARD"
+      );
+      expect(engine.getState().cardTracking!.friendly.burned).toMatchObject({
+        totalCount: 1,
+        items: [expect.objectContaining({
+          entityId: "44",
+          card: expect.objectContaining({ cardId: "BURNED_CARD", name: "烧毁测试牌" })
+        })]
+      });
+    });
+
+    it("does not count an attached enchantment as the tenth hand card", () => {
+      const engine = createLifecycleEngine("1x 烧毁测试牌");
+      engine.applyText([
+        "D 16:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        ...createHandEntityLines(9, 1),
+        "D 16:00:10.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=附属测试实体 id=199 zone=HAND cardId=ATTACHMENT player=1] CardID=ATTACHMENT",
+        "D 16:00:10.100 GameState.DebugPrintPower() - tag=ATTACHED value=100",
+        "D 16:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=45 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD"
+      ].join("\n"));
+
+      const tracking = engine.getState().cardTracking!;
+      expect(tracking.friendly.current.hand.totalCount).toBe(9);
+      expect(tracking.friendly.burned.totalCount).toBe(0);
+      expect(tracking.friendly.current.graveyard.totalCount).toBe(1);
+    });
+
+    it("clears lifecycle state through all three reset entries and deduplicates CREATE_GAME", () => {
+      const engine = createLifecycleEngine("1x 烧毁测试牌");
+      engine.applyText([
+        "D 17:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 17:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]",
+        "D 17:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
+        ...createHandEntityLines(10, 1, 300),
+        "D 17:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=46 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD"
+      ].join("\n"));
+      const first = engine.getState().cardTracking!;
+      expect(first.friendly.used.totalCount).toBe(1);
+      expect(first.friendly.burned.totalCount).toBe(1);
+
+      engine.applyLine("D 17:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME");
+      const duplicateStart = engine.getState().cardTracking!;
+      expect(duplicateStart.gameKey).toBe(first.gameKey);
+      expect(duplicateStart.friendly.used.totalCount).toBe(1);
+      expect(duplicateStart.friendly.burned.totalCount).toBe(1);
+
+      engine.applyLine("D 18:00:00.000 GameState.DebugPrintPower() - CREATE_GAME");
+      const newGame = engine.getState().cardTracking!;
+      expect(newGame.gameKey).not.toBe(first.gameKey);
+      expect(newGame.friendly.used.totalCount).toBe(0);
+      expect(newGame.friendly.burned.totalCount).toBe(0);
+
+      engine.applyLine(
+        "D 18:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=52 zone=HAND cardId=FRIEND_USE player=1]"
+      );
+      engine.resetAfterGame();
+      expect(engine.getState().cardTracking).toMatchObject({
+        gameKey: "no-game",
+        friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
+      });
+
+      const arenaEngine = createLifecycleEngine();
+      arenaEngine.loadDeckCards([{ name: "烧毁测试牌", count: 1, cardId: "BURNED_CARD" }], "竞技场牌库");
+      arenaEngine.applyText(`
+D 19:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 19:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=53 zone=HAND cardId=FRIEND_USE player=1]
+`);
+      expect(arenaEngine.getState().cardTracking!.friendly.used.totalCount).toBe(1);
+      arenaEngine.clearArenaDeck();
+      expect(arenaEngine.getState().cardTracking).toMatchObject({
+        gameKey: "no-game",
+        friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
+      });
+    });
+  });
 });
+
+function createLifecycleEngine(deckText?: string) {
+  const cardDatabase = createCardDatabase([
+    { id: 1, cardId: "FRIEND_USE", name: "友方使用牌", type: "SPELL" },
+    { id: 2, cardId: "OPP_USE", name: "对手使用牌", type: "MINION" },
+    { id: 3, cardId: "LATE_USE", name: "晚揭示使用牌", type: "SPELL" },
+    { id: 4, cardId: "AUTO_SPELL", name: "古神子法术", type: "SPELL" },
+    { id: 5, cardId: "BURNED_CARD", name: "烧毁测试牌", type: "SPELL" },
+    { id: 6, cardId: "ATTACHMENT", name: "附属测试实体", type: "ENCHANTMENT" }
+  ]);
+  const engine = new TrackerEngine({ cardDatabase, deckText });
+  engine.setFriendlyController(1);
+  return engine;
+}
+
+function createHandEntityLines(count: number, controller: number, startId = 100) {
+  return Array.from({ length: count }, (_, index) =>
+    `D 11:00:${String(index + 1).padStart(2, "0")}.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=填充手牌${index + 1} id=${startId + index} zone=HAND cardId=FILLER_${startId + index} player=${controller}] CardID=FILLER_${startId + index}`
+  );
+}
 
 function createCollectionDeck(id: string, name: string, cards: readonly DeckCard[]): CollectionDeck {
   return {
