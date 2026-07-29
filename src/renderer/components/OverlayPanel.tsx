@@ -69,18 +69,23 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
   const globalEffects = view.globalEffects ?? [];
   const handCount = view.cardTracking.current.hand.countLabel;
   const remainingDeckCount = view.cardTracking.current.deck.countLabel;
+  const unknownDeck = resolveUnknownDeckPresentation(view);
   const deckTotal = view.arena?.deckCount;
   const unresolvedCount = view.arena?.unresolvedCount ?? 0;
   const confirmedCount = view.arena?.confirmedCount ?? 0;
   const deckCountLabel = unresolvedCount > 0
     ? `已确认 ${confirmedCount}，总计 ${confirmedCount + unresolvedCount}`
     : deckTotal === undefined
-      ? `牌库剩余 ${remainingDeckCount}`
+      ? unknownDeck
+        ? `牌库剩余${unknownDeck.label}`
+        : `牌库剩余 ${remainingDeckCount}`
       : `牌库剩余 ${remainingDeckCount}，总计 ${deckTotal}`;
   const deckCountText = unresolvedCount > 0
     ? `${confirmedCount}/${confirmedCount + unresolvedCount}`
     : deckTotal === undefined
-      ? remainingDeckCount
+      ? unknownDeck
+        ? "?"
+        : remainingDeckCount
       : `${remainingDeckCount}/${deckTotal}`;
 
   return (
@@ -119,10 +124,25 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
             emptyLabel="暂无全局影响"
           />
         ) : null}
-        <CardTrackingGroups view={view.cardTracking} />
+        <CardTrackingGroups view={view.cardTracking} unknownDeck={unknownDeck} />
       </div>
     </div>
   );
+}
+
+function resolveUnknownDeckPresentation(
+  view: OverlayPanelProps["view"]
+): { readonly label: "待识别" | "识别中" | "不可用"; readonly emptyLabel: string } | undefined {
+  if (view.cardTracking.current.deck.status !== "unknown") {
+    return undefined;
+  }
+  if (view.status.tone === "error") {
+    return { label: "不可用", emptyLabel: "牌库数据不可用" };
+  }
+  if (/正在识别|识别中/u.test(`${view.deckIdentity.name} ${view.deckIdentity.detail}`)) {
+    return { label: "识别中", emptyLabel: "正在识别牌库" };
+  }
+  return { label: "待识别", emptyLabel: "牌库数量待识别" };
 }
 
 export function CollapsibleCardGroup({

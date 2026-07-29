@@ -260,21 +260,24 @@ export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardO
   const deckCount = toZoneCount(opponent.current.deck);
   const handCount = toZoneCount(opponent.current.hand);
   const secretCount = toZoneCount(opponent.current.secret);
+  const hasPositiveZoneCount = [deckCount, handCount, secretCount]
+    .some((count) => count !== undefined && count > 0);
   const hasOpponentData = Boolean(
     tracker.gameActive ||
     opponent.used.totalCount ||
-    deckCount !== undefined ||
-    handCount !== undefined ||
-    secretCount !== undefined
+    hasPositiveZoneCount ||
+    tracker.matchCounters?.opponent.nextFatigueDamage !== undefined ||
+    tracker.matchCounters?.opponent.corpses !== undefined ||
+    tracker.matchCounters?.opponent.spellsPlayed !== undefined
   );
 
   return {
     state: hasOpponentData ? "ready" : "empty",
     message: hasOpponentData ? undefined : "尚无对手的已确认数据。",
     playedCount: opponent.used.totalCount,
-    deckCount,
-    handCount,
-    secretCount,
+    deckCount: hasOpponentData ? deckCount : undefined,
+    handCount: hasOpponentData ? handCount : undefined,
+    secretCount: hasOpponentData ? secretCount : undefined,
     currentTurn: "?",
     fatigueDamage: tracker.matchCounters?.opponent.nextFatigueDamage,
     playedCards

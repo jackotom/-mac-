@@ -10,6 +10,13 @@ type TrackerStateOverrides = Partial<Omit<PublicTrackerState, "cardTracking">> &
   readonly cardTracking?: PublicCardTracking;
 };
 
+type RejectExplicitUndefinedCardTracking<T> =
+  "cardTracking" extends keyof T
+    ? T extends { readonly cardTracking: infer Value }
+      ? [Value] extends [undefined] ? never : unknown
+      : unknown
+    : unknown;
+
 function createKnownEmptyZone(): PublicCardZoneGroup {
   return {
     status: "known",
@@ -70,9 +77,17 @@ function createBaseTrackerState(): PublicTrackerState {
   };
 }
 
+export function createPublicTrackerState(): PublicTrackerState;
+export function createPublicTrackerState<const T extends TrackerStateOverrides>(
+  overrides: T & RejectExplicitUndefinedCardTracking<T>
+): PublicTrackerState;
 export function createPublicTrackerState(
   overrides: TrackerStateOverrides = {}
 ): PublicTrackerState {
+  if (Object.prototype.hasOwnProperty.call(overrides, "cardTracking") &&
+      overrides.cardTracking === undefined) {
+    throw new Error("cardTracking 不能显式设为 undefined");
+  }
   const { cardTracking, ...rest } = overrides;
   const state = structuredClone({
     ...createBaseTrackerState(),

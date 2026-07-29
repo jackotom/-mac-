@@ -46,10 +46,15 @@ const labels: Record<TrackingGroupKey, string> = {
 
 export function CardTrackingGroups({
   view,
-  opponent = false
+  opponent = false,
+  unknownDeck
 }: {
   readonly view: OverlayCardTrackingView;
   readonly opponent?: boolean;
+  readonly unknownDeck?: {
+    readonly label: "待识别" | "识别中" | "不可用";
+    readonly emptyLabel: string;
+  };
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const initialMode = opponent
@@ -60,10 +65,19 @@ export function CardTrackingGroups({
   const [page, setPage] = useState<TrackingPage>(initial.page);
   const [expanded, setExpanded] = useState<ReadonlySet<TrackingGroupKey>>(initial.expanded);
   const [origin, setOrigin] = useState<SelectionOrigin>("system");
+  const [activeCardId, setActiveCardId] = useState<string>();
   const lastActivatedRef = useRef<TrackingGroupKey>(firstExpanded(initial.expanded, initial.page));
   const previousModeRef = useRef<TrackingLayoutMode>(initialMode);
   const previousGameKeyRef = useRef(view.gameKey);
   const previousSecretCountRef = useRef(view.secretSlots.length);
+  const currentCards = currentKeys.flatMap((key) => view.current[key].cards);
+  const activeCard = currentCards.find((card) => card.id === activeCardId);
+
+  useEffect(() => {
+    if (activeCardId && !activeCard) {
+      setActiveCardId(undefined);
+    }
+  }, [activeCard, activeCardId]);
 
   useEffect(() => {
     if (opponent || typeof ResizeObserver === "undefined") return;
@@ -170,6 +184,9 @@ export function CardTrackingGroups({
             view={view}
             expanded={expanded.has(key)}
             onToggle={() => handleGroupToggle(key)}
+            unknownDeck={unknownDeck}
+            activeCard={activeCard}
+            onActiveCardChange={(card) => setActiveCardId(card?.id)}
           />
         ))}
       </main>
@@ -199,18 +216,30 @@ function TrackingGroup({
   groupKey,
   view,
   expanded,
-  onToggle
+  onToggle,
+  unknownDeck,
+  activeCard,
+  onActiveCardChange
 }: {
   readonly groupKey: TrackingGroupKey;
   readonly view: OverlayCardTrackingView;
   readonly expanded: boolean;
   readonly onToggle: () => void;
+  readonly unknownDeck?: {
+    readonly label: "待识别" | "识别中" | "不可用";
+    readonly emptyLabel: string;
+  };
+  readonly activeCard?: OverlayCardItem;
+  readonly onActiveCardChange: (card: OverlayCardItem | undefined) => void;
 }) {
   const contentId = useId();
   const group = groupKey === "burned" || groupKey === "used"
     ? view[groupKey]
     : view.current[groupKey];
-  const countLabel = group.countLabel;
+  const deckPresentation = groupKey === "deck" && "status" in group && group.status === "unknown"
+    ? unknownDeck
+    : undefined;
+  const countLabel = deckPresentation?.label ?? group.countLabel;
   return (
     <section
       className="overlay-card-group"
@@ -237,6 +266,9 @@ function TrackingGroup({
             : <CurrentItems
                 group={group as OverlayCardZoneView}
                 secretSlots={groupKey === "secret" ? view.secretSlots : []}
+                emptyLabel={deckPresentation?.emptyLabel}
+                activeCard={activeCard}
+                onActiveCardChange={onActiveCardChange}
               />}
         </div>
       ) : null}
@@ -246,10 +278,16 @@ function TrackingGroup({
 
 function CurrentItems({
   group,
-  secretSlots
+  secretSlots,
+  emptyLabel,
+  activeCard,
+  onActiveCardChange
 }: {
   readonly group: OverlayCardZoneView;
   readonly secretSlots: OverlayCardTrackingView["secretSlots"];
+  readonly emptyLabel?: string;
+  readonly activeCard?: OverlayCardItem;
+  readonly onActiveCardChange: (card: OverlayCardItem | undefined) => void;
 }) {
   const undisclosed = group.key === "hand" && group.totalCount !== undefined
     ? Math.max(0, group.totalCount - group.knownCount)
@@ -257,7 +295,11 @@ function CurrentItems({
   const hasContent = group.cards.length > 0 || undisclosed > 0 || secretSlots.length > 0;
   return (
     <>
-      <CardRows items={group.cards} />
+      <CardRows
+        items={group.cards}
+        activeCard={activeCard}
+        onActiveCardChange={onActiveCardChange}
+      />
       {undisclosed > 0 ? <p className="overlay-undisclosed-row">未公开 ×{undisclosed}</p> : null}
       {secretSlots.map((slot, index) => (
         <section key={slot.id} className="opponent-secret-slot" aria-label={`奥秘 ${index + 1} 候选`}>
@@ -274,7 +316,7 @@ function CurrentItems({
           ) : <span className="overlay-secret-hidden">候选未显示</span>}
         </section>
       ))}
-      {!hasContent ? <p className="overlay-card-group-empty">暂无记录</p> : null}
+      {!hasContent ? <p className="overlay-card-group-empty">{emptyLabel ?? "暂无记录"}</p> : null}
     </>
   );
 }
@@ -302,15 +344,29 @@ function HistoryItems({ group }: { readonly group: OverlayCardHistoryView }) {
   );
 }
 
-function CardRows({ items }: { readonly items: readonly OverlayCardItem[] }) {
+function CardRows({
+  items,
+  activeCard,
+  onActiveCardChange
+}: {
+  readonly items: readonly OverlayCardItem[];
+  readonly activeCard?: OverlayCardItem;
+  readonly onActiveCardChange: (card: OverlayCardItem | undefined) => void;
+}) {
   return (
     <ul className="overlay-compact-card-list">
       {items.map((item) => {
         const cost = item.cost ?? item.details?.manaCost;
         const count = item.count ?? 1;
+        const isRelated = activeCard ? areCardsRelated(activeCard, item) : false;
         return (
           <li key={item.id}>
-            <CardHoverPreview details={item.details} className="overlay-compact-card-row">
+            <CardHoverPreview
+              details={item.details}
+              className={`overlay-compact-card-row${isRelated ? " is-synergy-related" : ""}`}
+              isRelated={isRelated}
+              onActiveChange={(isActive) => onActiveCardChange(isActive ? item : undefined)}
+            >
               <span className="overlay-card-cost" aria-label={`费用 ${cost ?? "?"}`}>
                 {cost ?? "?"}
               </span>
@@ -327,6 +383,39 @@ function CardRows({ items }: { readonly items: readonly OverlayCardItem[] }) {
       })}
     </ul>
   );
+}
+
+function areCardsRelated(activeCard: OverlayCardItem, candidateCard: OverlayCardItem): boolean {
+  const activeDetails = activeCard.details;
+  const candidateDetails = candidateCard.details;
+  if (!activeDetails || !candidateDetails || activeDetails.dbfId === candidateDetails.dbfId) {
+    return false;
+  }
+  return referencesCard(activeDetails, candidateDetails) || referencesCard(candidateDetails, activeDetails);
+}
+
+function referencesCard(
+  details: NonNullable<OverlayCardItem["details"]>,
+  candidate: NonNullable<OverlayCardItem["details"]>
+): boolean {
+  return details.relatedCards.some((card) => isSameCard(card, candidate)) ||
+    details.synergyCards?.some((card) => isSameCard(card, candidate)) === true;
+}
+
+function isSameCard(
+  referenced: NonNullable<OverlayCardItem["details"]>["relatedCards"][number],
+  candidate: NonNullable<OverlayCardItem["details"]>
+): boolean {
+  if (referenced.dbfId === candidate.dbfId) {
+    return true;
+  }
+  const referencedCardId = normalizeCardIdentity(referenced.cardId);
+  const candidateCardId = normalizeCardIdentity(candidate.cardId);
+  return Boolean(referencedCardId && candidateCardId && referencedCardId === candidateCardId);
+}
+
+function normalizeCardIdentity(cardId: string | undefined): string | undefined {
+  return cardId?.trim().toLocaleUpperCase().replace(/^CORE_/, "");
 }
 
 function initialSelection(

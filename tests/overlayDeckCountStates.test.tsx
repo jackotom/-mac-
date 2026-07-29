@@ -5,7 +5,23 @@ import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
 import { createEmptyCardTracking, createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 describe("friendly overlay deck-count states", () => {
-  it("shows an unknown lifecycle deck count as unknown", () => {
+  it.each([
+    {
+      label: "待识别",
+      overrides: {},
+      emptyText: "牌库数量待识别"
+    },
+    {
+      label: "识别中",
+      overrides: { constructedScreenMode: "standard" as const },
+      emptyText: "正在识别牌库"
+    },
+    {
+      label: "不可用",
+      overrides: { constructedScreenMode: "standard" as const, error: "录屏权限被拒绝" },
+      emptyText: "牌库数据不可用"
+    }
+  ])("keeps the $label meaning for an unknown lifecycle deck", ({ label, overrides, emptyText }) => {
     const emptyTracking = createEmptyCardTracking("unknown-deck");
     const tracking = {
       ...emptyTracking,
@@ -24,13 +40,14 @@ describe("friendly overlay deck-count states", () => {
     const view = toOverlayPanelViewModel(createPublicTrackerState({
       status: "watching",
       gameActive: true,
-      cardTracking: tracking
+      cardTracking: tracking,
+      ...overrides
     }));
 
     render(<OverlayPanel view={view} />);
 
-    expect(screen.getByLabelText("牌库剩余 ?")).toHaveTextContent("?");
-    expect(screen.getByRole("region", { name: "牌库 ?" })).toBeInTheDocument();
+    expect(screen.getByLabelText(`牌库剩余${label}`)).toHaveTextContent("?");
+    expect(screen.getByRole("region", { name: `牌库 ${label}` })).toHaveTextContent(emptyText);
   });
 
   it("keeps a confirmed empty lifecycle deck as a real zero", () => {

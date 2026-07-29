@@ -1,7 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OverlayPanel } from "../src/renderer/components/OverlayPanel";
-import type { OverlayCardTrackingView, OverlayPanelViewModel } from "../src/renderer/types";
+import type {
+  OverlayCardTrackingView,
+  OverlayPanelViewModel,
+  OverlaySecretSlot
+} from "../src/renderer/types";
 
 function zone(
   key: keyof OverlayCardTrackingView["current"],
@@ -18,7 +22,10 @@ function zone(
   };
 }
 
-function tracking(gameKey = "game-1"): OverlayCardTrackingView {
+function tracking(
+  gameKey = "game-1",
+  secretSlots: readonly OverlaySecretSlot[] = []
+): OverlayCardTrackingView {
   return {
     status: "ready",
     gameKey,
@@ -27,7 +34,7 @@ function tracking(gameKey = "game-1"): OverlayCardTrackingView {
       deck: zone("deck", 1, "牌库牌"),
       hand: zone("hand", 1, "手牌牌"),
       play: zone("play", 0),
-      secret: zone("secret", 0),
+      secret: zone("secret", secretSlots.length),
       graveyard: zone("graveyard", 1, "墓地牌"),
       removed: zone("removed", 0)
     },
@@ -45,13 +52,16 @@ function tracking(gameKey = "game-1"): OverlayCardTrackingView {
       truncated: false,
       items: [{ id: "use-1", sequence: 2, displayName: "已使用牌", hidden: false, confidence: "confirmed" }]
     },
-    secretSlots: []
+    secretSlots: [...secretSlots]
   };
 }
 
-function view(overrides: Partial<OverlayPanelViewModel> = {}): OverlayPanelViewModel {
+function view(
+  overrides: Partial<OverlayPanelViewModel> = {},
+  cardTracking: OverlayCardTrackingView = tracking()
+): OverlayPanelViewModel {
   return {
-    cardTracking: tracking(),
+    cardTracking,
     summary: { totalCards: 30, remainingCards: 23, drawnCards: 7 },
     deckIdentity: { name: "测试套牌", status: "automatic", detail: "已自动识别当前对局" },
     remainingDeck: [],
@@ -64,6 +74,7 @@ function view(overrides: Partial<OverlayPanelViewModel> = {}): OverlayPanelViewM
 describe("standard tracker overlay", () => {
   afterEach(() => {
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    vi.unstubAllGlobals();
   });
 
   it("uses lifecycle groups without an old other group", () => {
@@ -84,6 +95,74 @@ describe("standard tracker overlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "历史" }));
     expect(container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "history");
     expect(container.querySelectorAll('[data-expanded="true"]')).toHaveLength(1);
+  });
+
+  it("auto-opens only the first secret while preserving later user choices", () => {
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 200 });
+    const firstSecret: OverlaySecretSlot = {
+      id: "secret-1",
+      label: "? 1",
+      candidates: [{ id: "EX1_287", name: "法术反制", status: "possible" }]
+    };
+    const preview = render(<OverlayPanel view={view()} />);
+
+    preview.rerender(<OverlayPanel view={view({}, tracking("game-1", [firstSecret]))} />);
+    expect(preview.container.querySelector('[data-group-key="secret"]')).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: /手牌.*1/ }));
+    preview.rerender(<OverlayPanel view={view({}, tracking("game-1", [
+      firstSecret,
+      { ...firstSecret, id: "secret-2" }
+    ]))} />);
+    expect(preview.container.querySelector('[data-group-key="hand"]')).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+    preview.rerender(<OverlayPanel view={view({}, tracking("game-1", [
+      firstSecret,
+      { ...firstSecret, id: "secret-2" },
+      { ...firstSecret, id: "secret-3" }
+    ]))} />);
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "history");
+  });
+
+  it("resets user selection for a new game key", () => {
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 200 });
+    const preview = render(<OverlayPanel view={view({}, tracking("game-1"))} />);
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+
+    preview.rerender(<OverlayPanel view={view({}, tracking("game-2"))} />);
+
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "current");
+    expect(preview.container.querySelector('[data-group-key="deck"]')).toHaveAttribute("data-expanded", "true");
+  });
+
+  it("keeps the latest user group through short and tall layout changes", () => {
+    let notifyResize: ResizeObserverCallback | undefined;
+    class MockResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        notifyResize = callback;
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+    const preview = render(<OverlayPanel view={view()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /墓地.*1/ }));
+    act(() => {
+      notifyResize?.([{ contentRect: { height: 200 } } as ResizeObserverEntry], {} as ResizeObserver);
+    });
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-layout-mode", "short");
+    expect(preview.container.querySelector('[data-group-key="graveyard"]')).toHaveAttribute("data-expanded", "true");
+
+    act(() => {
+      notifyResize?.([{ contentRect: { height: 900 } } as ResizeObserverEntry], {} as ResizeObserver);
+    });
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-layout-mode", "tall");
+    expect(preview.container.querySelectorAll('[data-expanded="true"]')).toHaveLength(1);
+    expect(preview.container.querySelector('[data-group-key="graveyard"]')).toHaveAttribute("data-expanded", "true");
   });
 
   it("shows lifecycle history on the history page", () => {
@@ -139,5 +218,77 @@ describe("standard tracker overlay", () => {
 
     expect(screen.getByLabelText("竞技场卡组影响")).toHaveTextContent("竞技场牌");
     expect(screen.queryByRole("button", { name: "历史" })).not.toBeInTheDocument();
+  });
+
+  it("formats Arena rates, impact, missing values, and copies exactly", () => {
+    render(<OverlayPanel view={view({
+      arena: {
+        isChoosing: true,
+        showDeckStats: true,
+        statusLabel: "选牌中",
+        progress: "11/30",
+        confirmedCount: 11,
+        unresolvedCount: 19,
+        hero: "德鲁伊",
+        choices: [],
+        deck: [
+          { id: "arena-1", name: "高分牌", count: 2, cost: 3, pickRate: 75.6, deckImpact: 0.1 },
+          { id: "arena-2", name: "低分牌", count: 1, cost: 5, pickRate: 29.74, deckImpact: -9.13 },
+          { id: "arena-3", name: "空数据牌", count: 1, cost: 4 }
+        ],
+        deckCount: 11
+      }
+    })} />);
+
+    const arena = screen.getByLabelText("竞技场卡组影响");
+    expect(within(arena).getByLabelText("选取率 75.6%")).toHaveClass("is-positive");
+    expect(within(arena).getByLabelText("选取率 29.7%")).toHaveClass("is-negative");
+    expect(within(arena).getByLabelText("卡组影响 0.10")).toHaveClass("is-positive");
+    expect(within(arena).getByLabelText("卡组影响 -9.13")).toHaveClass("is-negative");
+    expect(within(arena).getAllByText("—")).toHaveLength(2);
+    expect(within(arena).getByLabelText("数量 2")).toHaveTextContent("2");
+  });
+
+  it("highlights lifecycle synergy on pointer hover and keyboard focus", () => {
+    const base = tracking();
+    const sourceDetails = {
+      dbfId: 1001,
+      name: "关联来源卡",
+      isSpell: true,
+      relatedCards: [{ dbfId: 1002, name: "关联目标卡" }]
+    };
+    const targetDetails = {
+      dbfId: 1002,
+      name: "关联目标卡",
+      isSpell: false,
+      relatedCards: []
+    };
+    const lifecycle = {
+      ...base,
+      current: {
+        ...base.current,
+        deck: {
+          ...base.current.deck,
+          cards: [{ id: "source", name: "关联来源卡", count: 1, details: sourceDetails }]
+        },
+        hand: {
+          ...base.current.hand,
+          cards: [{ id: "target", name: "关联目标卡", count: 1, details: targetDetails }]
+        }
+      }
+    } satisfies OverlayCardTrackingView;
+    render(<OverlayPanel view={view({}, lifecycle)} />);
+
+    const source = screen.getByText("关联来源卡").closest(".overlay-compact-card-row") as HTMLElement;
+    const target = screen.getByText("关联目标卡").closest(".overlay-compact-card-row") as HTMLElement;
+    fireEvent.mouseEnter(source);
+    expect(target).toHaveClass("is-synergy-related");
+    fireEvent.mouseLeave(source);
+    expect(target).not.toHaveClass("is-synergy-related");
+
+    fireEvent.focus(target);
+    expect(source).toHaveClass("is-synergy-related");
+    fireEvent.blur(target);
+    expect(source).not.toHaveClass("is-synergy-related");
   });
 });

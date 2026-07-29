@@ -63,6 +63,13 @@ describe("card tracking runtime validation", () => {
     expect(() => parsePublicTrackerState(state)).toThrow(/卡牌生命周期数据无效/);
   });
 
+  it("rejects an explicit undefined card tracking override at compile time and runtime", () => {
+    expect(() => {
+      // @ts-expect-error 正常工厂禁止显式传入 undefined。
+      createPublicTrackerState({ cardTracking: undefined });
+    }).toThrow(/cardTracking/);
+  });
+
   it("rejects empty game keys and invalid card tracking overrides in the normal factory", () => {
     expect(() => createPublicTrackerState({
       cardTracking: createEmptyCardTracking(" ")

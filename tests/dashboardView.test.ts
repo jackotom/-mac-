@@ -247,12 +247,12 @@ describe("dashboard view model", () => {
     expect(view.deck).toMatchObject({ state: "empty", totalCards: 0, remainingCards: 0, drawnCards: 0, cards: [] });
     expect(view.deck.message).toContain("Power.log");
     expect(view.opponent).toEqual({
-      state: "ready",
-      message: undefined,
+      state: "empty",
+      message: "尚无对手的已确认数据。",
       playedCount: 0,
       deckCount: undefined,
       handCount: undefined,
-      secretCount: 0,
+      secretCount: undefined,
       currentTurn: "?",
       fatigueDamage: undefined,
       playedCards: []

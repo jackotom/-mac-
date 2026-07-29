@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { OpponentOverlayPanel } from "../src/renderer/components/OpponentOverlayPanel";
 import type { OverlayCardTrackingView, OverlayPanelViewModel, OverlaySecretSlot } from "../src/renderer/types";
 
-function opponentTracking(secretSlots: readonly OverlaySecretSlot[] = []): OverlayCardTrackingView {
+function opponentTracking(
+  secretSlots: readonly OverlaySecretSlot[] = [],
+  handTotal = 5
+): OverlayCardTrackingView {
   const empty = (key: keyof OverlayCardTrackingView["current"]) => ({
     key,
     status: "known" as const,
@@ -22,7 +25,7 @@ function opponentTracking(secretSlots: readonly OverlaySecretSlot[] = []): Overl
         ...empty("hand"),
         status: "partial",
         knownCount: 1,
-        totalCount: 5,
+        totalCount: handTotal,
         countLabel: "≥1",
         cards: [{ id: "known-hand", name: "已知手牌", count: 1 }]
       },
@@ -100,6 +103,66 @@ describe("opponent overlay", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "恢复对手小窗，1 个奥秘" }));
     expect(onCollapsedChange).toHaveBeenCalledWith(false);
+  });
+
+  it("requests collapse changes but renders only the controlled value", () => {
+    const onCollapsedChange = vi.fn();
+    const preview = render(
+      <OpponentOverlayPanel view={view()} isCollapsed={false} onCollapsedChange={onCollapsedChange} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "折叠对手小窗" }));
+    expect(onCollapsedChange).toHaveBeenCalledWith(true);
+    expect(screen.getByText("已知手牌")).toBeInTheDocument();
+
+    preview.rerender(<OpponentOverlayPanel view={view()} isCollapsed onCollapsedChange={onCollapsedChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "恢复对手小窗，0 个奥秘" }));
+    expect(onCollapsedChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("updates the public hand count without replacing the revealed row", () => {
+    const preview = render(<OpponentOverlayPanel view={view(opponentTracking([], 3))} isCollapsed={false} />);
+    const revealedRow = screen.getByText("已知手牌").closest(".overlay-compact-card-row");
+    expect(screen.getByText("未公开 ×2")).toBeInTheDocument();
+
+    preview.rerender(<OpponentOverlayPanel view={view(opponentTracking([], 6))} isCollapsed={false} />);
+
+    expect(screen.getByText("已知手牌").closest(".overlay-compact-card-row")).toBe(revealedRow);
+    expect(screen.getByText("未公开 ×5")).toBeInTheDocument();
+  });
+
+  it("keeps card preview integration for a revealed lifecycle hand card", () => {
+    const base = opponentTracking([], 2);
+    const cardTracking = {
+      ...base,
+      current: {
+        ...base.current,
+        hand: {
+          ...base.current.hand,
+          cards: [{
+            id: "known-hand",
+            name: "火球术",
+            count: 1,
+            details: {
+              dbfId: 315,
+              cardId: "CS2_029",
+              name: "火球术",
+              manaCost: 4,
+              cardType: "法术",
+              text: "造成 6 点伤害。",
+              isSpell: true,
+              relatedCards: []
+            }
+          }]
+        }
+      }
+    } satisfies OverlayCardTrackingView;
+    render(<OpponentOverlayPanel view={view(cardTracking)} isCollapsed={false} />);
+
+    fireEvent.mouseEnter(screen.getByText("火球术").closest(".overlay-compact-card-row") as HTMLElement);
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent("造成 6 点伤害。");
+    expect(screen.getByText("未公开 ×1")).toBeInTheDocument();
   });
 
   it("short-circuits lifecycle groups for loading, errors, and missing logs", () => {
