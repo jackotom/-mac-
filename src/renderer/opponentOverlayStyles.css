@@ -721,3 +721,69 @@ html.opponent-overlay-collapsed .opponent-overlay-shell .overlay-header button::
   font-size: 18px;
   font-weight: 900;
 }
+
+.opponent-overlay-shell:has(.card-tracking-layout) {
+  grid-template-rows: 24px 26px minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.opponent-overlay-shell:has(.card-tracking-layout) > .overlay-header {
+  min-height: 24px;
+  height: 24px;
+  padding-inline: 5px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--opponent-overlay-line);
+  border-radius: 0;
+}
+
+.opponent-overlay-shell:has(.card-tracking-layout) > .overlay-header > div > span {
+  display: none;
+}
+
+.opponent-tracking-summary {
+  display: grid;
+  height: 26px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  border-bottom: 1px solid var(--opponent-overlay-line);
+  background: var(--opponent-overlay-panel);
+}
+
+.opponent-tracking-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--opponent-overlay-muted);
+  font-size: 9px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opponent-tracking-summary strong {
+  color: var(--opponent-overlay-count);
+  font-size: 9px;
+}
+
+.opponent-overlay-shell .card-tracking-layout {
+  background: var(--opponent-overlay-bg);
+}
+
+.opponent-overlay-shell:has(.overlay-repair-prompt) {
+  grid-template-rows: 24px minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.opponent-overlay-shell:has(.overlay-repair-prompt) > .overlay-header {
+  min-height: 24px;
+  height: 24px;
+  border-radius: 0;
+}

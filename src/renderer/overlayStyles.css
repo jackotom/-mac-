@@ -2070,6 +2070,123 @@ body:has(.overlay-shell) {
   }
 }
 
+/* Lifecycle tracker: fixed chrome with one deliberate scroll owner. */
+.overlay-shell:has(.card-tracking-layout) {
+  grid-template-rows: 24px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overlay-shell:has(.card-tracking-layout) > .overlay-header {
+  min-height: 24px;
+  height: 24px;
+}
+
+.overlay-normal:has(.card-tracking-layout) {
+  grid-template-rows: 26px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overlay-normal:has(.card-tracking-layout):has(.overlay-public-counters) {
+  grid-template-rows: 26px minmax(0, 1fr);
+}
+
+.overlay-normal:has(.card-tracking-layout):has(.overlay-unresolved-warning) {
+  grid-template-rows: 26px 18px minmax(0, 1fr);
+}
+
+.overlay-normal:has(.card-tracking-layout):has(.overlay-public-counters):has(.overlay-unresolved-warning) {
+  grid-template-rows: 26px 18px minmax(0, 1fr);
+}
+
+.overlay-normal:has(.card-tracking-layout) > .overlay-public-counters {
+  display: none;
+}
+
+.overlay-normal:has(.card-tracking-layout) > .overlay-deck-summary {
+  min-height: 26px;
+  height: 26px;
+}
+
+.card-tracking-layout {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) 24px;
+  overflow: hidden;
+  background: rgba(4, 14, 29, 0.84);
+}
+
+.card-tracking-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(126, 160, 184, 0.5) transparent;
+  scrollbar-width: thin;
+}
+
+.card-tracking-main::-webkit-scrollbar {
+  width: 4px;
+}
+
+.card-tracking-main::-webkit-scrollbar-thumb {
+  background: rgba(126, 160, 184, 0.45);
+}
+
+.card-tracking-footer {
+  display: grid;
+  height: 24px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid rgba(112, 148, 176, 0.36);
+  background: rgba(4, 13, 31, 0.98);
+}
+
+.card-tracking-footer button {
+  min-width: 0;
+  border: 0;
+  border-right: 1px solid rgba(112, 148, 176, 0.24);
+  border-radius: 0;
+  color: #8faec1;
+  background: transparent;
+  font-size: 9px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.card-tracking-footer button:last-child {
+  border-right: 0;
+}
+
+.card-tracking-footer button.is-active {
+  color: #f3f9fc;
+  background: rgba(34, 75, 108, 0.72);
+  box-shadow: inset 0 2px 0 #7ec6ea;
+}
+
+.overlay-undisclosed-row,
+.overlay-secret-hidden {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  margin: 0;
+  padding: 0 5px;
+  color: #b8c8d2;
+  background: rgba(10, 24, 43, 0.62);
+  font-size: 9px;
+  font-weight: 720;
+}
+
+.overlay-history-confidence {
+  padding-right: 3px;
+  color: #91a9b9;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
 /* Arena pregame: Firestone-style pick rate / card / deck impact table. */
 .overlay-shell:has(.overlay-arena-stats) {
   --arena-stats-bg: #030a19;

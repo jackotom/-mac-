@@ -1,8 +1,12 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OverlayPanel } from "../src/renderer/components/OverlayPanel";
 import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
-import type { OverlayPanelViewModel } from "../src/renderer/types";
+import type {
+  OverlayCardTrackingView,
+  OverlayPanelViewModel,
+  OverlaySecretSlot
+} from "../src/renderer/types";
 import type { PublicTrackerState } from "../src/shared/types";
 
 const view: OverlayPanelViewModel = {
@@ -14,9 +18,182 @@ const view: OverlayPanelViewModel = {
   status: { tone: "tracking", label: "监听中", detail: "同步 09:41:12", updatedAtLabel: "09:41:12" }
 };
 
+function lifecycleTracking(
+  gameKey = "game-1",
+  secretSlots: readonly OverlaySecretSlot[] = []
+): OverlayCardTrackingView {
+  const zone = (
+    key: keyof OverlayCardTrackingView["current"],
+    count: number,
+    name?: string
+  ) => ({
+    key,
+    status: "known" as const,
+    knownCount: count,
+    totalCount: count,
+    countLabel: String(count),
+    cards: name ? [{ id: `${key}-1`, name, count: 1 }] : []
+  });
+  return {
+    status: "ready",
+    gameKey,
+    side: "friendly",
+    current: {
+      deck: zone("deck", 1, "牌库牌"),
+      hand: zone("hand", 1, "手牌牌"),
+      play: zone("play", 0),
+      secret: zone("secret", secretSlots.length),
+      graveyard: zone("graveyard", 1, "墓地牌"),
+      removed: zone("removed", 0)
+    },
+    burned: {
+      key: "burned",
+      totalCount: 1,
+      countLabel: "1",
+      truncated: false,
+      items: [{
+        id: "burned-1",
+        sequence: 1,
+        displayName: "烧毁牌",
+        hidden: false,
+        confidence: "confirmed"
+      }]
+    },
+    used: {
+      key: "used",
+      totalCount: 1,
+      countLabel: "1",
+      truncated: false,
+      items: [{
+        id: "used-1",
+        sequence: 2,
+        displayName: "已使用牌",
+        hidden: false,
+        confidence: "confirmed"
+      }]
+    },
+    secretSlots: [...secretSlots]
+  };
+}
+
+function lifecycleView(
+  gameKey = "game-1",
+  secretSlots: readonly OverlaySecretSlot[] = []
+): OverlayPanelViewModel {
+  return { ...view, cardTracking: lifecycleTracking(gameKey, secretSlots) };
+}
+
+function setViewportHeight(height: number) {
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+}
+
 describe("standard tracker overlay", () => {
   afterEach(() => {
     window.localStorage.clear();
+    setViewportHeight(768);
+    vi.unstubAllGlobals();
+  });
+
+  it("uses tall lifecycle defaults without an other group", () => {
+    setViewportHeight(900);
+    const { container } = render(<OverlayPanel view={lifecycleView()} />);
+
+    expect(container.querySelector(".card-tracking-layout")).toHaveAttribute("data-layout-mode", "tall");
+    expect(container.querySelector('[data-group-key="deck"]')).toHaveAttribute("data-expanded", "true");
+    expect(container.querySelector('[data-group-key="hand"]')).toHaveAttribute("data-expanded", "true");
+    expect(container.querySelectorAll('[data-expanded="true"]')).toHaveLength(2);
+    expect(screen.queryByText("其他")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-scroll-owner="card-tracking-main"]')).toHaveLength(1);
+  });
+
+  it("keeps exactly one group open on both short pages", () => {
+    setViewportHeight(200);
+    const { container } = render(<OverlayPanel view={lifecycleView()} />);
+
+    expect(container.querySelector(".card-tracking-layout")).toHaveAttribute("data-layout-mode", "short");
+    expect(container.querySelectorAll('[data-expanded="true"]')).toHaveLength(1);
+    expect(container.querySelector('[data-group-key="deck"]')).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+
+    expect(container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "history");
+    expect(container.querySelectorAll('[data-expanded="true"]')).toHaveLength(1);
+    expect(container.querySelector('[data-group-key="burned"]')).toHaveAttribute("data-expanded", "true");
+  });
+
+  it("promotes the first secret only while selection is pristine", () => {
+    setViewportHeight(200);
+    const firstSecret: OverlaySecretSlot = {
+      id: "secret-1",
+      label: "? 1",
+      candidates: [{ id: "EX1_287", name: "法术反制", status: "possible" }]
+    };
+    const preview = render(<OverlayPanel view={lifecycleView()} />);
+
+    preview.rerender(<OverlayPanel view={lifecycleView("game-1", [firstSecret])} />);
+    expect(preview.container.querySelector('[data-group-key="secret"]')).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: /手牌.*1/ }));
+    preview.rerender(<OverlayPanel view={lifecycleView("game-1", [firstSecret, { ...firstSecret, id: "secret-2" }])} />);
+    expect(preview.container.querySelector('[data-group-key="hand"]')).toHaveAttribute("data-expanded", "true");
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "current");
+
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+    preview.rerender(<OverlayPanel view={lifecycleView("game-1", [
+      firstSecret,
+      { ...firstSecret, id: "secret-2" },
+      { ...firstSecret, id: "secret-3" }
+    ])} />);
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "history");
+  });
+
+  it("resets user selection when a new game key arrives", () => {
+    setViewportHeight(200);
+    const preview = render(<OverlayPanel view={lifecycleView("game-1")} />);
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "history");
+
+    preview.rerender(<OverlayPanel view={lifecycleView("game-2")} />);
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-tracking-page", "current");
+    expect(preview.container.querySelector('[data-group-key="deck"]')).toHaveAttribute("data-expanded", "true");
+  });
+
+  it("keeps the most recent user group across tall-short-tall resizing", () => {
+    let notifyResize: ResizeObserverCallback | undefined;
+    class MockResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        notifyResize = callback;
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    setViewportHeight(900);
+    const preview = render(<OverlayPanel view={lifecycleView()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /墓地.*1/ }));
+    expect(preview.container.querySelector('[data-group-key="graveyard"]')).toHaveAttribute("data-expanded", "true");
+
+    act(() => {
+      notifyResize?.(
+        [{ contentRect: { height: 200 } } as ResizeObserverEntry],
+        {} as ResizeObserver
+      );
+    });
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-layout-mode", "short");
+    expect(preview.container.querySelectorAll('[data-expanded="true"]')).toHaveLength(1);
+    expect(preview.container.querySelector('[data-group-key="graveyard"]')).toHaveAttribute("data-expanded", "true");
+
+    act(() => {
+      notifyResize?.(
+        [{ contentRect: { height: 900 } } as ResizeObserverEntry],
+        {} as ResizeObserver
+      );
+    });
+    expect(preview.container.querySelector(".card-tracking-layout")).toHaveAttribute("data-layout-mode", "tall");
+    expect(preview.container.querySelectorAll('[data-expanded="true"]')).toHaveLength(1);
+    expect(preview.container.querySelector('[data-group-key="graveyard"]')).toHaveAttribute("data-expanded", "true");
   });
 
   it("renders the recognized waiting state in green without a repair prompt", () => {

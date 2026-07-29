@@ -1027,7 +1027,7 @@ async function createOverlayWindowInstance(): Promise<BrowserWindow> {
   const createdWindow = new BrowserWindow({
     ...savedBounds,
     minWidth: Math.min(100, savedBounds.width),
-    minHeight: Math.min(900, savedBounds.height),
+    minHeight: Math.min(200, savedBounds.height),
     title: "炉石记牌小窗",
     frame: false,
     transparent: true,

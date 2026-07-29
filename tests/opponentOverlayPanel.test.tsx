@@ -2,7 +2,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OpponentOverlayPanel } from "../src/renderer/components/OpponentOverlayPanel";
 import { TopBar } from "../src/renderer/components/TopBar";
-import type { OverlayPanelViewModel, TrackerStatus } from "../src/renderer/types";
+import type {
+  OverlayCardTrackingView,
+  OverlayPanelViewModel,
+  OverlaySecretSlot,
+  TrackerStatus
+} from "../src/renderer/types";
 
 const view: OverlayPanelViewModel = {
   summary: { totalCards: 30, remainingCards: 22, drawnCards: 8 },
@@ -46,7 +51,112 @@ const status: TrackerStatus = {
   lastSyncedAt: "09:00:12"
 };
 
+function opponentLifecycleTracking(
+  secretSlots: readonly OverlaySecretSlot[] = []
+): OverlayCardTrackingView {
+  const emptyZone = (key: keyof OverlayCardTrackingView["current"]) => ({
+    key,
+    status: "known" as const,
+    knownCount: 0,
+    totalCount: 0,
+    countLabel: "0",
+    cards: []
+  });
+  return {
+    status: "ready",
+    gameKey: "opponent-game-1",
+    side: "opponent",
+    current: {
+      deck: { ...emptyZone("deck"), status: "unknown", totalCount: undefined, countLabel: "?" },
+      hand: {
+        ...emptyZone("hand"),
+        status: "partial",
+        knownCount: 1,
+        totalCount: 5,
+        countLabel: "≥1",
+        cards: [{ id: "known-hand-1", name: "已知手牌", count: 1 }]
+      },
+      play: emptyZone("play"),
+      secret: { ...emptyZone("secret"), countLabel: `当前 ${secretSlots.length}` },
+      graveyard: emptyZone("graveyard"),
+      removed: emptyZone("removed")
+    },
+    burned: { key: "burned", totalCount: 0, countLabel: "0", truncated: false, items: [] },
+    used: { key: "used", totalCount: 0, countLabel: "0", truncated: false, items: [] },
+    secretSlots: [...secretSlots]
+  };
+}
+
 describe("opponent overlay", () => {
+  it("shows one secret slot with all candidates while counting the slot once", () => {
+    const secret: OverlaySecretSlot = {
+      id: "slot-1",
+      label: "? 1",
+      candidates: Array.from({ length: 5 }, (_value, index) => ({
+        id: `candidate-${index + 1}`,
+        name: `候选牌 ${index + 1}`,
+        status: "possible" as const
+      }))
+    };
+    const lifecycle = opponentLifecycleTracking([secret]);
+    render(
+      <OpponentOverlayPanel
+        view={{ ...view, cardTracking: lifecycle, opponentSecrets: [...lifecycle.secretSlots] }}
+        isCollapsed={false}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /奥秘.*当前 1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("region", { name: "奥秘 1 候选" })).toBeInTheDocument();
+    expect(screen.getAllByText(/候选牌 \d/)).toHaveLength(5);
+    expect(screen.queryByText("其他")).not.toBeInTheDocument();
+  });
+
+  it("keeps the secret count when candidate prediction is disabled", () => {
+    const lifecycle = opponentLifecycleTracking([{
+      id: "slot-1",
+      label: "? 1",
+      candidates: []
+    }]);
+    render(
+      <OpponentOverlayPanel
+        view={{ ...view, cardTracking: lifecycle, opponentSecrets: [] }}
+        isCollapsed={false}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /奥秘.*当前 1/ })).toBeInTheDocument();
+    expect(screen.getByText("候选未显示")).toBeInTheDocument();
+  });
+
+  it("renders undisclosed hand as one aggregate row", () => {
+    render(
+      <OpponentOverlayPanel
+        view={{ ...view, cardTracking: opponentLifecycleTracking() }}
+        isCollapsed={false}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /手牌.*≥1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("未公开 ×4")).toBeInTheDocument();
+    expect(screen.queryAllByText("未公开")).toHaveLength(0);
+  });
+
+  it("short-circuits lifecycle groups in the error state", () => {
+    render(
+      <OpponentOverlayPanel
+        view={{ ...view, cardTracking: opponentLifecycleTracking() }}
+        isCollapsed={false}
+        loadError="读取失败测试"
+      />
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("读取失败测试");
+    expect(screen.queryByTestId("card-tracking-main")).not.toBeInTheDocument();
+    expect(document.querySelector("[data-scroll-owner='card-tracking-main']")).not.toBeInTheDocument();
+    expect(document.querySelector("[data-group-key]")).not.toBeInTheDocument();
+  });
+
   it("renders the recognized waiting state in green without a repair prompt", () => {
     render(
       <OpponentOverlayPanel

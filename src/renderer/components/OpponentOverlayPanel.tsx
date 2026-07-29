@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Minus, ShieldQuestion } from "lucide-react";
 import type { OpponentOverlayPanelProps, OverlayCardItem, OverlayStatusTone } from "../types";
 import { CollapsibleCardGroup } from "./OverlayPanel";
+import { CardTrackingGroups } from "./CardTrackingGroups";
 import { PublicMatchCounters } from "./PublicMatchCounters";
 
 export function OpponentOverlayPanel({
@@ -14,7 +15,9 @@ export function OpponentOverlayPanel({
   loadError
 }: OpponentOverlayPanelProps) {
   const needsLogRepair = view.status.tone === "offline";
-  const secretCount = view.opponentSecrets?.length ?? 0;
+  const secretCount = view.cardTracking?.status === "ready"
+    ? view.cardTracking.secretSlots.length
+    : view.opponentSecrets?.length ?? 0;
   const opponentDeck = view.opponentDeck ?? [];
   const knownHand = view.opponentHand ?? [];
   const unknownHandCount = view.opponentUnknownHandCount ??
@@ -70,6 +73,15 @@ export function OpponentOverlayPanel({
           <strong>{view.status.label}</strong>
           <p>先点修复日志，完全退出并重新打开炉石，然后进入一局。</p>
         </section>
+      ) : view.cardTracking?.status === "ready" ? (
+        <>
+          <section className="opponent-tracking-summary" aria-label="对手概览">
+            <span>牌库 <strong>{view.cardTracking.current.deck.countLabel}</strong></span>
+            <span>手牌 <strong>{view.cardTracking.current.hand.countLabel}</strong></span>
+            <span>奥秘 <strong>{view.cardTracking.secretSlots.length}</strong></span>
+          </section>
+          <CardTrackingGroups view={view.cardTracking} opponent />
+        </>
       ) : (
         <>
           <PublicMatchCounters side="opponent" counters={view.opponentCounters} />

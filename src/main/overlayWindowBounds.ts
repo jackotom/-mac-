@@ -27,7 +27,7 @@ export interface WindowBoundsNormalizationOptions {
 
 const defaultBounds: WindowBounds = { width: 100, height: 900 };
 const minWidth = 100;
-const minHeight = 900;
+const minHeight = 200;
 const arenaHeroDefaultWidth = 100;
 const arenaHeroDefaultHeight = 560;
 const arenaHeroLeftInset = 0;

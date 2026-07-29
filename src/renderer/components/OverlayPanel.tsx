@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "
 import { ChevronDown, ChevronRight, Hand, Layers3, Settings, X } from "lucide-react";
 import type { OverlayCardItem, OverlayPanelProps, OverlayStatusTone } from "../types";
 import { CardHoverPreview } from "./CardHoverPreview";
+import { CardTrackingGroups } from "./CardTrackingGroups";
 import { PublicMatchCounters } from "./PublicMatchCounters";
 
 const MAX_REASONABLE_OTHER_CARD_COUNT = 100;
@@ -185,40 +186,44 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
         </p>
       ) : null}
 
-      <div className="overlay-card-groups">
-        <CollapsibleCardGroup
-          label="影响全局"
-          count={countCards(globalEffects)}
-          items={globalEffects}
-          emptyLabel="暂无全局影响"
-          activeCard={activeCard}
-          onActiveCardChange={handleActiveCardChange}
-        />
-        <CollapsibleCardGroup
-          label="牌库中"
-          count={isUnknownDeckCount ? unknownDeckCountLabel : remainingDeckCount ?? "待识别"}
-          items={remainingDeck}
-          emptyLabel={isUnknownDeckCount ? unknownDeckEmptyLabel : "牌库中暂无卡牌"}
-          activeCard={activeCard}
-          onActiveCardChange={handleActiveCardChange}
-        />
-        <CollapsibleCardGroup
-          label="手牌中"
-          count={handCount}
-          items={handCards}
-          emptyLabel="手牌中暂无卡牌"
-          activeCard={activeCard}
-          onActiveCardChange={handleActiveCardChange}
-        />
-        <CollapsibleCardGroup
-          label="其他"
-          count={otherCount}
-          items={otherCards}
-          emptyLabel="暂无其他卡牌"
-          activeCard={activeCard}
-          onActiveCardChange={handleActiveCardChange}
-        />
-      </div>
+      {view.cardTracking?.status === "ready" ? (
+        <CardTrackingGroups view={view.cardTracking} />
+      ) : (
+        <div className="overlay-card-groups">
+          <CollapsibleCardGroup
+            label="影响全局"
+            count={countCards(globalEffects)}
+            items={globalEffects}
+            emptyLabel="暂无全局影响"
+            activeCard={activeCard}
+            onActiveCardChange={handleActiveCardChange}
+          />
+          <CollapsibleCardGroup
+            label="牌库中"
+            count={isUnknownDeckCount ? unknownDeckCountLabel : remainingDeckCount ?? "待识别"}
+            items={remainingDeck}
+            emptyLabel={isUnknownDeckCount ? unknownDeckEmptyLabel : "牌库中暂无卡牌"}
+            activeCard={activeCard}
+            onActiveCardChange={handleActiveCardChange}
+          />
+          <CollapsibleCardGroup
+            label="手牌中"
+            count={handCount}
+            items={handCards}
+            emptyLabel="手牌中暂无卡牌"
+            activeCard={activeCard}
+            onActiveCardChange={handleActiveCardChange}
+          />
+          <CollapsibleCardGroup
+            label="其他"
+            count={otherCount}
+            items={otherCards}
+            emptyLabel="暂无其他卡牌"
+            activeCard={activeCard}
+            onActiveCardChange={handleActiveCardChange}
+          />
+        </div>
+      )}
     </div>
   );
 }

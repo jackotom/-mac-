@@ -11,30 +11,48 @@ import {
 describe("overlay window bounds", () => {
   const display = { x: 0, y: 0, width: 1440, height: 900 };
 
-  it("repairs saved bounds below the tall minimum", () => {
+  it("keeps a legal compact 100x200 friendly window", () => {
+    expect(normalizeOverlayWindowBounds({ x: 100, y: 80, width: 100, height: 200 }, [display])).toEqual({
+      x: 100,
+      y: 80,
+      width: 100,
+      height: 200
+    });
+  });
+
+  it("keeps a legal tall 100x900 friendly window", () => {
+    expect(normalizeOverlayWindowBounds({ x: 1340, y: 0, width: 100, height: 900 }, [display])).toEqual({
+      x: 1340,
+      y: 0,
+      width: 100,
+      height: 900
+    });
+  });
+
+  it("repairs saved bounds below the compact minimum", () => {
     expect(normalizeOverlayWindowBounds({ x: 100, y: 80, width: 260, height: 560 }, [display])).toEqual({
       x: 100,
-      y: 0,
+      y: 80,
       width: 260,
-      height: 900
+      height: 560
     });
   });
 
   it("migrates the old 300px default width to the compact default", () => {
     expect(normalizeOverlayWindowBounds({ x: 100, y: 80, width: 300, height: 500 }, [display])).toEqual({
       x: 100,
-      y: 0,
+      y: 80,
       width: 100,
-      height: 900
+      height: 500
     });
   });
 
   it("moves off-screen saved bounds back into the visible work area", () => {
     expect(normalizeOverlayWindowBounds({ x: 5000, y: 4000, width: 80, height: 560 }, [display])).toEqual({
       x: 1340,
-      y: 0,
+      y: 340,
       width: 100,
-      height: 900
+      height: 560
     });
   });
 
@@ -45,9 +63,9 @@ describe("overlay window bounds", () => {
   it("fits the minimum height inside a shorter display", () => {
     expect(normalizeOverlayWindowBounds({ x: 20, y: 50, width: 300, height: 500 }, [{ ...display, height: 800 }])).toEqual({
       x: 20,
-      y: 0,
+      y: 50,
       width: 100,
-      height: 800
+      height: 500
     });
   });
 
