@@ -1474,7 +1474,9 @@ export class TrackerEngine {
       name,
       count: 1,
       ...(cardId ? { cardId } : {}),
-      ...(cardInfo && this.cardDatabase ? { details: this.buildCardDetails(cardInfo, "friendly") } : {})
+      ...(cardInfo && this.cardDatabase
+        ? { details: this.buildLegacyInlineCardDetails(cardInfo, "friendly") }
+        : {})
     };
   }
 
@@ -1543,10 +1545,7 @@ export class TrackerEngine {
     }
 
     const detailsByCardKey: Record<string, CardDetails> = {};
-    const addCard = (
-      card: Omit<PublicKnownCard, "count">,
-      side: CardOutcomeSide
-    ) => {
+    const addCard = (card: Omit<PublicKnownCard, "count">) => {
       if (detailsByCardKey[card.cardKey]) {
         return;
       }
@@ -1554,30 +1553,25 @@ export class TrackerEngine {
       if (!cardInfo) {
         return;
       }
-      const { cardOutcomeSections: _cardOutcomeSections, ...baseDetails } =
-        this.buildCardDetails(cardInfo, side);
-      detailsByCardKey[card.cardKey] = baseDetails;
+      detailsByCardKey[card.cardKey] = toCardDetails(this.cardDatabase!, cardInfo);
     };
-    const addPlayerCards = (
-      player: PublicCardTracking["friendly"],
-      side: CardOutcomeSide
-    ) => {
+    const addPlayerCards = (player: PublicCardTracking["friendly"]) => {
       for (const group of Object.values(player.current)) {
         for (const card of group.cards) {
-          addCard(card, side);
+          addCard(card);
         }
       }
       for (const history of [player.used, player.burned]) {
         for (const item of history.items) {
           if (item.card) {
-            addCard(item.card, side);
+            addCard(item.card);
           }
         }
       }
     };
 
-    addPlayerCards(friendly, "friendly");
-    addPlayerCards(opponent, "opponent");
+    addPlayerCards(friendly);
+    addPlayerCards(opponent);
     return detailsByCardKey;
   }
 
@@ -1596,12 +1590,10 @@ export class TrackerEngine {
         if (row.unresolved) {
           continue;
         }
-        addPublicKnownCard(groups.deck.cards, {
-          cardKey: createPublicCardKey(row.cardId, row.name),
-          ...(row.cardId ? { cardId: row.cardId } : {}),
-          name: row.name,
-          count: row.remaining
-        });
+        const card = this.toPublicKnownCard(row.cardId, row.name);
+        if (card) {
+          addPublicKnownCard(groups.deck.cards, { ...card, count: row.remaining });
+        }
       }
     }
 
@@ -1766,7 +1758,9 @@ export class TrackerEngine {
         name,
         count: 1,
         ...(cardId ? { cardId } : {}),
-        ...(cardInfo && this.cardDatabase ? { details: toCardDetails(this.cardDatabase, cardInfo) } : {})
+        ...(cardInfo && this.cardDatabase
+          ? { details: this.buildLegacyInlineCardDetails(cardInfo, "none") }
+          : {})
       });
     }
     return sortZoneCards(cards.values());
@@ -1782,7 +1776,9 @@ export class TrackerEngine {
       name,
       count: 1,
       ...(cardId ? { cardId } : {}),
-      ...(cardInfo && this.cardDatabase ? { details: this.buildCardDetails(cardInfo, "opponent") } : {})
+      ...(cardInfo && this.cardDatabase
+        ? { details: this.buildLegacyInlineCardDetails(cardInfo, "opponent") }
+        : {})
     };
   }
 
@@ -1943,12 +1939,25 @@ export class TrackerEngine {
       return row;
     }
 
+    const details = this.buildLegacyInlineCardDetails(card, context);
+    return { ...row, details };
+  }
+
+  private buildLegacyInlineCardDetails(
+    card: CardInfo,
+    context: "none" | "friendly" | "opponent" | true
+  ): CardDetails {
     const details = context === "friendly" || context === true
       ? this.buildCardDetails(card, "friendly")
       : context === "opponent"
         ? this.buildCardDetails(card, "opponent")
-        : toCardDetails(this.cardDatabase, card);
-    return { ...row, details };
+        : toCardDetails(this.cardDatabase!, card);
+    const {
+      cardPoolSections: _cardPoolSections,
+      cardOutcomeSections: _cardOutcomeSections,
+      ...inlineDetails
+    } = details;
+    return inlineDetails;
   }
 
   private recordCardUse(

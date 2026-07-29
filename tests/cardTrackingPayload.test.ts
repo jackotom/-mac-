@@ -23,7 +23,7 @@ describe("compact card tracking payload", () => {
       },
       ...poolCards
     ]);
-    const engine = new TrackerEngine({ cardDatabase });
+    const engine = new TrackerEngine({ cardDatabase, deckText: "1x 匣中古神" });
     engine.setFriendlyController(1);
     engine.applyText([
       "D 20:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
@@ -56,6 +56,45 @@ describe("compact card tracking payload", () => {
     const serialized = JSON.stringify(state);
     expect(serialized.match(/POOL_099/g)).toHaveLength(1);
     expect(serialized.length).toBeLessThan(500_000);
+  });
+
+  it("publishes one side-neutral base detail when both players use the same card", () => {
+    const cardDatabase = createCardDatabase([
+      {
+        id: 110_001,
+        cardId: "NORMAL_SPELL",
+        name: "普通法术",
+        collectible: 1,
+        type: "SPELL"
+      },
+      {
+        id: 110_002,
+        cardId: "TOY_378",
+        name: "星空投影球",
+        collectible: 1,
+        type: "SPELL"
+      }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase });
+    engine.setFriendlyController(1);
+    engine.applyText([
+      "D 21:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 21:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通法术 id=401 zone=HAND cardId=NORMAL_SPELL player=1]",
+      "D 21:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
+      "D 21:00:02.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星空投影球 id=402 zone=HAND cardId=TOY_378 player=1]",
+      "D 21:00:02.100 GameState.DebugPrintPower() - BLOCK_END",
+      "D 21:00:03.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星空投影球 id=403 zone=HAND cardId=TOY_378 player=2]",
+      "D 21:00:03.100 GameState.DebugPrintPower() - BLOCK_END"
+    ].join("\n"));
+
+    const tracking = engine.getState().cardTracking!;
+    const sharedKey = "id:toy_378";
+    expect(tracking.friendly.used.items.some((item) => item.card?.cardKey === sharedKey)).toBe(true);
+    expect(tracking.opponent.used.items.some((item) => item.card?.cardKey === sharedKey)).toBe(true);
+    expect(Object.keys(tracking.detailsByCardKey).filter((key) => key === sharedKey)).toHaveLength(1);
+    expect(tracking.detailsByCardKey[sharedKey]).not.toHaveProperty("playedSpellsThisGame");
+    expect(tracking.detailsByCardKey[sharedKey]).not.toHaveProperty("gameContextSections");
+    expect(tracking.detailsByCardKey[sharedKey]).not.toHaveProperty("cardOutcomeSections");
   });
 });
 

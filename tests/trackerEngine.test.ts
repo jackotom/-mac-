@@ -489,12 +489,10 @@ D 08:20:53.5500000 GameState.DebugPrintPower() - BLOCK_END
     ]);
     expect((engine.getState().friendlyHand ?? [])
       .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections?.[0]?.cards).toHaveLength(10);
+      ?.details).not.toHaveProperty("cardOutcomeSections");
     expect((engine.getState().opponentPlayed ?? [])
       .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections?.[0]?.cards).toEqual([
-        expect.objectContaining({ card: expect.objectContaining({ cardId: "RANDOM_SPELL_11" }) })
-      ]);
+      ?.details).not.toHaveProperty("cardOutcomeSections");
 
     engine.applyText(`
 D 08:26:11.3028700 GameState.DebugPrintPower() - CREATE_GAME
@@ -657,8 +655,7 @@ D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=�
     ]);
     expect((engine.getState().friendlyHand ?? [])
       .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections?.map((section) => section.cards[0]?.card.cardId))
-      .toEqual(["SPELL_1", "SPELL_2", "SPELL_3"]);
+      ?.details).not.toHaveProperty("cardOutcomeSections");
   });
 
   it("does not attach an empty random-spell outcome section to an ordinary spell use", () => {
@@ -2194,7 +2191,7 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
       expect(duplicateStart.gameKey).toBe(first.gameKey);
       expect(duplicateStart.friendly.used.totalCount).toBe(2);
       expect(duplicateStart.friendly.burned.totalCount).toBe(1);
-      expect(findLegacyAncientOutcomeSections(engine)).toHaveLength(1);
+      expect(findLatestAncientOutcomeSections(engine)).toHaveLength(1);
     });
 
     it("resetForGame clears use, burn, and ancient outcome deduplication before replay", () => {
@@ -2211,7 +2208,7 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
       engine.applyLine(
         "D 17:00:30.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND"
       );
-      expect(findLegacyAncientOutcomeSections(engine)).toBeUndefined();
+      expect(findLatestAncientOutcomeSections(engine)).toBeUndefined();
       engine.applyLine(
         "D 17:00:30.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=DECK"
       );
@@ -2230,7 +2227,7 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
         friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
       });
       engine.loadDeckCards([{ name: "匣中古神", count: 1, cardId: "TOY_372" }], "重置检查牌库");
-      expect(findLegacyAncientOutcomeSections(engine)).toBeUndefined();
+      expect(findLatestAncientOutcomeSections(engine)).toBeUndefined();
 
       resumeLifecycleRecordingWithoutAnotherReset(engine);
       expectResetSensitiveLifecycleCanReplay(engine);
@@ -2250,7 +2247,7 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
         gameKey: "no-game",
         friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
       });
-      expect(findLegacyAncientOutcomeSections(engine)).toBeUndefined();
+      expect(findLatestAncientOutcomeSections(engine)).toBeUndefined();
 
       resumeLifecycleRecordingWithoutAnotherReset(engine);
       prepareRetainedArenaEntitiesForReplay(engine);
@@ -2341,7 +2338,7 @@ function seedResetSensitiveLifecycle(engine: TrackerEngine) {
     used: { totalCount: 2 },
     burned: { totalCount: 1 }
   });
-  expect(findLegacyAncientOutcomeSections(engine)).toHaveLength(1);
+  expect(findLatestAncientOutcomeSections(engine)).toHaveLength(1);
 }
 
 function expectResetSensitiveLifecycleCanReplay(
@@ -2359,7 +2356,7 @@ function expectResetSensitiveLifecycleCanReplay(
     used: { totalCount: 2 },
     burned: { totalCount: 1 }
   });
-  expect(findLegacyAncientOutcomeSections(engine)).toHaveLength(1);
+  expect(findLatestAncientOutcomeSections(engine)).toHaveLength(1);
 }
 
 function createResetSensitiveLifecycleLines() {
@@ -2417,11 +2414,10 @@ function prepareRetainedArenaEntitiesForReplay(engine: TrackerEngine) {
   ].join("\n"));
 }
 
-function findLegacyAncientOutcomeSections(engine: TrackerEngine) {
-  const state = engine.getState();
-  return [...state.deck, ...(state.friendlyHand ?? [])]
-    .find((card) => card.cardId === "TOY_372")
-    ?.details?.cardOutcomeSections;
+function findLatestAncientOutcomeSections(engine: TrackerEngine) {
+  return engine.getState().cardTracking?.friendly.used.items
+    .find((item) => item.card?.cardId === "TOY_372")
+    ?.outcomeSections;
 }
 
 function expectSingleOutsideDatabaseUse(engine: TrackerEngine) {
