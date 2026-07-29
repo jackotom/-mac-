@@ -191,6 +191,7 @@ export class TrackerEngine {
   private cardOutcomeBlockStack: CardOutcomeBlockFrame[] = [];
   private outcomesByUsageId = new Map<string, CompletedCardOutcome[]>();
   private completedCardOutcomeKeys = new Set<string>();
+  private cardOutcomeRootOccurrencesBySource = new Map<string, number>();
   private lastBlockBoundaryFingerprint: string | undefined;
   private pendingKnownEntityReturn: EntitySnapshot | undefined;
   private pendingKnownEntityReturnCandidateIds = new Set<string>();
@@ -1992,6 +1993,7 @@ export class TrackerEngine {
     this.cardOutcomeBlockStack = [];
     this.outcomesByUsageId.clear();
     this.completedCardOutcomeKeys.clear();
+    this.cardOutcomeRootOccurrencesBySource.clear();
     this.lastBlockBoundaryFingerprint = undefined;
   }
 
@@ -2052,9 +2054,12 @@ export class TrackerEngine {
     }
 
     const parent = this.cardOutcomeBlockStack.at(-1);
-    const rootKey = `${event.blockType ?? "UNKNOWN"}:${event.entity?.id ?? "unknown"}:${fingerprint}`;
+    const boundaryKey = `${event.blockType ?? "UNKNOWN"}:${event.entity?.id ?? "unknown"}:${fingerprint}`;
+    const frameKey = parent
+      ? boundaryKey
+      : this.createCardOutcomeRootKey(boundaryKey, event.raw);
     const frame: CardOutcomeBlockFrame = {
-      key: rootKey,
+      key: frameKey,
       blockType: event.blockType,
       entityId: event.entity?.id,
       parent,
@@ -2063,7 +2068,7 @@ export class TrackerEngine {
       parentAcceptsFullEntityOutcomes: parent?.acceptsFullEntityOutcomes,
       side: this.cardOutcomeSide(event.entity?.controller) ?? parent?.side,
       usageId: parent?.usageId,
-      suppressed: parent?.suppressed || (!parent && this.completedCardOutcomeKeys.has(rootKey))
+      suppressed: parent?.suppressed || (!parent && this.completedCardOutcomeKeys.has(frameKey))
     };
     this.cardOutcomeBlockStack.push(frame);
     if (!frame.suppressed) {
@@ -2073,6 +2078,14 @@ export class TrackerEngine {
         this.configureCardOutcomeFrame(frame, entity);
       }
     }
+  }
+
+  private createCardOutcomeRootKey(boundaryKey: string, raw: string) {
+    const source = cardOutcomeLogSource(raw);
+    const sourceOccurrenceKey = `${source.counterKey}:${boundaryKey}`;
+    const occurrence = (this.cardOutcomeRootOccurrencesBySource.get(sourceOccurrenceKey) ?? 0) + 1;
+    this.cardOutcomeRootOccurrencesBySource.set(sourceOccurrenceKey, occurrence);
+    return `${source.dedupGroup}:${boundaryKey}:occurrence:${occurrence}`;
   }
 
   private resolveCurrentCardOutcomeFrame(entity: EntitySnapshot) {
@@ -2307,6 +2320,21 @@ function blockBoundaryFingerprint(event: Extract<ParsedLogEvent, { type: "block-
   const timestamp = event.raw.match(/\b\d{2}:\d{2}:\d{2}\.\d+\b/)?.[0] ?? "";
   const boundary = event.raw.slice(Math.max(event.raw.indexOf("BLOCK_START"), event.raw.indexOf("BLOCK_END")));
   return `${event.phase}:${timestamp}:${boundary}`;
+}
+
+function cardOutcomeLogSource(raw: string) {
+  const source = raw.match(/\b(GameState|PowerTaskList)\.DebugPrintPower\(\)/)?.[1];
+  if (source) {
+    return {
+      counterKey: source,
+      dedupGroup: "hearthstone-power-log-copy"
+    };
+  }
+  const fallback = raw.match(/\b([A-Za-z][\w.]*)\.DebugPrintPower\(\)/)?.[1] ?? "unknown";
+  return {
+    counterKey: fallback,
+    dedupGroup: `source:${fallback}`
+  };
 }
 
 function scoreCollectionDeck(deck: CollectionDeck, observations: readonly FriendlyObservation[]): number {

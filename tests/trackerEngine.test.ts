@@ -504,7 +504,7 @@ D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=å
     expect(engine.getState().cardTracking!.opponent.used.totalCount).toBe(0);
   });
 
-  it("merges multiple completed captures into one usage section in completion order", () => {
+  it("keeps same-timestamp real captures while deduplicating their cross-source copies", () => {
     const engine = createOutcomeBindingEngine();
     const firstCapture = renderRandomSpellCapture({
       source: "GameState",
@@ -517,7 +517,7 @@ D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=å
     const firstDuplicate = firstCapture.map((line) => line.replace("GameState", "PowerTaskList"));
     const secondCapture = renderRandomSpellCapture({
       source: "GameState",
-      time: "09:00:02",
+      time: "09:00:01",
       sourceEntityId: 60,
       resultEntityStart: 81,
       resultCardIds: ["SPELL_1", "SPELL_2", "SPELL_3", "SPELL_4", "SPELL_5"],
