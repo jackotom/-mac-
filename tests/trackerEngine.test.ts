@@ -1862,7 +1862,7 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
       expect(duplicateStart.gameKey).toBe(first.gameKey);
       expect(duplicateStart.friendly.used.totalCount).toBe(2);
       expect(duplicateStart.friendly.burned.totalCount).toBe(1);
-      expect(findAncientOutcomeSections(engine)).toHaveLength(1);
+      expect(findLegacyAncientOutcomeSections(engine)).toHaveLength(1);
     });
 
     it("resetForGame clears use, burn, and ancient outcome deduplication before replay", () => {
@@ -1879,7 +1879,7 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
       engine.applyLine(
         "D 17:00:30.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND"
       );
-      expect(findAncientOutcomeSections(engine)).toBeUndefined();
+      expect(findLegacyAncientOutcomeSections(engine)).toBeUndefined();
       engine.applyLine(
         "D 17:00:30.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=DECK"
       );
@@ -1898,9 +1898,9 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
         friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
       });
       engine.loadDeckCards([{ name: "匣中古神", count: 1, cardId: "TOY_372" }], "重置检查牌库");
-      expect(findAncientOutcomeSections(engine)).toBeUndefined();
+      expect(findLegacyAncientOutcomeSections(engine)).toBeUndefined();
 
-      engine.resetForGame();
+      resumeLifecycleRecordingWithoutAnotherReset(engine);
       expectResetSensitiveLifecycleCanReplay(engine);
     });
 
@@ -1918,10 +1918,11 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
         gameKey: "no-game",
         friendly: { used: { totalCount: 0 }, burned: { totalCount: 0 } }
       });
-      expect(findAncientOutcomeSections(engine)).toBeUndefined();
+      expect(findLegacyAncientOutcomeSections(engine)).toBeUndefined();
 
-      engine.resetForGame();
-      expectResetSensitiveLifecycleCanReplay(engine);
+      resumeLifecycleRecordingWithoutAnotherReset(engine);
+      prepareRetainedArenaEntitiesForReplay(engine);
+      expectResetSensitiveLifecycleCanReplay(engine, createRetainedArenaPreBurnLines());
     });
   });
 });
@@ -1957,24 +1958,59 @@ function seedResetSensitiveLifecycle(engine: TrackerEngine) {
     used: { totalCount: 2 },
     burned: { totalCount: 1 }
   });
-  expect(findAncientOutcomeSections(engine)).toHaveLength(1);
+  expect(findLegacyAncientOutcomeSections(engine)).toHaveLength(1);
 }
 
-function expectResetSensitiveLifecycleCanReplay(engine: TrackerEngine) {
-  engine.applyText(createResetSensitiveLifecycleLines().join("\n"));
+function expectResetSensitiveLifecycleCanReplay(
+  engine: TrackerEngine,
+  preBurnLines = createResetSensitivePreBurnLines()
+) {
+  engine.applyText(preBurnLines.join("\n"));
+  expect(engine.getState().cardTracking!.friendly.current.hand.totalCount).toBe(10);
+
+  engine.applyLine(createResetSensitiveBurnLine());
+  expect(engine.getState().cardTracking!.friendly.burned.totalCount).toBe(1);
+
+  engine.applyText(createResetSensitiveOutcomeLines().join("\n"));
   expect(engine.getState().cardTracking!.friendly).toMatchObject({
     used: { totalCount: 2 },
     burned: { totalCount: 1 }
   });
-  expect(findAncientOutcomeSections(engine)).toHaveLength(1);
+  expect(findLegacyAncientOutcomeSections(engine)).toHaveLength(1);
 }
 
 function createResetSensitiveLifecycleLines() {
   return [
+    ...createResetSensitivePreBurnLines(),
+    createResetSensitiveBurnLine(),
+    ...createResetSensitiveOutcomeLines()
+  ];
+}
+
+function createResetSensitivePreBurnLines() {
+  return [
     "D 17:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]",
     "D 17:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
-    ...createHandEntityLines(10, 1, 300),
-    "D 17:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=46 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD",
+    ...createHandEntityLines(10, 1, 300)
+  ];
+}
+
+function createRetainedArenaPreBurnLines() {
+  return [
+    "D 17:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]",
+    "D 17:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
+    ...Array.from({ length: 10 }, (_, index) =>
+      `D 17:00:39.${String(index).padStart(3, "0")} GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌${index + 1} id=${300 + index} zone=REMOVEDFROMGAME cardId=FILLER_${300 + index} player=1] tag=ZONE value=HAND`
+    )
+  ];
+}
+
+function createResetSensitiveBurnLine() {
+  return "D 17:00:20.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=46 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD";
+}
+
+function createResetSensitiveOutcomeLines() {
+  return [
     "D 17:00:30.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND",
     "D 17:00:31.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1]",
     "D 17:00:32.000 GameState.DebugPrintPower() - BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1]",
@@ -1984,7 +2020,21 @@ function createResetSensitiveLifecycleLines() {
   ];
 }
 
-function findAncientOutcomeSections(engine: TrackerEngine) {
+function resumeLifecycleRecordingWithoutAnotherReset(engine: TrackerEngine) {
+  Reflect.set(engine, "gameActive", true);
+}
+
+function prepareRetainedArenaEntitiesForReplay(engine: TrackerEngine) {
+  engine.applyText([
+    ...Array.from({ length: 10 }, (_, index) =>
+      `D 17:00:36.${String(index).padStart(3, "0")} GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=填充手牌${index + 1} id=${300 + index} zone=HAND cardId=FILLER_${300 + index} player=1] tag=ZONE value=REMOVEDFROMGAME`
+    ),
+    "D 17:00:37.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=DECK",
+    "D 17:00:38.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=46 zone=GRAVEYARD cardId=BURNED_CARD player=1] tag=ZONE value=DECK"
+  ].join("\n"));
+}
+
+function findLegacyAncientOutcomeSections(engine: TrackerEngine) {
   const state = engine.getState();
   return [...state.deck, ...(state.friendlyHand ?? [])]
     .find((card) => card.cardId === "TOY_372")
