@@ -50,14 +50,19 @@ export function toOverlayPanelViewModel(
   const constructedRecognitionStatus = isRecognizingConstructedDeck && state.error
     ? { tone: "error" as const, label: "识别失败" }
     : undefined;
-  const waitingForGameStatus = state.status === "watching" && state.gameActive !== true && !isRecognizingConstructedDeck
+  const hasActiveArena = Boolean(state.arena && state.arena.status !== "inactive");
+  const isArenaDrafting = state.arena?.status === "drafting" || state.arena?.status === "redrafting";
+  const waitingForGameStatus = state.status === "watching" &&
+    state.gameActive !== true &&
+    !isRecognizingConstructedDeck &&
+    !isArenaDrafting
     ? {
         tone: "tracking" as const,
         label: "已识别炉石，等待开局",
         detail: "进入对局后自动开始记牌"
       }
     : undefined;
-  const arena = state.arena && state.arena.status !== "inactive" && !logIssueStatus ? toArenaView(state.arena, maxDeckRows) : undefined;
+  const arena = hasActiveArena && state.arena && !logIssueStatus ? toArenaView(state.arena, maxDeckRows) : undefined;
   const visibleOpponentHand = (state.opponentHand ?? []).filter((card) => !isHiddenOpponentHandCard(card));
   const visibleOpponentHandCount = countZoneCards(visibleOpponentHand);
   const opponentHandCount = state.opponentHandCount ?? countZoneCards(state.opponentHand ?? []);

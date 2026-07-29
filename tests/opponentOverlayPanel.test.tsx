@@ -140,6 +140,90 @@ describe("opponent overlay", () => {
     expect(nextSlots[2]).toBe(firstSlots[2]);
   });
 
+  it("keeps a revealed returned card ahead of undisclosed slots while the hand count changes", () => {
+    const revealedCard = {
+      id: "opponent-hand-revealed-fireball",
+      name: "火球术",
+      count: 1,
+      cost: 4,
+      details: {
+        dbfId: 315,
+        cardId: "CS2_029",
+        name: "火球术",
+        manaCost: 4,
+        cardType: "法术",
+        text: "造成 6 点伤害。",
+        isSpell: true,
+        relatedCards: []
+      }
+    };
+    const preview = render(
+      <OpponentOverlayPanel
+        view={{ ...view, opponentHand: [revealedCard], opponentHandCount: 3 }}
+        isCollapsed={false}
+      />
+    );
+
+    const revealedRow = screen.getByText("火球术").closest(".overlay-compact-card-row");
+    expect(
+      [...screen.getByRole("region", { name: /手牌中.*3/ }).querySelectorAll(".overlay-card-art strong")]
+        .map((label) => label.textContent)
+    ).toEqual(["火球术", "未公开", "未公开"]);
+
+    preview.rerender(
+      <OpponentOverlayPanel
+        view={{ ...view, opponentHand: [revealedCard], opponentHandCount: 4 }}
+        isCollapsed={false}
+      />
+    );
+
+    expect(screen.getByText("火球术").closest(".overlay-compact-card-row")).toBe(revealedRow);
+    expect(screen.getAllByText("未公开")).toHaveLength(3);
+
+    preview.rerender(
+      <OpponentOverlayPanel
+        view={{ ...view, opponentHand: [revealedCard], opponentHandCount: 2 }}
+        isCollapsed={false}
+      />
+    );
+
+    expect(screen.getByText("火球术").closest(".overlay-compact-card-row")).toBe(revealedRow);
+    expect(screen.getAllByText("未公开")).toHaveLength(1);
+  });
+
+  it("keeps card preview available for a revealed returned card", () => {
+    render(
+      <OpponentOverlayPanel
+        view={{
+          ...view,
+          opponentHand: [{
+            id: "opponent-hand-revealed-fireball",
+            name: "火球术",
+            count: 1,
+            cost: 4,
+            details: {
+              dbfId: 315,
+              cardId: "CS2_029",
+              name: "火球术",
+              manaCost: 4,
+              cardType: "法术",
+              text: "造成 6 点伤害。",
+              isSpell: true,
+              relatedCards: []
+            }
+          }],
+          opponentHandCount: 2
+        }}
+        isCollapsed={false}
+      />
+    );
+
+    fireEvent.mouseEnter(screen.getByText("火球术").closest(".overlay-compact-card-row") as HTMLElement);
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent("造成 6 点伤害。");
+    expect(screen.getAllByText("未公开")).toHaveLength(1);
+  });
+
   it("does not embed board attack totals in the opponent list window", () => {
     render(<OpponentOverlayPanel view={view} isCollapsed={false} />);
 

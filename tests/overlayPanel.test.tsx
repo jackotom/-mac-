@@ -348,6 +348,36 @@ describe("standard tracker overlay", () => {
     expect(screen.queryByLabelText("套牌概览")).not.toBeInTheDocument();
   });
 
+  it("does not imply there are no choices when a special-team draft has no selected deck cards yet", () => {
+    render(
+      <OverlayPanel
+        view={{
+          ...view,
+          arena: {
+            isChoosing: true,
+            showDeckStats: true,
+            statusLabel: "选牌中",
+            progress: "0/30",
+            hero: "等待职业",
+            choices: [
+              { id: "arena-choice-zilliax", name: "奇利亚斯豪华版3000型" },
+              { id: "arena-choice-murozond", name: "末世的姆诺兹多" },
+              { id: "arena-choice-vashj", name: "瓦丝琪女男爵" }
+            ],
+            deck: [],
+            deckCount: 0,
+            confirmedCount: 0,
+            unresolvedCount: 30
+          }
+        }}
+      />
+    );
+
+    const arena = screen.getByLabelText("竞技场卡组影响");
+    expect(within(arena).getByText("当前牌库尚无已选牌")).toBeInTheDocument();
+    expect(within(arena).queryByText("尚未选择牌")).not.toBeInTheDocument();
+  });
+
   it.each(["选牌中", "重选中", "等待开局"])("shows the Arena phase above the deck table: %s", (statusLabel) => {
     render(
       <OverlayPanel

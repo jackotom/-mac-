@@ -506,6 +506,148 @@ D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[
     });
   });
 
+  it("keeps a revealed opponent card known when a linked deathrattle returns it as a new hand entity", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "END_033", name: "先觉蜿变幼龙", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -     SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=97 zone=SETASIDE zonePos=0 cardId= player=2] CardID=END_033
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=CARDTYPE value=MINION
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ZONE value=SETASIDE
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ENTITY_ID value=97
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Updating [entityName=绑架犯的袋子 id=98 zone=PLAY zonePos=3 cardId=REV_828t player=1] CardID=REV_828t
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=1
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=CARDTYPE value=MINION
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ZONE value=PLAY
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ENTITY_ID value=98
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -     SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=99 zone=SETASIDE zonePos=0 cardId= player=1] CardID=REV_828e
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=1
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=CARDTYPE value=ENCHANTMENT
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ATTACHED value=98
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ZONE value=SETASIDE
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -         tag=ENTITY_ID value=99
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=99 zone=SETASIDE zonePos=0 cardId= player=1] tag=ZONE value=PLAY
+D 12:34:02.2890600 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=99 zone=SETASIDE zonePos=0 cardId= player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=97
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=绑架犯的袋子 id=98 zone=PLAY zonePos=3 cardId=REV_828t player=1] tag=ZONE value=GRAVEYARD
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=绑架犯的袋子 id=99 zone=PLAY zonePos=0 cardId=REV_828e player=1] tag=1234 value=98
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=绑架犯的袋子 id=98 zone=PLAY zonePos=3 cardId=REV_828t player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=DEATHRATTLE
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Creating ID=100 CardID=
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() -         tag=ZONE value=HAND
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() -         tag=ENTITY_ID value=100
+D 12:34:06.7058310 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentHand: [{ name: "先觉蜿变幼龙", count: 1, cardId: "END_033" }],
+      opponentHandCount: 1
+    });
+  });
+
+  it("ignores other created entities before the linked deathrattle creates one hidden hand card", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "KNOWN_RETURN", name: "应返回的随从", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=应返回的随从 id=97 zone=SETASIDE cardId= player=2] CardID=KNOWN_RETURN
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=亡语随从 id=98 zone=PLAY cardId=TRIGGER_MINION player=1] CardID=TRIGGER_MINION
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=关联附魔 id=99 zone=PLAY cardId=LINK_ENCHANTMENT player=1] CardID=LINK_ENCHANTMENT
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -         tag=ATTACHED value=98
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=关联附魔 id=99 zone=PLAY cardId=LINK_ENCHANTMENT player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=97
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=亡语随从 id=98 zone=GRAVEYARD cardId=TRIGGER_MINION player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=DEATHRATTLE
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Creating ID=150 CardID=
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=SETASIDE
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=1
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Creating ID=100 CardID=
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=HAND
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentHand: [{ name: "应返回的随从", count: 1, cardId: "KNOWN_RETURN" }],
+      opponentHandCount: 1
+    });
+  });
+
+  it("does not transfer a known identity when a linked deathrattle creates two hidden hand cards", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "KNOWN_RETURN", name: "不应猜测的随从", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=不应猜测的随从 id=97 zone=SETASIDE cardId= player=2] CardID=KNOWN_RETURN
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=亡语随从 id=98 zone=PLAY cardId=TRIGGER_MINION player=1] CardID=TRIGGER_MINION
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=关联附魔 id=99 zone=PLAY cardId=LINK_ENCHANTMENT player=1] CardID=LINK_ENCHANTMENT
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -         tag=ATTACHED value=98
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=关联附魔 id=99 zone=PLAY cardId=LINK_ENCHANTMENT player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=97
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=亡语随从 id=98 zone=GRAVEYARD cardId=TRIGGER_MINION player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=DEATHRATTLE
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Creating ID=100 CardID=
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=HAND
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Creating ID=101 CardID=
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=HAND
+D 12:00:04.000 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2
+D 12:00:04.000 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentHand: [],
+      opponentHandCount: 2
+    });
+  });
+
+  it("keeps a revealed opponent card known when the same entity returns to hand", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "KNOWN_MINION", name: "已公开随从", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=已公开随从 id=40 zone=PLAY cardId=KNOWN_MINION player=2] CardID=KNOWN_MINION
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=40 zone=PLAY cardId= player=2] tag=ZONE value=HAND
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentHand: [{ name: "已公开随从", count: 1, cardId: "KNOWN_MINION" }],
+      opponentHandCount: 1
+    });
+  });
+
+  it("does not reveal a new opponent hand entity without a reliable source link", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "KNOWN_MINION", name: "场外已公开随从", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=场外已公开随从 id=97 zone=SETASIDE cardId= player=2] CardID=KNOWN_MINION
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=普通亡语随从 id=98 zone=PLAY cardId=DEATHRATTLE_MINION player=1] CardID=DEATHRATTLE_MINION
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=普通亡语随从 id=98 zone=GRAVEYARD cardId=DEATHRATTLE_MINION player=1] EffectCardId=0 EffectIndex=0 Target=0 SubOption=-1 TriggerKeyword=DEATHRATTLE
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -     FULL_ENTITY - Creating ID=100 CardID=
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=HAND
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2
+D 12:00:03.000 PowerTaskList.DebugPrintPower() -         tag=ENTITY_ID value=100
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState()).toMatchObject({
+      opponentHand: [],
+      opponentHandCount: 1
+    });
+  });
+
   it("clears opponent zone cards and totals on the next game", () => {
     const engine = new TrackerEngine();
     engine.setFriendlyController(1);

@@ -108,6 +108,8 @@ export class TrackerEngine {
   private opponentDeadMinionsThisGame: CardInfo[] = [];
   private recordedCardPlayEntityIds = new Set<string>();
   private recordedDeathEntityIds = new Set<string>();
+  private pendingKnownEntityReturn: EntitySnapshot | undefined;
+  private pendingKnownEntityReturnCandidateIds = new Set<string>();
   private secretTracker: SecretTracker;
 
   constructor(options: EngineOptions = {}) {
@@ -172,6 +174,8 @@ export class TrackerEngine {
     this.generatedEntityIds.clear();
     this.insertedDeckEntityRowKeys.clear();
     this.pendingEntityDetail = undefined;
+    this.pendingKnownEntityReturn = undefined;
+    this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
     this.clearMatchCardHistory();
     this.eventCounter = 0;
@@ -349,6 +353,8 @@ export class TrackerEngine {
     this.generatedEntityIds.clear();
     this.insertedDeckEntityRowKeys.clear();
     this.pendingEntityDetail = undefined;
+    this.pendingKnownEntityReturn = undefined;
+    this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
     this.clearMatchCardHistory();
     this.eventCounter = 0;
@@ -379,6 +385,8 @@ export class TrackerEngine {
     this.generatedEntityIds.clear();
     this.insertedDeckEntityRowKeys.clear();
     this.pendingEntityDetail = undefined;
+    this.pendingKnownEntityReturn = undefined;
+    this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
     this.clearMatchCardHistory();
     this.eventCounter = 0;
@@ -526,6 +534,24 @@ export class TrackerEngine {
       return;
     }
 
+    if (event.type === "causal-trigger") {
+      if (event.phase === "end") {
+        this.finalizePendingKnownEntityReturn();
+        return;
+      }
+      this.pendingKnownEntityReturn = event.trigger === "deathrattle" && event.entity?.id
+        ? this.findKnownEntityStoredByAttachment(event.entity.id)
+        : undefined;
+      this.pendingKnownEntityReturnCandidateIds.clear();
+      return;
+    }
+
+    if (event.type === "entity-reference") {
+      const field = event.relation === "attached" ? "attachedToEntityId" : "storedEntityId";
+      this.mergeEntity({ id: event.entityId, [field]: event.referencedEntityId });
+      return;
+    }
+
     if (event.type === "generated-entity") {
       if (this.gameSetupComplete && event.entityId) {
         this.generatedEntityIds.add(event.entityId);
@@ -537,6 +563,14 @@ export class TrackerEngine {
     if (event.type === "entity") {
       const existing = event.entity.id ? this.entities.get(event.entity.id) : undefined;
       const merged = this.mergeEntity(existing?.zone ? { ...event.entity, zone: existing.zone } : event.entity);
+      if (
+        event.creating &&
+        merged?.id &&
+        !merged.cardId &&
+        this.pendingKnownEntityReturn
+      ) {
+        this.pendingKnownEntityReturnCandidateIds.add(merged.id);
+      }
       if (merged?.id) {
         this.reconcileInsertedDeckEntity(merged.id);
       }
@@ -784,6 +818,51 @@ export class TrackerEngine {
     return next;
   }
 
+  private finalizePendingKnownEntityReturn() {
+    const source = this.pendingKnownEntityReturn;
+    const candidates = source
+      ? [...this.pendingKnownEntityReturnCandidateIds]
+          .map((entityId) => this.entities.get(entityId))
+          .filter((entity): entity is EntitySnapshot =>
+            Boolean(
+              entity?.id &&
+              entity.zone === "HAND" &&
+              entity.controller === source.controller &&
+              !entity.cardId
+            )
+          )
+      : [];
+    if (source?.cardId && candidates.length === 1) {
+      const [candidate] = candidates;
+      this.entities.set(candidate.id!, {
+        ...candidate,
+        name: source.name,
+        cardId: source.cardId
+      });
+    }
+    this.pendingKnownEntityReturn = undefined;
+    this.pendingKnownEntityReturnCandidateIds.clear();
+  }
+
+  private findKnownEntityStoredByAttachment(attachedEntityId: string): EntitySnapshot | undefined {
+    const candidates = new Map<string, EntitySnapshot>();
+    for (const linkEntity of this.entities.values()) {
+      if (linkEntity.attachedToEntityId !== attachedEntityId || !linkEntity.storedEntityId) {
+        continue;
+      }
+      const storedEntity = this.entities.get(linkEntity.storedEntityId);
+      if (
+        storedEntity?.id &&
+        storedEntity.cardId &&
+        storedEntity.controller !== undefined &&
+        this.isKnownOpponentController(storedEntity.controller)
+      ) {
+        candidates.set(storedEntity.id, storedEntity);
+      }
+    }
+    return candidates.size === 1 ? candidates.values().next().value : undefined;
+  }
+
   private applyEntityDetailContinuation(line: string, events: readonly ParsedLogEvent[]) {
     const detailEvent = events.find((event): event is Extract<ParsedLogEvent, { type: "entity" }> => event.type === "entity");
     if (/(?:FULL_ENTITY|SHOW_ENTITY)\s+-\s+(?:Creating|Updating)\b/.test(line)) {
@@ -820,6 +899,16 @@ export class TrackerEngine {
 
     if (tagName === "CARDTYPE") {
       this.pendingEntityDetail = this.mergeEntity({ ...this.pendingEntityDetail, cardType: tagValue });
+      return;
+    }
+
+    if (tagName === "ATTACHED" || tagName === "TAG_SCRIPT_DATA_NUM_1") {
+      this.pendingEntityDetail = this.mergeEntity({
+        ...this.pendingEntityDetail,
+        ...(tagName === "ATTACHED"
+          ? { attachedToEntityId: tagValue }
+          : { storedEntityId: tagValue })
+      });
       return;
     }
 

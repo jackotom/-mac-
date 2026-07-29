@@ -647,6 +647,89 @@ D 12:00:00.001 DraftManager.OnChosen(): hero=HERO_05
     ]);
   });
 
+  it("matches the three legendary-team titles from the 12:42 OCR capture and attaches statistics", () => {
+    const legendaryTeamCardDb = createCardDatabase([
+      { dbfId: 6001, name: "奇利亚斯豪华版3000型", cardId: "TOY_330t12", collectible: false },
+      { dbfId: 6002, name: "奇利亚斯豪华版3000型", cardId: "TOY_330", collectible: true },
+      { dbfId: 6003, name: "末世的姆诺兹多", cardId: "END_037", collectible: true },
+      { dbfId: 6004, name: "瓦丝琪女男爵", cardId: "REV_925", collectible: true }
+    ]);
+    const legendaryTeamRatings: ArenaRatingTable = {
+      source: "test ratings",
+      version: 1,
+      fetchedAt: "2026-07-29T00:00:00.000Z",
+      ratings: {
+        Shaman: {
+          TOY_330: 82,
+          END_037: 76,
+          REV_925: 71
+        }
+      },
+      firestone: {
+        source: "Firestone",
+        version: "12:42",
+        lastUpdated: "2026-07-29T00:00:00.000Z",
+        ratings: {
+          TOY_330: { pickRate: 20.1 },
+          END_037: { pickRate: 18.2 },
+          REV_925: { pickRate: 16.3 }
+        }
+      }
+    };
+    const engine = new ArenaDraftEngine({
+      cardDatabase: legendaryTeamCardDb,
+      ratings: legendaryTeamRatings
+    });
+    engine.applyArenaText([
+      "D 12:42:39.000 Arena.SetDraftMode - DRAFTING",
+      "D 12:42:44.000 DraftManager.OnChosen(): hero=HERO_02"
+    ].join("\n"));
+
+    expect(engine.applyScreenChoices([
+      "奇制亚斯受华版$000g",
+      "末世的姆诺药岊",
+      "瓦丝琪女男露"
+    ])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({
+        cardId: "TOY_330",
+        name: "奇利亚斯豪华版3000型",
+        score: 82,
+        rating: expect.objectContaining({ pickRate: 20.1 })
+      }),
+      expect.objectContaining({
+        cardId: "END_037",
+        name: "末世的姆诺兹多",
+        score: 76,
+        rating: expect.objectContaining({ pickRate: 18.2 })
+      }),
+      expect.objectContaining({
+        cardId: "REV_925",
+        name: "瓦丝琪女男爵",
+        score: 71,
+        rating: expect.objectContaining({ pickRate: 16.3 })
+      })
+    ]);
+  });
+
+  it("rejects an OCR title when two long card names are equally close", () => {
+    const ambiguousCardDb = createCardDatabase([
+      { dbfId: 6101, name: "超长传说名字甲乙丙丁甲", cardId: "AMBIGUOUS_A", collectible: true },
+      { dbfId: 6102, name: "超长传说名字甲乙丙丁乙", cardId: "AMBIGUOUS_B", collectible: true },
+      { dbfId: 6103, name: "末世的姆诺兹多", cardId: "END_037", collectible: true },
+      { dbfId: 6104, name: "瓦丝琪女男爵", cardId: "REV_925", collectible: true }
+    ]);
+    const engine = new ArenaDraftEngine({ cardDatabase: ambiguousCardDb });
+    engine.applyArenaLine("D 12:42:39.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(engine.applyScreenChoices([
+      "超长传说名字甲乙丙丁丙",
+      "末世的姆诺兹多",
+      "瓦丝琪女男爵"
+    ])).toBe(false);
+    expect(engine.getState().currentChoices).toEqual([]);
+  });
+
   it("ignores orphan Arena picks and non-local or non-draft Power choices", () => {
     const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings });
 

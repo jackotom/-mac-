@@ -312,9 +312,7 @@ if ! kill -0 "$launched_pid" 2>/dev/null; then
   echo "安装包未成功启动" >&2
   exit 1
 fi
-kill "$launched_pid" 2>/dev/null || true
-wait "$launched_pid" 2>/dev/null || true
-active_qa_pid=""
+cleanup_active_qa_process
 
 printf 'idle-listening\tmanual\t打包应用连续空闲 5 分钟后用活动监视器记录\n' >> "$metrics_file"
 printf 'high-frequency-log\tautomated\t日志并发、截断与会话切换回归测试通过\n' >> "$metrics_file"
