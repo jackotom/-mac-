@@ -207,6 +207,49 @@ describe("CardDetailBody related cards", () => {
       .toEqual(cards.map((node) => node.card.name));
   });
 
+  it("keeps separate use outcome sections scoped instead of mixing same-card results", () => {
+    render(
+      <CardDetailBody
+        details={{
+          ...baseDetails,
+          cardOutcomeSections: [
+            {
+              key: "use-1",
+              title: "第1次实际施放",
+              emptyText: "本次尚未确认施放结果",
+              cards: [
+                {
+                  key: "use-1-fireball-1",
+                  card: { dbfId: 315, cardId: "CS2_029", name: "火球术", manaCost: 4, cardType: "法术" }
+                },
+                {
+                  key: "use-1-fireball-2",
+                  card: { dbfId: 315, cardId: "CS2_029", name: "火球术", manaCost: 4, cardType: "法术" }
+                }
+              ]
+            },
+            {
+              key: "use-2",
+              title: "第2次实际施放",
+              emptyText: "本次尚未确认施放结果",
+              cards: [{
+                key: "use-2-pyroblast",
+                card: { dbfId: 621, cardId: "EX1_279", name: "炎爆术", manaCost: 10, cardType: "法术" }
+              }]
+            }
+          ]
+        }}
+      />
+    );
+
+    const firstUse = screen.getByRole("region", { name: "第1次实际施放，共 2 张" });
+    const secondUse = screen.getByRole("region", { name: "第2次实际施放，共 1 张" });
+    expect(within(firstUse).getAllByText("火球术")).toHaveLength(2);
+    expect(within(firstUse).queryByText("炎爆术")).not.toBeInTheDocument();
+    expect(within(secondUse).getByText("炎爆术")).toBeVisible();
+    expect(within(secondUse).queryByText("火球术")).not.toBeInTheDocument();
+  });
+
   it("shows nested Yogg outcomes as a readable trigger hierarchy instead of one flat list", () => {
     const { container } = render(
       <CardDetailBody

@@ -399,10 +399,16 @@ D 08:20:53.5400000 GameState.DebugPrintPower() -     BLOCK_END
 D 08:20:53.5500000 GameState.DebugPrintPower() - BLOCK_END
 `);
 
-    const section = (engine.getState().friendlyHand ?? [])
-      .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections?.[0];
-    expect(section?.cards).toHaveLength(5);
+    const used = engine.getState().cardTracking!.friendly.used;
+    expect(used.totalCount).toBe(1);
+    const section = used.items[0]?.outcomeSections?.[0];
+    expect(section?.cards.map((node) => node.card.cardId)).toEqual([
+      "SPELL_1",
+      "SPELL_2",
+      "SPELL_3",
+      "SPELL_4",
+      "SPELL_5"
+    ]);
     expect(section?.cards?.[1]).toMatchObject({
       card: expect.objectContaining({ cardId: "SPELL_2", name: "第2张法术" })
     });
@@ -440,7 +446,7 @@ D 08:20:53.5500000 GameState.DebugPrintPower() - BLOCK_END
       ["08:20:04.0000000", "    BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=2]"],
       ...Array.from({ length: 4 }, (_, index) => [
         "08:20:04.0000000",
-        `        FULL_ENTITY - Creating ID=${81 + index} CardID=RANDOM_SPELL_${index + 6}`
+        `        FULL_ENTITY - Creating ID=${81 + index} CardID=RANDOM_SPELL_${index === 0 ? 1 : index + 6}`
       ]),
       ["08:20:04.0000000", "        FULL_ENTITY - Creating ID=90 CardID=TOY_372"],
       ["08:20:05.0000000", "        BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=90 zone=PLAY cardId=TOY_372 player=2]"],
@@ -464,19 +470,26 @@ D 08:20:53.5500000 GameState.DebugPrintPower() - BLOCK_END
       "D 08:21:03.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=160 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=PLAY"
     ].join("\n"));
 
-    const outcomeSection = (engine.getState().friendlyHand ?? [])
-      .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections?.[0];
+    const friendlyUsed = engine.getState().cardTracking!.friendly.used;
+    const opponentUsed = engine.getState().cardTracking!.opponent.used;
+    expect(friendlyUsed.totalCount).toBe(1);
+    expect(opponentUsed.totalCount).toBe(1);
+    const outcomeSection = friendlyUsed.items[0]?.outcomeSections?.[0];
     expect(outcomeSection?.cards).toHaveLength(10);
+    expect(outcomeSection?.cards.filter((node) => node.card.cardId === "RANDOM_SPELL_1")).toHaveLength(2);
     expect(outcomeSection?.cards?.[9]).toMatchObject({
       card: expect.objectContaining({ cardId: "TOY_372" }),
       children: [
         expect.objectContaining({ card: expect.objectContaining({ cardId: "RANDOM_SPELL_10" }) })
       ]
     });
+    expect(friendlyUsed.items[0]?.outcomeSections).toHaveLength(1);
+    expect(opponentUsed.items[0]?.outcomeSections?.[0]?.cards).toEqual([
+      expect.objectContaining({ card: expect.objectContaining({ cardId: "RANDOM_SPELL_11" }) })
+    ]);
     expect((engine.getState().friendlyHand ?? [])
       .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections).toHaveLength(1);
+      ?.details?.cardOutcomeSections?.[0]?.cards).toHaveLength(10);
     expect((engine.getState().opponentPlayed ?? [])
       .find((card) => card.cardId === "TOY_372")
       ?.details?.cardOutcomeSections?.[0]?.cards).toEqual([
@@ -487,9 +500,125 @@ D 08:20:53.5500000 GameState.DebugPrintPower() - BLOCK_END
 D 08:26:11.3028700 GameState.DebugPrintPower() - CREATE_GAME
 D 08:26:12.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=260 zone=DECK cardId=TOY_372 player=2] tag=ZONE value=HAND
 `);
+    expect(engine.getState().cardTracking!.friendly.used.totalCount).toBe(0);
+    expect(engine.getState().cardTracking!.opponent.used.totalCount).toBe(0);
+  });
+
+  it("merges multiple completed captures into one usage section in completion order", () => {
+    const engine = createOutcomeBindingEngine();
+    const firstCapture = renderRandomSpellCapture({
+      source: "GameState",
+      time: "09:00:01",
+      sourceEntityId: 60,
+      resultEntityStart: 71,
+      resultCardIds: ["SPELL_1", "SPELL_2", "SPELL_3", "SPELL_4", "SPELL_5"],
+      controller: 1
+    });
+    const firstDuplicate = firstCapture.map((line) => line.replace("GameState", "PowerTaskList"));
+    const secondCapture = renderRandomSpellCapture({
+      source: "GameState",
+      time: "09:00:02",
+      sourceEntityId: 60,
+      resultEntityStart: 81,
+      resultCardIds: ["SPELL_1", "SPELL_2", "SPELL_3", "SPELL_4", "SPELL_5"],
+      controller: 1
+    });
+    const secondDuplicate = secondCapture.map((line) => line.replace("GameState", "PowerTaskList"));
+
+    engine.applyText([
+      "D 09:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      ...firstCapture,
+      ...firstDuplicate,
+      ...secondCapture,
+      ...secondDuplicate
+    ].join("\n"));
+
+    const used = engine.getState().cardTracking!.friendly.used;
+    expect(used.totalCount).toBe(1);
+    expect(used.items[0]?.outcomeSections).toHaveLength(1);
+    expect(used.items[0]?.outcomeSections?.[0]?.cards.map((node) => node.card.cardId)).toEqual([
+      "SPELL_1",
+      "SPELL_2",
+      "SPELL_3",
+      "SPELL_4",
+      "SPELL_5",
+      "SPELL_1",
+      "SPELL_2",
+      "SPELL_3",
+      "SPELL_4",
+      "SPELL_5"
+    ]);
+  });
+
+  it("keeps returned and same-name Yogg uses bound to their own usageIds", () => {
+    const engine = createOutcomeBindingEngine();
+    engine.applyText([
+      "D 10:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 10:00:00.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND",
+      ...renderRandomSpellCapture({
+        source: "GameState",
+        time: "10:00:01",
+        sourceEntityId: 60,
+        resultEntityStart: 101,
+        resultCardIds: ["SPELL_1"],
+        controller: 1
+      }),
+      "D 10:00:01.950 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=HAND cardId=TOY_372 player=1] tag=ZONE value=PLAY",
+      "D 10:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=60 zone=PLAY cardId=TOY_372 player=1] tag=ZONE value=HAND",
+      ...renderRandomSpellCapture({
+        source: "GameState",
+        time: "10:00:03",
+        sourceEntityId: 60,
+        resultEntityStart: 102,
+        resultCardIds: ["SPELL_2"],
+        controller: 1
+      }),
+      "D 10:00:04.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=匣中古神 id=160 zone=DECK cardId=TOY_372 player=1] tag=ZONE value=HAND",
+      ...renderRandomSpellCapture({
+        source: "GameState",
+        time: "10:00:05",
+        sourceEntityId: 160,
+        resultEntityStart: 103,
+        resultCardIds: ["SPELL_3"],
+        controller: 1
+      })
+    ].join("\n"));
+
+    const used = engine.getState().cardTracking!.friendly.used;
+    expect(used.totalCount).toBe(3);
+    expect(new Set(used.items.map((item) => item.id)).size).toBe(3);
+    expect(used.items.map((item) => ({
+      entityId: item.entityId,
+      cards: item.outcomeSections?.[0]?.cards.map((node) => node.card.cardId)
+    }))).toEqual([
+      { entityId: "160", cards: ["SPELL_3"] },
+      { entityId: "60", cards: ["SPELL_2"] },
+      { entityId: "60", cards: ["SPELL_1"] }
+    ]);
     expect((engine.getState().friendlyHand ?? [])
       .find((card) => card.cardId === "TOY_372")
-      ?.details?.cardOutcomeSections).toBeUndefined();
+      ?.details?.cardOutcomeSections?.map((section) => section.cards[0]?.card.cardId))
+      .toEqual(["SPELL_1", "SPELL_2", "SPELL_3"]);
+  });
+
+  it("does not attach an empty random-spell outcome section to an ordinary spell use", () => {
+    const engine = createOutcomeBindingEngine();
+    engine.applyText(`
+D 11:30:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 11:30:00.100 GameState.DebugPrintPower() - BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=300 zone=PLAY cardId=TOY_372 player=1]
+D 11:30:00.200 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=301 CardID=SPELL_1
+D 11:30:00.300 GameState.DebugPrintPower() - BLOCK_END
+D 11:30:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通法术 id=200 zone=HAND cardId=NORMAL_SPELL player=1]
+D 11:30:01.100 GameState.DebugPrintPower() - BLOCK_END
+`);
+
+    const used = engine.getState().cardTracking!.friendly.used;
+    expect(used.totalCount).toBe(1);
+    expect(used.items[0]).toMatchObject({
+      entityId: "200",
+      card: expect.objectContaining({ cardId: "NORMAL_SPELL", name: "普通法术" })
+    });
+    expect(used.items[0]?.outcomeSections).toBeUndefined();
   });
 
   it("同一法术实体回手后再次施放会重复记录且新局清空历史", () => {
@@ -1947,6 +2076,57 @@ function createLifecycleEngine(deckText?: string) {
   const engine = new TrackerEngine({ cardDatabase, deckText });
   engine.setFriendlyController(1);
   return engine;
+}
+
+function createOutcomeBindingEngine() {
+  const cardDatabase = createCardDatabase([
+    {
+      id: 103270,
+      cardId: "TOY_372",
+      name: "匣中古神",
+      collectible: 1,
+      type: "SPELL",
+      text: "随机施放5个法术。"
+    },
+    ...Array.from({ length: 6 }, (_, index) => ({
+      id: 9200 + index,
+      cardId: `SPELL_${index + 1}`,
+      name: `第${index + 1}张法术`,
+      collectible: 1,
+      type: "SPELL"
+    })),
+    {
+      id: 9300,
+      cardId: "NORMAL_SPELL",
+      name: "普通法术",
+      collectible: 1,
+      type: "SPELL"
+    }
+  ]);
+  const engine = new TrackerEngine({ cardDatabase });
+  engine.setFriendlyController(1);
+  return engine;
+}
+
+function renderRandomSpellCapture(input: {
+  readonly source: "GameState" | "PowerTaskList";
+  readonly time: string;
+  readonly sourceEntityId: number;
+  readonly resultEntityStart: number;
+  readonly resultCardIds: readonly string[];
+  readonly controller: number;
+}) {
+  const prefix = (suffix: string) =>
+    `D ${input.time}.${suffix} ${input.source}.DebugPrintPower() -`;
+  return [
+    `${prefix("000")} BLOCK_START BlockType=PLAY Entity=[entityName=匣中古神 id=${input.sourceEntityId} zone=HAND cardId=TOY_372 player=${input.controller}]`,
+    `${prefix("100")}     BLOCK_START BlockType=POWER Entity=[entityName=匣中古神 id=${input.sourceEntityId} zone=PLAY cardId=TOY_372 player=${input.controller}]`,
+    ...input.resultCardIds.map((cardId, index) =>
+      `${prefix(`2${String(index).padStart(2, "0")}`)}         FULL_ENTITY - Creating ID=${input.resultEntityStart + index} CardID=${cardId}`
+    ),
+    `${prefix("800")}     BLOCK_END`,
+    `${prefix("900")} BLOCK_END`
+  ];
 }
 
 function seedResetSensitiveLifecycle(engine: TrackerEngine) {

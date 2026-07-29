@@ -116,9 +116,9 @@ describe("CardDetailBody card pools", () => {
     const outcomeCards = Array.from({ length: 145 }, (_, index) => ({
       key: `outcome-${index}`,
       card: {
-        dbfId: 30_000 + index,
-        cardId: `OUTCOME_${index}`,
-        name: `实际法术 ${index + 1}`,
+        dbfId: 30_000 + (index % 73),
+        cardId: `OUTCOME_${index % 73}`,
+        name: `实际法术 ${(index % 73) + 1}`,
         cardType: "法术"
       }
     }));
@@ -143,6 +143,7 @@ describe("CardDetailBody card pools", () => {
     const outcome = screen.getByRole("region", { name: "本次实际施放，共 145 张" });
     expect(within(related).getAllByRole("listitem")).toHaveLength(145);
     expect(within(outcome).getAllByRole("listitem")).toHaveLength(145);
+    expect(within(outcome).getAllByText("实际法术 1")).toHaveLength(2);
     expect(within(related).queryByRole("button", { name: /继续显示/ })).not.toBeInTheDocument();
     expect(within(outcome).queryByRole("button", { name: /继续显示/ })).not.toBeInTheDocument();
   });

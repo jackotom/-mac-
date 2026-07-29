@@ -68,14 +68,20 @@ interface RecordedCardOutcome {
   readonly keepWhenEmpty: boolean;
 }
 
+interface CompletedCardOutcome extends RecordedCardOutcome {
+  readonly completionSequence: number;
+}
+
 interface CardOutcomeBlockFrame {
   readonly key: string;
   readonly blockType?: string;
   readonly entityId?: string;
+  readonly parent?: CardOutcomeBlockFrame;
   readonly parentCards?: RecordedCardOutcomeNode[];
   readonly parentSourceEntityId?: string;
   readonly parentAcceptsFullEntityOutcomes?: boolean;
   side?: CardOutcomeSide;
+  usageId?: string;
   sourceEntityId?: string;
   cards?: RecordedCardOutcomeNode[];
   acceptsFullEntityOutcomes?: boolean;
@@ -178,12 +184,12 @@ export class TrackerEngine {
   private burns: RecordedBurn[] = [];
   private activeUsageIdByEntity = new Map<string, string>();
   private recordedBurnFingerprints = new Set<string>();
+  private cardOutcomeCompletionSequence = 0;
   private friendlyDeadMinionsThisGame: CardInfo[] = [];
   private opponentDeadMinionsThisGame: CardInfo[] = [];
   private recordedDeathEntityIds = new Set<string>();
   private cardOutcomeBlockStack: CardOutcomeBlockFrame[] = [];
-  private friendlyCardOutcomes = new Map<string, RecordedCardOutcome[]>();
-  private opponentCardOutcomes = new Map<string, RecordedCardOutcome[]>();
+  private outcomesByUsageId = new Map<string, CompletedCardOutcome[]>();
   private completedCardOutcomeKeys = new Set<string>();
   private lastBlockBoundaryFingerprint: string | undefined;
   private pendingKnownEntityReturn: EntitySnapshot | undefined;
@@ -695,12 +701,13 @@ export class TrackerEngine {
           ? "friendly-spell"
           : isFriendlyPlay && info?.cardType === "随从" ? "friendly-minion" : "other";
         if (this.gameActive && event.entity?.id && (isFriendlyPlay || isOpponentPlay)) {
-          this.recordCardUse(
+          const use = this.recordCardUse(
             event.entity.id,
             isFriendlyPlay ? "friendly" : "opponent",
             cardId,
             event.entity.name ?? existing?.name
           );
+          this.bindPendingCardOutcomeFrame(use);
         }
         this.secretTracker.beginAction(action);
       } else this.secretTracker.endAction();
@@ -1458,7 +1465,7 @@ export class TrackerEngine {
       name,
       count: 1,
       ...(cardId ? { cardId } : {}),
-      ...(cardInfo && this.cardDatabase ? { details: this.buildFriendlyCardDetails(cardInfo) } : {})
+      ...(cardInfo && this.cardDatabase ? { details: this.buildCardDetails(cardInfo, "friendly") } : {})
     };
   }
 
@@ -1589,11 +1596,13 @@ export class TrackerEngine {
     const records = this.cardUses.filter((use) => use.side === side);
     const items = records.slice(-30).reverse().map((use) => {
       const card = this.toPublicHistoryCard(use.entityId, use.cardId, use.name);
+      const outcomeSections = this.buildCardOutcomeSectionsForUsage(use.usageId);
       return {
         id: use.usageId,
         sequence: use.sequence,
         entityId: use.entityId,
         ...(card ? { card } : {}),
+        ...(outcomeSections.length > 0 ? { outcomeSections } : {}),
         confidence: "confirmed" as const
       };
     });
@@ -1711,7 +1720,7 @@ export class TrackerEngine {
       name,
       count: 1,
       ...(cardId ? { cardId } : {}),
-      ...(cardInfo && this.cardDatabase ? { details: this.buildOpponentCardDetails(cardInfo) } : {})
+      ...(cardInfo && this.cardDatabase ? { details: this.buildCardDetails(cardInfo, "opponent") } : {})
     };
   }
 
@@ -1873,9 +1882,9 @@ export class TrackerEngine {
     }
 
     const details = context === "friendly" || context === true
-      ? this.buildFriendlyCardDetails(card)
+      ? this.buildCardDetails(card, "friendly")
       : context === "opponent"
-        ? this.buildOpponentCardDetails(card)
+        ? this.buildCardDetails(card, "opponent")
         : toCardDetails(this.cardDatabase, card);
     return { ...row, details };
   }
@@ -1907,6 +1916,22 @@ export class TrackerEngine {
     this.cardUses.push(use);
     this.activeUsageIdByEntity.set(entityId, use.usageId);
     return use;
+  }
+
+  private bindPendingCardOutcomeFrame(use: RecordedCardUse) {
+    const frame = [...this.cardOutcomeBlockStack]
+      .reverse()
+      .find((candidate) =>
+        !candidate.parent &&
+        !candidate.suppressed &&
+        !candidate.usageId &&
+        (candidate.side === undefined || candidate.side === use.side) &&
+        (candidate.sourceEntityId ?? candidate.entityId) === use.entityId
+      );
+    if (frame) {
+      frame.side ??= use.side;
+      frame.usageId = use.usageId;
+    }
   }
 
   private recordBurn(input: {
@@ -1959,47 +1984,44 @@ export class TrackerEngine {
     this.activeUsageIdByEntity.clear();
     this.recordedBurnFingerprints.clear();
     this.cardHistorySequence = 0;
+    this.cardOutcomeCompletionSequence = 0;
     this.friendlyDeadMinionsThisGame = [];
     this.opponentDeadMinionsThisGame = [];
     this.recordedDeathEntityIds.clear();
     this.pendingUnknownDeckExitZones.clear();
     this.cardOutcomeBlockStack = [];
-    this.friendlyCardOutcomes.clear();
-    this.opponentCardOutcomes.clear();
+    this.outcomesByUsageId.clear();
     this.completedCardOutcomeKeys.clear();
     this.lastBlockBoundaryFingerprint = undefined;
   }
 
-  private buildFriendlyCardDetails(card: CardInfo): CardDetails {
+  private buildCardDetails(card: CardInfo, side: CardOutcomeSide): CardDetails {
     const details = toCardDetails(this.cardDatabase!, card);
+    const cardOutcomeSections = this.buildCardOutcomeSectionsForCard(card, side);
+    if (side === "opponent") {
+      return {
+        ...details,
+        ...(cardOutcomeSections.length > 0 ? { cardOutcomeSections } : {})
+      };
+    }
+
     const cardId = normalizeCardId(card.cardId ?? card.id ?? "");
     const friendlyUsed = this.resolveKnownCardsFromUses("friendly");
     const opponentUsed = this.resolveKnownCardsFromUses("opponent");
-    const history = {
+    const gameContextSections = resolveMatchCardRelations(card, {
       friendlyUsed,
       opponentUsed,
       friendlyDeadMinions: this.friendlyDeadMinionsThisGame,
       opponentDeadMinions: this.opponentDeadMinionsThisGame
-    };
-    const gameContextSections = resolveMatchCardRelations(card, history);
+    });
     const playedSpellsThisGame = cardId === GALACTIC_PROJECTION_ORB_CARD_ID
       ? friendlyUsed.filter((usedCard) => usedCard.cardType === "法术")
       : undefined;
-    const cardOutcomeSections = this.buildCardOutcomeSections(card, this.friendlyCardOutcomes);
     return {
       ...details,
       ...(gameContextSections.length > 0 ? { gameContextSections } : {}),
       ...(cardOutcomeSections.length > 0 ? { cardOutcomeSections } : {}),
       ...(playedSpellsThisGame ? { playedSpellsThisGame } : {})
-    };
-  }
-
-  private buildOpponentCardDetails(card: CardInfo): CardDetails {
-    const details = toCardDetails(this.cardDatabase!, card);
-    const cardOutcomeSections = this.buildCardOutcomeSections(card, this.opponentCardOutcomes);
-    return {
-      ...details,
-      ...(cardOutcomeSections.length > 0 ? { cardOutcomeSections } : {})
     };
   }
 
@@ -2024,7 +2046,7 @@ export class TrackerEngine {
     if (event.phase === "end") {
       const frame = this.cardOutcomeBlockStack.pop();
       if (frame?.capture && !frame.suppressed) {
-        this.completeCardOutcome(frame.capture, frame.side);
+        this.completeCardOutcome(frame.capture, frame.usageId);
       }
       return;
     }
@@ -2035,10 +2057,12 @@ export class TrackerEngine {
       key: rootKey,
       blockType: event.blockType,
       entityId: event.entity?.id,
+      parent,
       parentCards: parent?.cards,
       parentSourceEntityId: parent?.sourceEntityId,
       parentAcceptsFullEntityOutcomes: parent?.acceptsFullEntityOutcomes,
       side: this.cardOutcomeSide(event.entity?.controller) ?? parent?.side,
+      usageId: parent?.usageId,
       suppressed: parent?.suppressed || (!parent && this.completedCardOutcomeKeys.has(rootKey))
     };
     this.cardOutcomeBlockStack.push(frame);
@@ -2131,33 +2155,56 @@ export class TrackerEngine {
     });
   }
 
-  private completeCardOutcome(outcome: RecordedCardOutcome, side: CardOutcomeSide | undefined) {
-    if (!side || (!outcome.keepWhenEmpty && outcome.cards.length === 0) || this.completedCardOutcomeKeys.has(outcome.key)) {
+  private completeCardOutcome(outcome: RecordedCardOutcome, usageId: string | undefined) {
+    if (!usageId || (!outcome.keepWhenEmpty && outcome.cards.length === 0) || this.completedCardOutcomeKeys.has(outcome.key)) {
       return;
     }
     this.completedCardOutcomeKeys.add(outcome.key);
-    const target = side === "friendly" ? this.friendlyCardOutcomes : this.opponentCardOutcomes;
-    const cardId = normalizeCardId(outcome.source.cardId ?? outcome.source.id ?? "");
-    if (!cardId) {
-      return;
-    }
-    const records = target.get(cardId) ?? [];
-    records.push(outcome);
-    target.set(cardId, records);
+    this.cardOutcomeCompletionSequence += 1;
+    const records = this.outcomesByUsageId.get(usageId) ?? [];
+    records.push({
+      ...outcome,
+      completionSequence: this.cardOutcomeCompletionSequence
+    });
+    this.outcomesByUsageId.set(usageId, records);
   }
 
-  private buildCardOutcomeSections(
+  private buildCardOutcomeSectionsForUsage(usageId: string): readonly CardOutcomeSection[] {
+    const use = this.cardUses.find((candidate) => candidate.usageId === usageId);
+    if (!use) {
+      return [];
+    }
+    const outcomes = [...(this.outcomesByUsageId.get(usageId) ?? [])]
+      .sort((left, right) => left.completionSequence - right.completionSequence);
+    if (outcomes.length === 0) {
+      return [];
+    }
+    return [{
+      key: `${usageId}:outcome`,
+      title: "本次实际施放",
+      emptyText: "日志中没有识别到实际施放的法术",
+      cards: outcomes.flatMap((outcome) => outcome.cards.map(toPublicCardOutcomeNode))
+    }];
+  }
+
+  private buildCardOutcomeSectionsForCard(
     card: CardInfo,
-    outcomesByCardId: ReadonlyMap<string, readonly RecordedCardOutcome[]>
+    side: CardOutcomeSide
   ): readonly CardOutcomeSection[] {
     const cardId = normalizeCardId(card.cardId ?? card.id ?? "");
-    const outcomes = outcomesByCardId.get(cardId) ?? [];
-    return outcomes.map((outcome, index) => ({
-      key: outcome.key,
-      title: outcomes.length === 1 ? "本次实际施放" : `第${index + 1}次实际施放`,
-      emptyText: "日志中没有识别到实际施放的法术",
-      cards: outcome.cards.map(toPublicCardOutcomeNode)
+    const sections = this.cardUses
+      .filter((use) => use.side === side && this.resolveCardUseId(use) === cardId)
+      .flatMap((use) => this.buildCardOutcomeSectionsForUsage(use.usageId));
+    return sections.map((section, index) => ({
+      ...section,
+      title: sections.length === 1 ? "本次实际施放" : `第${index + 1}次实际施放`
     }));
+  }
+
+  private resolveCardUseId(use: RecordedCardUse) {
+    const entity = this.entities.get(use.entityId);
+    const info = this.findCardInfo(use.cardId ?? entity?.cardId, use.name ?? entity?.name);
+    return normalizeCardId(use.cardId ?? entity?.cardId ?? info?.cardId ?? info?.id ?? "");
   }
 
   private cardOutcomeSide(controller: number | undefined): CardOutcomeSide | undefined {
