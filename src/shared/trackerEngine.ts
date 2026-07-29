@@ -1514,22 +1514,71 @@ export class TrackerEngine {
   }
 
   private buildCardTracking(opponentSecretSlots: readonly OpponentSecretSlot[]): PublicCardTracking {
+    const friendly: PublicCardTracking["friendly"] = {
+      current: this.buildPublicCurrentZones("friendly", opponentSecretSlots),
+      burned: this.buildPublicBurnHistory("friendly"),
+      used: this.buildPublicUseHistory("friendly")
+    };
+    const opponent: PublicCardTracking["opponent"] = {
+      current: this.buildPublicCurrentZones("opponent", opponentSecretSlots),
+      burned: this.buildPublicBurnHistory("opponent"),
+      used: this.buildPublicUseHistory("opponent")
+    };
     return {
       schemaVersion: 1,
       gameKey: this.gameKey,
-      friendly: {
-        current: this.buildPublicCurrentZones("friendly", opponentSecretSlots),
-        burned: this.buildPublicBurnHistory("friendly"),
-        used: this.buildPublicUseHistory("friendly")
-      },
-      opponent: {
-        current: this.buildPublicCurrentZones("opponent", opponentSecretSlots),
-        burned: this.buildPublicBurnHistory("opponent"),
-        used: this.buildPublicUseHistory("opponent")
-      },
+      friendly,
+      opponent,
       opponentSecretSlots,
-      detailsByCardKey: {}
+      detailsByCardKey: this.buildPublicCardDetailsIndex(friendly, opponent)
     };
+  }
+
+  private buildPublicCardDetailsIndex(
+    friendly: PublicCardTracking["friendly"],
+    opponent: PublicCardTracking["opponent"]
+  ): Readonly<Record<string, CardDetails>> {
+    if (!this.cardDatabase) {
+      return {};
+    }
+
+    const detailsByCardKey: Record<string, CardDetails> = {};
+    const addCard = (
+      card: Omit<PublicKnownCard, "count">,
+      side: CardOutcomeSide
+    ) => {
+      if (detailsByCardKey[card.cardKey]) {
+        return;
+      }
+      const cardInfo = this.findCardInfo(card.cardId, card.name);
+      if (!cardInfo) {
+        return;
+      }
+      const { cardOutcomeSections: _cardOutcomeSections, ...baseDetails } =
+        this.buildCardDetails(cardInfo, side);
+      detailsByCardKey[card.cardKey] = baseDetails;
+    };
+    const addPlayerCards = (
+      player: PublicCardTracking["friendly"],
+      side: CardOutcomeSide
+    ) => {
+      for (const group of Object.values(player.current)) {
+        for (const card of group.cards) {
+          addCard(card, side);
+        }
+      }
+      for (const history of [player.used, player.burned]) {
+        for (const item of history.items) {
+          if (item.card) {
+            addCard(item.card, side);
+          }
+        }
+      }
+    };
+
+    addPlayerCards(friendly, "friendly");
+    addPlayerCards(opponent, "opponent");
+    return detailsByCardKey;
   }
 
   private buildPublicCurrentZones(
@@ -1647,15 +1696,19 @@ export class TrackerEngine {
     recordedName?: string
   ): Omit<PublicKnownCard, "count"> | undefined {
     const entity = this.entities.get(entityId);
-    const card = this.toPublicKnownCard(
-      recordedCardId ?? entity?.cardId,
-      recordedName ?? entity?.name
-    );
-    if (!card) {
+    const lookupCardId = recordedCardId ?? entity?.cardId;
+    const lookupName = recordedName ?? entity?.name;
+    const cardInfo = this.findCardInfo(lookupCardId, lookupName);
+    const cardId = recordedCardId ?? entity?.cardId ?? cardInfo?.cardId ?? cardInfo?.id;
+    const name = recordedName ?? entity?.name ?? cardInfo?.name;
+    if (!name) {
       return undefined;
     }
-    const { count: _count, ...historyCard } = card;
-    return historyCard;
+    return {
+      cardKey: createPublicCardKey(cardId, name),
+      ...(cardId ? { cardId } : {}),
+      name
+    };
   }
 
   private toPublicKnownCard(cardId?: string, rawName?: string): PublicKnownCard | undefined {

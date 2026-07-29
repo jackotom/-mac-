@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import sampleCardDb from "../fixtures/cards.sample.json";
@@ -2037,6 +2037,149 @@ D 14:01:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧�
       expect(tracking.friendly.current.hand.totalCount).toBe(9);
       expect(tracking.friendly.current.graveyard.totalCount).toBe(1);
       expect(tracking.friendly.burned.totalCount).toBe(0);
+    });
+
+    it("counts only physical public zones and never invents hidden opponent cards or histories", () => {
+      const engine = createLifecycleEngine("2x 友方使用牌");
+      engine.applyText([
+        "D 16:40:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 16:40:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=友方使用牌 id=501 zone=DECK cardId=FRIEND_USE player=1] tag=ZONE value=HAND",
+        "D 16:40:02.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=烧毁测试牌 id=502 zone=GRAVEYARD cardId=BURNED_CARD player=1] CardID=BURNED_CARD",
+        "D 16:40:03.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=友方使用牌 id=503 zone=SETASIDE cardId=FRIEND_USE player=1] CardID=FRIEND_USE",
+        "D 16:40:04.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=友方使用牌 id=504 zone=UNKNOWN cardId=FRIEND_USE player=1] CardID=FRIEND_USE",
+        "D 16:40:05.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=601 zone=DECK cardId= player=2] CardID=",
+        "D 16:40:06.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY id=602 zone=HAND cardId= player=2] CardID="
+      ].join("\n"));
+
+      const tracking = engine.getState().cardTracking!;
+      expect(tracking.friendly.current.deck).toMatchObject({
+        status: "known",
+        knownCount: 1,
+        totalCount: 1
+      });
+      expect(tracking.friendly.current.hand.cards).toEqual([
+        expect.objectContaining({ cardId: "FRIEND_USE", count: 1 })
+      ]);
+      expect(tracking.friendly.current.graveyard.totalCount).toBe(1);
+      expect(tracking.friendly.current.graveyard.cards).toEqual([
+        expect.objectContaining({ cardId: "BURNED_CARD", count: 1 })
+      ]);
+      expect(tracking.opponent.current.deck).toMatchObject({
+        status: "partial",
+        knownCount: 0,
+        totalCount: 1,
+        cards: []
+      });
+      expect(tracking.opponent.current.hand).toMatchObject({
+        status: "partial",
+        knownCount: 0,
+        totalCount: 1,
+        cards: []
+      });
+      expect(Object.values(tracking.friendly.current)
+        .reduce((total, group) => total + (group.totalCount ?? 0), 0)).toBe(3);
+      expect(Object.values(tracking.friendly.current)
+        .flatMap((group) => group.cards)
+        .some((card) => card.cardId === "FRIEND_USE" && card.count > 1)).toBe(false);
+      expect(Object.keys(tracking.detailsByCardKey)).toEqual(
+        expect.arrayContaining(["id:friend_use", "id:burned_card"])
+      );
+      expect(tracking.friendly.used.totalCount).toBe(0);
+      expect(tracking.friendly.burned.totalCount).toBe(0);
+    });
+
+    it("publishes the newest 30 use and burn actions while preserving whole-game totals", () => {
+      const engine = createLifecycleEngine();
+      engine.applyText([
+        "D 16:50:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        ...createHandEntityLines(10, 1, 700),
+        ...Array.from({ length: 31 }, (_, index) => [
+          `D 16:51:${String(index + 1).padStart(2, "0")}.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=${1001 + index} zone=HAND cardId=FRIEND_USE player=1]`,
+          `D 16:51:${String(index + 1).padStart(2, "0")}.100 GameState.DebugPrintPower() - BLOCK_END`
+        ]).flat(),
+        ...Array.from({ length: 31 }, (_, index) =>
+          `D 16:52:${String(index + 1).padStart(2, "0")}.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=${2001 + index} zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD`
+        )
+      ].join("\n"));
+
+      const tracking = engine.getState().cardTracking!;
+      expect(tracking.friendly.used).toMatchObject({
+        totalCount: 31,
+        truncated: true
+      });
+      expect(tracking.friendly.used.items).toHaveLength(30);
+      expect(tracking.friendly.used.items.map((item) => item.entityId)).toEqual(
+        Array.from({ length: 30 }, (_, index) => String(1031 - index))
+      );
+      expect(tracking.friendly.burned).toMatchObject({
+        totalCount: 31,
+        truncated: true
+      });
+      expect(tracking.friendly.burned.items).toHaveLength(30);
+      expect(tracking.friendly.burned.items.map((item) => item.entityId)).toEqual(
+        Array.from({ length: 30 }, (_, index) => String(2031 - index))
+      );
+    });
+
+    it("fills only missing history identity fields and keeps the recorded name", () => {
+      const engine = createLifecycleEngine();
+      engine.applyText([
+        "D 16:55:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 16:55:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=记录时名称 id=801 zone=HAND cardId= player=1]",
+        "D 16:55:01.100 GameState.DebugPrintPower() - BLOCK_END",
+        "D 16:55:02.000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=晚揭示使用牌 id=801 zone=PLAY cardId= player=1] CardID=LATE_USE"
+      ].join("\n"));
+
+      expect(engine.getState().cardTracking!.friendly.used.items[0]?.card).toEqual({
+        cardKey: "id:late_use",
+        cardId: "LATE_USE",
+        name: "记录时名称"
+      });
+    });
+
+    it("reads secret slots once and keeps slot count separate from candidates", () => {
+      const secretDatabase = createCardDatabase(
+        Array.from({ length: 5 }, (_, index) => ({
+          id: 3000 + index,
+          cardId: `SECRET_${index + 1}`,
+          name: `测试奥秘${index + 1}`,
+          collectible: 1,
+          type: "SPELL",
+          mechanics: ["SECRET"]
+        }))
+      );
+      const emptyEngine = new TrackerEngine({ cardDatabase: secretDatabase });
+      emptyEngine.setFriendlyController(1);
+      expect(emptyEngine.getState().cardTracking!.opponent.current.secret).toMatchObject({
+        status: "known",
+        knownCount: 0,
+        totalCount: 0,
+        cards: []
+      });
+
+      const engine = new TrackerEngine({ cardDatabase: secretDatabase });
+      engine.setFriendlyController(1);
+      engine.applyText([
+        "D 16:56:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+        "D 16:56:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=901 zone=HAND cardId= player=2] tag=ZONE value=SECRET"
+      ].join("\n"));
+      const secretTracker = Reflect.get(engine, "secretTracker") as { getSlots: () => unknown };
+      const getSlots = vi.spyOn(secretTracker, "getSlots");
+
+      const tracking = engine.getState().cardTracking!;
+
+      expect(getSlots).toHaveBeenCalledTimes(1);
+      expect(tracking.opponentSecretSlots).toHaveLength(1);
+      expect(tracking.opponentSecretSlots[0]?.candidates).toHaveLength(5);
+      expect(tracking.opponentSecretSlots[0]?.candidates.filter(
+        (candidate) => candidate.cardId === "SECRET_1"
+      )).toHaveLength(1);
+      expect(tracking.opponent.current.secret).toMatchObject({
+        status: "partial",
+        knownCount: 0,
+        totalCount: 1,
+        cards: []
+      });
     });
 
     it("deduplicates duplicate CREATE_GAME records", () => {
