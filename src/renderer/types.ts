@@ -103,11 +103,11 @@ export interface GameEvent {
 
 export interface OpponentOverview {
   heroClass: string;
-  currentTurn: number;
-  handSize: number;
-  deckRemaining: number;
-  secretsInPlay: number;
-  fatigueDamage: number;
+  currentTurn: number | "?";
+  handSize: number | "?";
+  deckRemaining: number | "?";
+  secretsInPlay: number | "?";
+  fatigueDamage: number | "?";
   lastAction: string;
 }
 
@@ -115,7 +115,7 @@ export interface OpponentPlayedCard {
   id: string;
   name: string;
   cost?: number;
-  turn: number;
+  turn: number | "?";
   count: number;
   details?: CardDetails;
 }

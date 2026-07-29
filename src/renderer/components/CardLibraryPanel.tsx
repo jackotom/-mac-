@@ -147,7 +147,7 @@ export function CardLibraryPanel({
                   <span>卡牌详情</span>
                   <strong>{selectedCard.name}</strong>
                 </div>
-                <CardDetailBody details={selectedCard} className="card-library-detail-body" />
+                <CardDetailBody details={selectedCard} className="card-library-detail-body" mode="interactive" />
               </section>
             ) : null}
           </>

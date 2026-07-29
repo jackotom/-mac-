@@ -37,6 +37,11 @@
   pointer-events: none;
 }
 
+.card-hover-preview.is-pinned,
+.card-hover-preview[data-preview-pinned="true"] {
+  pointer-events: auto;
+}
+
 html:has(.card-preview-window-shell),
 body:has(.card-preview-window-shell),
 #root:has(.card-preview-window-shell) {
@@ -234,6 +239,13 @@ body:has(.card-preview-window-shell),
   font: inherit;
   font-size: 9.5px;
   line-height: 1.3;
+}
+
+.card-pool-section > summary {
+  color: #8298a4;
+  cursor: pointer;
+  font-size: 9.5px;
+  list-style-position: inside;
 }
 
 .card-pool-load-more:hover,

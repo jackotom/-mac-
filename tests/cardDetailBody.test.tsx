@@ -20,7 +20,7 @@ const baseDetails: CardDetails = {
 
 describe("CardDetailBody related cards", () => {
   it("shows an explicit empty state instead of silently omitting the related-card section", () => {
-    render(<CardDetailBody details={baseDetails} />);
+    render(<CardDetailBody details={baseDetails} mode="interactive" />);
 
     expect(screen.getByText("生成/关联法术（0）")).toBeInTheDocument();
     expect(screen.getByText("暂无生成或关联法术资料")).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe("CardDetailBody related cards", () => {
     }));
 
     const { container } = render(
-      <CardDetailBody details={{ ...baseDetails, relatedCards }} />
+      <CardDetailBody details={{ ...baseDetails, relatedCards }} mode="interactive" />
     );
 
     const section = container.querySelector(".card-detail-related");
@@ -51,6 +51,7 @@ describe("CardDetailBody related cards", () => {
 
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           relatedCards: [
@@ -69,6 +70,7 @@ describe("CardDetailBody related cards", () => {
   it("renders a visible placeholder for related cards without artwork", () => {
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           relatedCards: [
@@ -84,6 +86,7 @@ describe("CardDetailBody related cards", () => {
   it("keeps the theoretical pool separate from the five spells actually cast this game", () => {
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           cardPoolSections: [{
@@ -117,6 +120,7 @@ describe("CardDetailBody related cards", () => {
   it("shows a clear zero-result state for the actual spells without hiding the theoretical pool", () => {
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           cardPoolSections: [{
@@ -146,6 +150,7 @@ describe("CardDetailBody related cards", () => {
 
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           playedSpellsThisGame: doubledSpells
@@ -185,6 +190,7 @@ describe("CardDetailBody related cards", () => {
     }));
     const { container } = render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           cardOutcomeSections: [{
@@ -210,6 +216,7 @@ describe("CardDetailBody related cards", () => {
   it("keeps separate use outcome sections scoped instead of mixing same-card results", () => {
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           cardOutcomeSections: [
@@ -253,6 +260,7 @@ describe("CardDetailBody related cards", () => {
   it("shows nested Yogg outcomes as a readable trigger hierarchy instead of one flat list", () => {
     const { container } = render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           cardPoolSections: [{
@@ -303,6 +311,7 @@ describe("CardDetailBody related cards", () => {
   it("shows the outcome-specific empty state without hiding the theoretical pool", () => {
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...baseDetails,
           cardPoolSections: [{

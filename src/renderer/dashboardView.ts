@@ -2,8 +2,10 @@ import type {
   CardTrackerRow,
   MatchRecord,
   MatchHistoryResult,
+  PublicCardZoneGroup,
   PublicTrackerState
 } from "../shared/types";
+import type { CardDetails } from "../shared/cardDatabase";
 import type { LadderDeckRecommendationResult } from "../shared/ladderDeckRecommendation";
 
 export type DashboardDataState = "ready" | "empty" | "unavailable" | "error";
@@ -41,6 +43,8 @@ export interface DashboardOpponentCardView {
   readonly name: string;
   readonly cardId?: string;
   readonly count: number;
+  readonly turn: "?";
+  readonly details?: CardDetails;
 }
 
 export interface DashboardOpponentView {
@@ -50,6 +54,8 @@ export interface DashboardOpponentView {
   readonly deckCount?: number;
   readonly handCount?: number;
   readonly secretCount?: number;
+  readonly currentTurn: "?";
+  readonly fatigueDamage?: number;
   readonly playedCards: readonly DashboardOpponentCardView[];
 }
 
@@ -132,15 +138,6 @@ export function toDashboardViewModel(
   ladder?: LadderDeckRecommendationResult
 ): DashboardViewModel {
   const hasDeck = tracker.summary.totalCards > 0 || tracker.deck.length > 0;
-  const hasOpponentData = Boolean(
-    tracker.gameActive ||
-    tracker.summary.opponentPlayedCount > 0 ||
-    tracker.opponentPlayed.length > 0 ||
-    tracker.opponentDeckCount !== undefined ||
-    tracker.opponentHandCount !== undefined ||
-    tracker.opponentSecrets !== undefined
-  );
-
   return {
     tracker: {
       status: tracker.status,
@@ -176,17 +173,7 @@ export function toDashboardViewModel(
       drawnCards: tracker.summary.drawnCards,
       cards: tracker.deck.filter((card) => !card.unresolved).map(toDeckCard)
     },
-    opponent: {
-      state: hasOpponentData ? "ready" : "empty",
-      message: hasOpponentData ? undefined : "尚无对手的已确认数据。",
-      playedCount: tracker.summary.opponentPlayedCount,
-      deckCount: tracker.opponentDeckCount,
-      handCount: tracker.opponentHandCount,
-      secretCount: tracker.opponentSecrets?.length,
-      playedCards: tracker.opponentPlayed
-        .filter((card) => card.played > 0)
-        .map(toOpponentCard)
-    },
+    opponent: toDashboardOpponentView(tracker),
     events: tracker.events.length > 0
       ? { state: "ready", message: undefined, items: tracker.events.map((event) => ({
           id: event.id,
@@ -255,13 +242,52 @@ function toDeckCard(card: CardTrackerRow, index: number): DashboardDeckCardView 
   };
 }
 
-function toOpponentCard(card: CardTrackerRow, index: number): DashboardOpponentCardView {
+export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardOpponentView {
+  const tracking = tracker.cardTracking;
+  const opponent = tracking?.opponent;
+  const detailsByCardKey = tracking?.detailsByCardKey;
+  const playedCards = opponent?.used.items.map((item) => {
+    const card = item.card;
+    return {
+      id: item.id,
+      name: card?.name ?? "未知卡牌",
+      cardId: card?.cardId,
+      count: 1,
+      turn: "?" as const,
+      details: card ? detailsByCardKey?.[card.cardKey] : undefined
+    };
+  }) ?? [];
+  const deckCount = toZoneCount(opponent?.current.deck);
+  const handCount = toZoneCount(opponent?.current.hand);
+  const secretCount = toZoneCount(opponent?.current.secret);
+  const hasOpponentData = Boolean(
+    tracking && (
+      tracker.gameActive ||
+      opponent?.used.totalCount ||
+      deckCount !== undefined ||
+      handCount !== undefined ||
+      secretCount !== undefined
+    )
+  );
+
   return {
-    id: card.cardId ?? `${card.name}-${index}`,
-    name: card.name,
-    cardId: card.cardId,
-    count: card.played
+    state: hasOpponentData ? "ready" : "empty",
+    message: hasOpponentData ? undefined : "尚无对手的已确认数据。",
+    playedCount: opponent?.used.totalCount ?? 0,
+    deckCount,
+    handCount,
+    secretCount,
+    currentTurn: "?",
+    fatigueDamage: tracker.matchCounters?.opponent.nextFatigueDamage,
+    playedCards
   };
+}
+
+function toZoneCount(group: PublicCardZoneGroup | undefined): number | undefined {
+  if (!group || group.status === "unknown") {
+    return undefined;
+  }
+  return group.totalCount ?? group.knownCount;
 }
 
 function toHistoryView(history: MatchHistoryResult | undefined): DashboardHistoryView {

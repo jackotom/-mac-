@@ -103,13 +103,17 @@ describe("opponent overlay collapsed-state sync", () => {
     );
 
     render(<App />);
-    expect(await screen.findByLabelText("对手奥秘")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "奥秘 1 候选" })).toBeInTheDocument();
 
     act(() => notifySecretPredictionChange?.(false));
-    expect(screen.queryByLabelText("对手奥秘")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "奥秘 1 候选" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "奥秘 当前 2" })).toBeInTheDocument();
+    expect(screen.getAllByText("候选未显示")).toHaveLength(2);
+    expect(screen.queryByText("法术反制")).not.toBeInTheDocument();
     expect(screen.getByLabelText("对手记牌器置顶小窗")).toBeInTheDocument();
 
     act(() => notifySecretPredictionChange?.(true));
-    expect(screen.getByLabelText("对手奥秘")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "奥秘 1 候选" })).toBeInTheDocument();
+    expect(screen.getByText("法术反制")).toBeInTheDocument();
   });
 });

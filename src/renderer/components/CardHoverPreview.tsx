@@ -18,6 +18,7 @@ const hoverRetentionSlop = 4;
 const externalHideDelayMs = 120;
 let nextExternalPreviewOwnerId = 1;
 let activeExternalPreviewOwnerId: number | undefined;
+let activeInlinePreview: { readonly ownerId: number; readonly clear: () => void } | undefined;
 
 export function CardHoverPreview({ details, children, className, isRelated = false, onActiveChange }: CardHoverPreviewProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -26,6 +27,7 @@ export function CardHoverPreview({ details, children, className, isRelated = fal
   const externalPreviewOwnerIdRef = useRef<number>();
   const lastPointerRef = useRef<{ x: number; y: number }>();
   const latestDetailsRef = useRef(details);
+  const positionRef = useRef<{ top: number; left: number }>();
   const [position, setPosition] = useState<{ top: number; left: number }>();
   const [isPinned, setIsPinned] = useState(false);
   const isPinnedRef = useRef(false);
@@ -93,6 +95,39 @@ export function CardHoverPreview({ details, children, className, isRelated = fal
   }, []);
 
   useEffect(() => {
+    if (usesExternalCardPreview()) {
+      return undefined;
+    }
+
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+      if (activeInlinePreview?.ownerId !== externalPreviewOwnerIdRef.current || !positionRef.current) {
+        return;
+      }
+
+      if (event.altKey && event.key.toLowerCase() === "q") {
+        event.preventDefault();
+        setInlinePinned(!isPinnedRef.current);
+        return;
+      }
+
+      if (event.key === "Escape" && isPinnedRef.current) {
+        event.preventDefault();
+        setInlinePinned(false);
+        positionRef.current = undefined;
+        setPosition(undefined);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleKeyboardShortcut);
+      if (activeInlinePreview?.ownerId === externalPreviewOwnerIdRef.current) {
+        activeInlinePreview = undefined;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const anchor = anchorRef.current;
     if (
       !details ||
@@ -138,14 +173,31 @@ export function CardHoverPreview({ details, children, className, isRelated = fal
         : Math.max(6, (window.innerWidth - width) / 2);
     const estimatedHeight = Math.min(520, Math.max(240, window.innerHeight - 12));
     const top = Math.min(Math.max(6, rect.top - 8), Math.max(6, window.innerHeight - estimatedHeight - 6));
-    setPosition({ top, left });
+    const nextPosition = { top, left };
+    if (activeInlinePreview?.ownerId !== externalPreviewOwnerIdRef.current) {
+      activeInlinePreview?.clear();
+    }
+    activeInlinePreview = {
+      ownerId: externalPreviewOwnerIdRef.current!,
+      clear: () => {
+        isPinnedRef.current = false;
+        setIsPinned(false);
+        positionRef.current = undefined;
+        setPosition(undefined);
+      }
+    };
+    positionRef.current = nextPosition;
+    setPosition(nextPosition);
   }
 
   function hidePreview() {
     onActiveChange?.(false);
     if (usesExternalCardPreview()) {
       stopExternalPreview();
+    } else if (activeInlinePreview?.ownerId === externalPreviewOwnerIdRef.current) {
+      activeInlinePreview = undefined;
     }
+    positionRef.current = undefined;
     setPosition(undefined);
   }
 
@@ -304,14 +356,33 @@ export function CardHoverPreview({ details, children, className, isRelated = fal
     setIsPinned(false);
   }
 
+  function setInlinePinned(pinned: boolean) {
+    isPinnedRef.current = pinned;
+    setIsPinned(pinned);
+  }
+
+  function handleBlur() {
+    if (!isPinnedRef.current) {
+      hidePreview();
+    }
+  }
+
   const preview = details && position && typeof document !== "undefined"
     ? createPortal(
         <div
-          className="card-hover-preview"
-          role="tooltip"
+          aria-label={isPinned ? `卡牌说明：${details.name}` : undefined}
+          className={`card-hover-preview${isPinned ? " is-pinned" : ""}`}
+          data-preview-pinned={isPinned}
+          role={isPinned ? "dialog" : "tooltip"}
           style={{ top: position.top, left: position.left } satisfies CSSProperties}
+          tabIndex={isPinned ? 0 : undefined}
         >
-          <CardDetailBody details={details} className="card-detail-body-hover" />
+          <CardDetailBody
+            details={details}
+            className="card-detail-body-hover"
+            mode={isPinned ? "interactive" : "summary"}
+          />
+          {isPinned ? <div className="card-preview-hint">已固定 · ⌥Q 取消</div> : null}
         </div>,
         document.body
       )
@@ -331,7 +402,7 @@ export function CardHoverPreview({ details, children, className, isRelated = fal
       onMouseMove={handlePointerMove}
       onMouseLeave={handlePointerLeave}
       onFocus={() => showPreview()}
-      onBlur={hidePreview}
+      onBlur={handleBlur}
     >
       {children}
       {preview}

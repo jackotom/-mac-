@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import App from "../src/renderer/App";
 
@@ -14,14 +14,16 @@ describe("opponent overlay QA demo", () => {
 
     expect(screen.getByRole("region", { name: "奥秘 1 候选" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "奥秘 2 候选" })).toBeInTheDocument();
-    expect(screen.getByText("伺机待发")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "对方公开计数" })).toBeInTheDocument();
-    expect(screen.getByLabelText("对方下次疲劳伤害 3")).toBeInTheDocument();
-    expect(screen.getByLabelText("对方尸体 4")).toBeInTheDocument();
-    expect(screen.getByLabelText("对方已用法术 5")).toBeInTheDocument();
-
     expect(screen.getByText("法术反制")).toBeInTheDocument();
     expect(screen.getByText("寒冰屏障").closest("li")).toHaveClass("secret-candidate-excluded");
+    expect(screen.queryByRole("region", { name: "对方公开计数" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("对方下次疲劳伤害 3")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("对方尸体 4")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("对方已用法术 5")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+    fireEvent.click(screen.getByRole("button", { name: /已使用 \(1\)/ }));
+    expect(screen.getByText("伺机待发")).toBeInTheDocument();
   });
 
   it("renders both attack icons in the explicit board overlay QA route", () => {

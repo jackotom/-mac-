@@ -37,9 +37,9 @@ describe("window experience configuration", () => {
     expect(main).not.toContain("shouldShowMainWindowOnLaunch(process.env) || !trackerSettings.general.startMinimized");
   });
 
-  it("keeps the normal deck overlay at the requested narrow and tall minimum", () => {
+  it("keeps the normal deck overlay narrow while allowing the compact height floor", () => {
     expect(source("src/main/main.ts")).toMatch(
-      /createOverlayWindow[\s\S]*?minWidth:\s*Math\.min\(100,\s*savedBounds\.width\)[\s\S]*?minHeight:\s*Math\.min\(900,\s*savedBounds\.height\)/
+      /createOverlayWindow[\s\S]*?minWidth:\s*Math\.min\(100,\s*savedBounds\.width\)[\s\S]*?minHeight:\s*Math\.min\(200,\s*savedBounds\.height\)/
     );
   });
 

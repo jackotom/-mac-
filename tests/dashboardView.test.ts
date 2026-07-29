@@ -41,6 +41,73 @@ const liveState: PublicTrackerState = {
   lastUpdated: "2026-07-22T04:31:00.000Z"
 };
 
+const truthfulLiveState: PublicTrackerState = {
+  ...liveState,
+  opponentDeckCount: 99,
+  opponentHandCount: 88,
+  opponentPlayed: [
+    { name: "旧字段假牌", cardId: "LEGACY_FAKE", count: 0, remaining: 0, drawn: 0, played: 9 }
+  ],
+  opponentSecrets: [],
+  summary: { ...liveState.summary, opponentPlayedCount: 9 },
+  matchCounters: {
+    friendly: {},
+    opponent: { nextFatigueDamage: 3 }
+  },
+  cardTracking: {
+    schemaVersion: 1,
+    gameKey: "game-truth",
+    friendly: emptyPlayerTracking(),
+    opponent: {
+      ...emptyPlayerTracking(),
+      current: {
+        ...emptyPlayerTracking().current,
+        hand: { status: "known", knownCount: 7, totalCount: 7, cards: [] },
+        deck: { status: "known", knownCount: 0, totalCount: 23, cards: [] },
+        secret: { status: "known", knownCount: 1, totalCount: 1, cards: [] }
+      },
+      used: {
+        totalCount: 2,
+        truncated: false,
+        items: [
+          {
+            id: "used-11",
+            sequence: 11,
+            entityId: "entity-11",
+            card: { cardKey: "CS2_024", cardId: "CS2_024", name: "寒冰箭" },
+            confidence: "confirmed"
+          },
+          {
+            id: "used-12",
+            sequence: 12,
+            entityId: "entity-12",
+            card: { cardKey: "CS2_024", cardId: "CS2_024", name: "寒冰箭" },
+            confidence: "confirmed"
+          }
+        ]
+      }
+    },
+    opponentSecretSlots: [],
+    detailsByCardKey: {}
+  }
+};
+
+function emptyPlayerTracking(): NonNullable<PublicTrackerState["cardTracking"]>["friendly"] {
+  const known = () => ({ status: "known" as const, knownCount: 0, totalCount: 0, cards: [] });
+  return {
+    current: {
+      deck: known(),
+      hand: known(),
+      play: known(),
+      secret: known(),
+      graveyard: known(),
+      removed: known()
+    },
+    burned: { totalCount: 0, items: [], truncated: false },
+    used: { totalCount: 0, items: [], truncated: false }
+  };
+}
+
 const realLadder: LadderDeckRecommendationResult = {
   status: "ready",
   stale: false,
@@ -73,7 +140,7 @@ const realHistory: MatchHistoryResult = {
 
 describe("dashboard view model", () => {
   it("maps confirmed tracker and history data without inventing values", () => {
-    const view = toDashboardViewModel(liveState, realHistory, realLadder);
+    const view = toDashboardViewModel(truthfulLiveState, realHistory, realLadder);
 
     expect(view.tracker).toEqual({
       status: "watching",
@@ -121,7 +188,12 @@ describe("dashboard view model", () => {
       deckCount: 23,
       handCount: 7,
       secretCount: 1,
-      playedCards: [{ id: "CS2_024", name: "寒冰箭", cardId: "CS2_024", count: 2 }]
+      currentTurn: "?",
+      fatigueDamage: 3,
+      playedCards: [
+        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" },
+        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", count: 1, turn: "?" }
+      ]
     });
     expect(view.events.items).toEqual([
       {
@@ -156,6 +228,8 @@ describe("dashboard view model", () => {
     expect(view.opponent.deckCount).toBeUndefined();
     expect(view.opponent.handCount).toBeUndefined();
     expect(view.opponent.secretCount).toBeUndefined();
+    expect(view.opponent.currentTurn).toBe("?");
+    expect(view.opponent.fatigueDamage).toBeUndefined();
   });
 
   it("returns explicit empty states when no real dashboard data exists", () => {
@@ -179,6 +253,8 @@ describe("dashboard view model", () => {
       deckCount: undefined,
       handCount: undefined,
       secretCount: undefined,
+      currentTurn: "?",
+      fatigueDamage: undefined,
       playedCards: []
     });
     expect(view.events).toEqual({ state: "empty", message: "本局还没有可展示的事件。", items: [] });

@@ -1,9 +1,15 @@
 import { useState, type ReactNode } from "react";
 import type { CardDetails, CardOutcomeNode, RelatedCardInfo } from "../../shared/cardDatabase";
 
-const CARD_POOL_BATCH_SIZE = 60;
+const CARD_POOL_BATCH_SIZE = 12;
 
-export function CardDetailBody({ details, className }: { details?: CardDetails; className?: string }) {
+interface CardDetailBodyProps {
+  readonly details?: CardDetails;
+  readonly className?: string;
+  readonly mode: "summary" | "interactive";
+}
+
+export function CardDetailBody({ details, className, mode }: CardDetailBodyProps) {
   if (!details) {
     return <div className="card-detail-empty">暂无卡牌资料</div>;
   }
@@ -64,14 +70,14 @@ export function CardDetailBody({ details, className }: { details?: CardDetails; 
         title={details.isSpell ? "生成/关联法术" : "关联牌"}
         showText
       />
-      {cardPoolSections.map((section) => (
+      {mode === "interactive" ? cardPoolSections.map((section) => (
         <CardPoolSection
           cards={section.cards}
           emptyText={section.emptyText}
           key={`${details.cardId ?? details.dbfId}:${section.key}`}
           title={section.title}
         />
-      ))}
+      )) : null}
       {cardOutcomeSections.map((section) => (
         <CardOutcomeSection
           cards={section.cards}
@@ -108,23 +114,34 @@ function CardPoolSection({
   const nextBatchCount = Math.min(CARD_POOL_BATCH_SIZE, remainingCount);
 
   return (
-    <CardListSection
-      cards={visibleCards}
-      className="card-pool-section"
-      emptyText={emptyText}
-      footer={remainingCount > 0 ? (
-        <button
-          className="card-pool-load-more"
-          onClick={() => setVisibleCount((current) => current + CARD_POOL_BATCH_SIZE)}
-          type="button"
-        >
-          继续显示 {nextBatchCount} 张（剩余 {remainingCount} 张）
-        </button>
-      ) : undefined}
-      showText
-      title={title}
-      totalCount={cards.length}
-    />
+    <details className="card-related-list card-spell-history card-pool-section">
+      <summary>{title}（{cards.length}）</summary>
+      <div aria-label={`${title}，共 ${cards.length} 张`} role="region">
+        {visibleCards.length > 0 ? (
+          <div className="card-related-cards" role="list">
+            {visibleCards.map((card, index) => (
+              <RelatedCardRow
+                card={card}
+                key={`${card.cardId ?? card.dbfId}-${index}`}
+                role="listitem"
+                showText
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card-spell-history-empty">{emptyText}</div>
+        )}
+        {remainingCount > 0 ? (
+          <button
+            className="card-pool-load-more"
+            onClick={() => setVisibleCount((current) => current + CARD_POOL_BATCH_SIZE)}
+            type="button"
+          >
+            继续显示 {nextBatchCount} 张（剩余 {remainingCount} 张）
+          </button>
+        ) : null}
+      </div>
+    </details>
   );
 }
 

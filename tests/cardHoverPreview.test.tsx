@@ -581,4 +581,41 @@ describe("CardHoverPreview", () => {
 
     expect(screen.getByRole("tooltip")).toHaveTextContent("造成 6 点伤害。");
   });
+
+  it("pins only the active in-page preview with real keyboard events and cleans it on unmount", () => {
+    const { rerender } = render(
+      <>
+        <CardHoverPreview details={cardDetails}>
+          <button type="button">火球术</button>
+        </CardHoverPreview>
+        <CardHoverPreview details={{ ...cardDetails, dbfId: 621, name: "炎爆术" }}>
+          <button type="button">炎爆术</button>
+        </CardHoverPreview>
+      </>
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "炎爆术" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("炎爆术");
+
+    fireEvent.keyDown(window, { key: "q", altKey: true });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("炎爆术");
+    expect(dialog).toHaveTextContent("已固定 · ⌥Q 取消");
+    expect(dialog).toHaveAttribute("data-preview-pinned", "true");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "炎爆术" }));
+    fireEvent.keyDown(window, { key: "Q", altKey: true });
+    expect(screen.getByRole("dialog")).toHaveTextContent("炎爆术");
+
+    rerender(
+      <CardHoverPreview details={cardDetails}>
+        <button type="button">火球术</button>
+      </CardHoverPreview>
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

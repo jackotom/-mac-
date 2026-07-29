@@ -18,6 +18,7 @@ import { LadderDeckRecommendationPanel } from "./components/LadderDeckRecommenda
 import { TopBar, trackerStatusLabels } from "./components/TopBar";
 import type { MainView } from "./components/TopBar";
 import { toOverlayPanelViewModel } from "./overlayView";
+import { toDashboardOpponentView } from "./dashboardView";
 import { shouldApplyInitialTrackerState } from "./stateInitialization";
 import { createSynchronousActionLock, selectVisibleNotice, shouldRequestCardLibrary } from "./frontendStability";
 import { preserveArenaChoiceStatistics } from "./arenaChoiceStability";
@@ -612,8 +613,8 @@ function App() {
   const events = useMemo(() => (logIssue ? [] : toGameEvents(state.events)), [logIssue, state.events]);
   const opponentOverview = useMemo(() => toOpponentOverview(state), [state]);
   const opponentPlayedCards = useMemo(
-    () => (logIssue ? [] : toOpponentPlayedCards(state.opponentPlayed)),
-    [logIssue, state.opponentPlayed]
+    () => (logIssue ? [] : toOpponentPlayedCards(state)),
+    [logIssue, state]
   );
   const autoMatchNotice = !logIssue && state.autoMatchedDeckId
     ? `已自动匹配收藏套牌：${state.deckName ?? "当前卡组"}。`
@@ -1628,7 +1629,13 @@ function CardPreviewWindow() {
 
   return (
     <section className="card-preview-window-shell" data-pinned={isPinned} aria-label={details ? `卡牌说明：${details.name}` : "卡牌说明"}>
-      {details ? <CardDetailBody details={details} className="card-detail-body-hover" /> : null}
+      {details ? (
+        <CardDetailBody
+          details={details}
+          className="card-detail-body-hover"
+          mode={isPinned ? "interactive" : "summary"}
+        />
+      ) : null}
       {details ? <div className="card-preview-hint">{isPinned ? "已固定 · ⌥Q 取消" : "⌥Q 固定 · 滚轮查看"}</div> : null}
     </section>
   );
@@ -1730,30 +1737,28 @@ function toGameEvents(events: TrackerEvent[]): GameEvent[] {
 
 function toOpponentOverview(state: PublicTrackerState): OpponentOverview {
   const latestOpponentEvent = [...state.events].reverse().find((event) => event.player === "opponent");
-  const opponentPlayedCount = state.summary.opponentPlayedCount;
+  const opponent = toDashboardOpponentView(state);
 
   return {
     heroClass: "未知职业",
-    currentTurn: Math.max(1, Math.ceil((state.events.length + 1) / 2)),
-    handSize: Math.max(0, 4 + state.events.filter((event) => event.player === "opponent").length - opponentPlayedCount),
-    deckRemaining: Math.max(0, 30 - opponentPlayedCount),
-    secretsInPlay: state.events.filter((event) => event.player === "opponent" && event.kind === "zone-change").length,
-    fatigueDamage: 0,
+    currentTurn: opponent.currentTurn,
+    handSize: opponent.handCount ?? "?",
+    deckRemaining: opponent.deckCount ?? "?",
+    secretsInPlay: opponent.secretCount ?? "?",
+    fatigueDamage: opponent.fatigueDamage ?? "?",
     lastAction: latestOpponentEvent ? eventTitle(latestOpponentEvent) : "等待对手动作"
   };
 }
 
-function toOpponentPlayedCards(rows: CardTrackerRow[]): OpponentPlayedCard[] {
-  return rows
-    .filter((row) => row.played > 0)
-    .map((row, index) => ({
-      id: `opponent-${row.name}-${index}`,
-      name: row.name,
-      cost: row.details?.manaCost,
-      turn: index + 1,
-      count: row.played,
-      details: row.details
-    }));
+function toOpponentPlayedCards(state: PublicTrackerState): OpponentPlayedCard[] {
+  return toDashboardOpponentView(state).playedCards.map((card) => ({
+    id: card.id,
+    name: card.name,
+    cost: card.details?.manaCost,
+    turn: card.turn,
+    count: card.count,
+    details: card.details
+  }));
 }
 
 function withImportedDeck(state: PublicTrackerState, deckText: string): PublicTrackerState {

@@ -34,21 +34,93 @@ const yoggInTheBox: CardDetails = {
 };
 
 describe("CardDetailBody card pools", () => {
+  it("hides theoretical pools completely in summary mode while keeping actual results complete", () => {
+    const actualCards = Array.from({ length: 25 }, (_, index) => ({
+      key: `actual-${index}`,
+      card: {
+        dbfId: 40_000 + index,
+        cardId: `ACTUAL_${index}`,
+        name: `实际结果 ${index + 1}`,
+        cardType: "法术"
+      }
+    }));
+
+    render(
+      <CardDetailBody
+        details={{
+          ...yoggInTheBox,
+          cardOutcomeSections: [{
+            key: "cast-1",
+            title: "本次实际施放",
+            emptyText: "本次尚未确认施放结果",
+            cards: actualCards
+          }]
+        }}
+        mode="summary"
+      />
+    );
+
+    expect(screen.queryByText("卡库可见的随机法术候选（2）")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /继续显示/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^实际结果 \d+$/)).toHaveLength(25);
+  });
+
+  it("starts interactive theoretical pools collapsed and reveals twelve cards per batch", () => {
+    const cards = Array.from({ length: 25 }, (_, index) => ({
+      dbfId: 50_000 + index,
+      cardId: `POOL_BATCH_${index}`,
+      name: `古神候选 ${index + 1}`,
+      cardType: "法术"
+    }));
+
+    const { container } = render(
+      <CardDetailBody
+        details={{
+          ...yoggInTheBox,
+          cardPoolSections: [{
+            key: "random-spells",
+            title: "古神随机法术候选",
+            emptyText: "当前没有候选牌",
+            cards
+          }]
+        }}
+        mode="interactive"
+      />
+    );
+
+    const disclosure = container.querySelector(".card-pool-section");
+    expect(disclosure?.tagName).toBe("DETAILS");
+    expect(disclosure).not.toHaveAttribute("open");
+
+    fireEvent.click(screen.getByText("古神随机法术候选（25）"));
+    const pool = screen.getByRole("region", { name: "古神随机法术候选，共 25 张" });
+    expect(within(pool).getAllByRole("listitem")).toHaveLength(12);
+    expect(within(pool).getByText("古神候选 12")).toBeVisible();
+    expect(within(pool).queryByText("古神候选 13")).not.toBeInTheDocument();
+
+    fireEvent.click(within(pool).getByRole("button", { name: "继续显示 12 张（剩余 13 张）" }));
+    expect(within(pool).getAllByRole("listitem")).toHaveLength(24);
+    expect(within(pool).getByText("古神候选 24")).toBeVisible();
+  });
+
   it("shows every card-pool section with its title, exact count, and visible cards", () => {
-    const { container } = render(<CardDetailBody details={yoggInTheBox} />);
+    const { container } = render(<CardDetailBody details={yoggInTheBox} mode="interactive" />);
     const sections = container.querySelectorAll(".card-pool-section");
 
     expect(sections).toHaveLength(2);
     expect(within(sections[0] as HTMLElement).getByText("卡库可见的随机法术候选（2）")).toBeInTheDocument();
+    fireEvent.click(within(sections[0] as HTMLElement).getByText("卡库可见的随机法术候选（2）"));
     expect(within(sections[0] as HTMLElement).getByText("火球术")).toBeVisible();
     expect(within(sections[0] as HTMLElement).getByText("炎爆术")).toBeVisible();
     expect(within(sections[1] as HTMLElement).getByText("牌库无随从时：卡库可见的5费及以上候选（1）")).toBeInTheDocument();
+    fireEvent.click(within(sections[1] as HTMLElement).getByText("牌库无随从时：卡库可见的5费及以上候选（1）"));
     expect(within(sections[1] as HTMLElement).getByText("炎爆术")).toBeVisible();
   });
 
   it("shows the section-specific empty state when a known pool has no cards", () => {
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...yoggInTheBox,
           cardPoolSections: [{
@@ -62,6 +134,7 @@ describe("CardDetailBody card pools", () => {
     );
 
     expect(screen.getByText("卡库可见的随机法术候选（0）")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("卡库可见的随机法术候选（0）"));
     expect(screen.getByText("当前卡牌资料里没有可用法术")).toBeVisible();
   });
 
@@ -76,6 +149,7 @@ describe("CardDetailBody card pools", () => {
 
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...yoggInTheBox,
           cardPoolSections: [{
@@ -89,21 +163,16 @@ describe("CardDetailBody card pools", () => {
     );
 
     const pool = screen.getByRole("region", { name: "卡库可见的随机法术候选，共 145 张" });
-    expect(within(pool).getAllByRole("listitem")).toHaveLength(60);
-    expect(within(pool).getByText("候选法术 60")).toBeVisible();
-    expect(within(pool).queryByText("候选法术 61")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("卡库可见的随机法术候选（145）"));
+    expect(within(pool).getAllByRole("listitem")).toHaveLength(12);
+    expect(within(pool).getByText("候选法术 12")).toBeVisible();
+    expect(within(pool).queryByText("候选法术 13")).not.toBeInTheDocument();
 
-    fireEvent.click(within(pool).getByRole("button", { name: "继续显示 60 张（剩余 85 张）" }));
+    fireEvent.click(within(pool).getByRole("button", { name: "继续显示 12 张（剩余 133 张）" }));
 
-    expect(within(pool).getAllByRole("listitem")).toHaveLength(120);
-    expect(within(pool).getByText("候选法术 120")).toBeVisible();
-    expect(within(pool).queryByText("候选法术 121")).not.toBeInTheDocument();
-
-    fireEvent.click(within(pool).getByRole("button", { name: "继续显示 25 张（剩余 25 张）" }));
-
-    expect(within(pool).getAllByRole("listitem")).toHaveLength(145);
-    expect(within(pool).getByText("候选法术 145")).toBeVisible();
-    expect(within(pool).queryByRole("button", { name: /继续显示/ })).not.toBeInTheDocument();
+    expect(within(pool).getAllByRole("listitem")).toHaveLength(24);
+    expect(within(pool).getByText("候选法术 24")).toBeVisible();
+    expect(within(pool).queryByText("候选法术 25")).not.toBeInTheDocument();
   });
 
   it("does not batch ordinary related cards or actual outcome cards", () => {
@@ -125,6 +194,7 @@ describe("CardDetailBody card pools", () => {
 
     render(
       <CardDetailBody
+        mode="interactive"
         details={{
           ...yoggInTheBox,
           relatedCards,

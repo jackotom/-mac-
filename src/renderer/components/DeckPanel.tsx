@@ -105,7 +105,7 @@ export function DeckPanel({ summary, cards, logIssue }: DeckPanelProps) {
                       {card.copiesRemaining}/{card.copiesTotal}
                     </strong>
                   </summary>
-                  <CardDetailBody details={card.details} />
+                  <CardDetailBody details={card.details} mode="interactive" />
                 </details>
               </li>
             );

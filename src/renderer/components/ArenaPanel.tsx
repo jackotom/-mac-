@@ -69,7 +69,7 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
                     />
                     <ArenaChoiceMetrics choice={choice} />
                   </summary>
-                  <CardDetailBody details={choice.details} />
+                  <CardDetailBody details={choice.details} mode="interactive" />
                 </details>
               </li>
             ))}

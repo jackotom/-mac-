@@ -70,7 +70,7 @@ export function OpponentPanel({ overview, playedCards }: OpponentPanelProps) {
                   </div>
                   <em>x{card.count}</em>
                 </summary>
-                <CardDetailBody details={card.details} />
+                <CardDetailBody details={card.details} mode="interactive" />
               </details>
             </li>
           ))}
