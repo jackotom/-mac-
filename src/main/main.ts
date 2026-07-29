@@ -339,6 +339,23 @@ app.on("second-instance", () => {
   showMainWindow();
 });
 
+const qaConsoleErrorCounts = new WeakMap<BrowserWindow, number>();
+
+function installQaConsoleErrorListener(window: BrowserWindow) {
+  if (!process.env.QA_INSPECT_PATH) return;
+  qaConsoleErrorCounts.set(window, 0);
+  window.webContents.on("console-message", (details, legacyLevel) => {
+    if (details.level === "error" || legacyLevel === 3) {
+      qaConsoleErrorCounts.set(window, (qaConsoleErrorCounts.get(window) ?? 0) + 1);
+    }
+  });
+}
+
+function getQaConsoleErrorCount(window: BrowserWindow | undefined) {
+  if (!window || window.isDestroyed()) return 0;
+  return qaConsoleErrorCounts.get(window) ?? 0;
+}
+
 async function createWindow(options: { showWhenReady?: boolean; focusWhenReady?: boolean } = {}) {
   const showWhenReady = options.showWhenReady ??
     shouldShowMainWindowOnLaunch(process.env, trackerSettings.general.startMinimized);
@@ -355,6 +372,7 @@ async function createWindow(options: { showWhenReady?: boolean; focusWhenReady?:
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
+  installQaConsoleErrorListener(window);
   configureSecureNavigation(window);
 
   mainWindow = window;
@@ -1043,6 +1061,7 @@ async function createOverlayWindowInstance(): Promise<BrowserWindow> {
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
   overlayWindow = createdWindow;
+  installQaConsoleErrorListener(createdWindow);
   configureSecureNavigation(createdWindow);
   createdWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   createdWindow.setAlwaysOnTop(true, "screen-saver");
@@ -1148,6 +1167,7 @@ async function createLadderDeckOverlayWindow(options: { showWhenReady?: boolean;
     backgroundColor: "#00000000",
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
+  installQaConsoleErrorListener(ladderDeckOverlayWindow);
   configureSecureNavigation(ladderDeckOverlayWindow);
   ladderDeckOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   ladderDeckOverlayWindow.setAlwaysOnTop(true, "screen-saver");
@@ -1254,6 +1274,7 @@ async function createOpponentOverlayWindowInstance(qaDemo: boolean): Promise<Bro
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
   opponentOverlayWindow = createdWindow;
+  installQaConsoleErrorListener(createdWindow);
   configureSecureNavigation(createdWindow);
   createdWindow.setMinimumSize(100, 150);
   createdWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -1480,6 +1501,7 @@ async function createBoardAttackOverlayWindow(
   boardAttackOverlayWindow = new BrowserWindow(
     getBoardAttackOverlayWindowOptions(bounds, path.join(__dirname, "preload.cjs"))
   );
+  installQaConsoleErrorListener(boardAttackOverlayWindow);
   configureSecureNavigation(boardAttackOverlayWindow);
   configureBoardAttackOverlayWindow(boardAttackOverlayWindow);
   applyOverlayWindowAppearance();
@@ -1559,6 +1581,7 @@ async function createArenaChoiceOverlayWindow(options: { qaDemo?: boolean } = {}
     backgroundColor: "#00000000",
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
+  installQaConsoleErrorListener(arenaChoiceOverlayWindow);
   configureSecureNavigation(arenaChoiceOverlayWindow);
   arenaChoiceOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   arenaChoiceOverlayWindow.setAlwaysOnTop(true, "screen-saver");
@@ -1615,6 +1638,7 @@ async function createCardPreviewWindow() {
     backgroundColor: "#00000000",
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
+  installQaConsoleErrorListener(cardPreviewWindow);
   configureSecureNavigation(cardPreviewWindow);
   cardPreviewWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   cardPreviewWindow.setAlwaysOnTop(true, "screen-saver");
@@ -2064,6 +2088,7 @@ async function createArenaHeroRankingWindow(options: { qaDemo?: boolean } = {}) 
     backgroundColor: "#00000000",
     webPreferences: createSecureWebPreferences(path.join(__dirname, "preload.cjs"))
   });
+  installQaConsoleErrorListener(arenaHeroRankingWindow);
   configureSecureNavigation(arenaHeroRankingWindow);
   arenaHeroRankingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: !trackerSettings.overlay.hideInFullscreen });
   arenaHeroRankingWindow.setAlwaysOnTop(true, "screen-saver");
@@ -2242,21 +2267,6 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
   if (!screenshotPath && !inspectPath) {
     return;
   }
-
-  await window.webContents.executeJavaScript(`
-    (() => {
-      if (window.__qaConsoleErrorsInstalled) return;
-      window.__qaConsoleErrorsInstalled = true;
-      window.__qaConsoleErrorCount = 0;
-      const originalConsoleError = console.error.bind(console);
-      console.error = (...args) => {
-        window.__qaConsoleErrorCount += 1;
-        originalConsoleError(...args);
-      };
-      window.addEventListener("error", () => { window.__qaConsoleErrorCount += 1; });
-      window.addEventListener("unhandledrejection", () => { window.__qaConsoleErrorCount += 1; });
-    })();
-  `);
 
   await new Promise((resolve) => setTimeout(resolve, 1200));
 
@@ -2535,12 +2545,18 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
       : undefined;
     const bounds = roundBounds(window.getBounds());
     const displayWorkArea = roundBounds(screen.getDisplayMatching(bounds).workArea);
-    const preview = qaPinnedPreviewInspection
+    const previewInspection = qaPinnedPreviewInspection
       ? {
           ...qaPinnedPreviewInspection,
           afterUnpinHidden: externalPreview === undefined && finalInlinePreview.visible !== true
         }
       : externalPreview ?? finalInlinePreview;
+    const preview = {
+      ...previewInspection,
+      consoleErrorCount: cardPreviewWindow && !cardPreviewWindow.isDestroyed()
+        ? getQaConsoleErrorCount(cardPreviewWindow)
+        : getQaConsoleErrorCount(window)
+    };
     const completeRendererInspection = {
       ...rendererInspection,
       trackerSettings: rendererInspection.trackerSettings ?? trackerSettings,
@@ -2648,16 +2664,17 @@ async function inspectQaRenderer(window: BrowserWindow): Promise<Record<string, 
       designatedScrollOwners: Array.from(document.querySelectorAll("[data-scroll-owner]"))
         .map((element) => element.getAttribute("data-scroll-owner")),
       actualScrollableSelectors,
-      horizontalOverflowSelectors: [...new Set(allElements.filter((element) => {
-        const style = getComputedStyle(element);
-        return /(auto|scroll)/.test(style.overflowX) && element.scrollWidth > element.clientWidth;
-      }).map(selectorFor))],
+      horizontalOverflowSelectors: [...new Set(allElements
+        .filter((element) => element.scrollWidth > element.clientWidth)
+        .map(selectorFor))],
       unknownHandRows,
-      consoleErrorCount: Number(window.__qaConsoleErrorCount ?? 0),
       clipboardText: ${JSON.stringify(process.env.QA_COPY_LADDER_DECK === "1" ? clipboard.readText() : "")}
     });
   })()`)) as string;
-  return JSON.parse(inspectJson) as Record<string, unknown>;
+  return {
+    ...(JSON.parse(inspectJson) as Record<string, unknown>),
+    consoleErrorCount: getQaConsoleErrorCount(window)
+  };
 }
 
 async function inspectQaPreview(window: BrowserWindow): Promise<Record<string, unknown>> {
@@ -2709,8 +2726,17 @@ async function inspectQaPreview(window: BrowserWindow): Promise<Record<string, u
         const classes = Array.from(element.classList).slice(0, 2).join(".");
         return classes ? "." + classes : element.tagName.toLowerCase();
       }))],
+      scrollSize: {
+        scrollWidth: root.scrollWidth,
+        scrollHeight: root.scrollHeight,
+        clientWidth: root.clientWidth,
+        clientHeight: root.clientHeight
+      },
       text: root.textContent?.replace(/\\s+/g, " ").trim() ?? ""
     });
   })()`)) as string;
-  return JSON.parse(inspectJson) as Record<string, unknown>;
+  return {
+    ...(JSON.parse(inspectJson) as Record<string, unknown>),
+    consoleErrorCount: getQaConsoleErrorCount(window)
+  };
 }

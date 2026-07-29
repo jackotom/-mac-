@@ -8,13 +8,6 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const electronPath = join(projectRoot, "node_modules/.bin/electron");
 const fixturePath = join(projectRoot, "fixtures/card-tracking/full-hand-burn.log");
-const fixtureText = await readFile(fixturePath, "utf8");
-const temporaryRoot = await mkdtemp(join(tmpdir(), "hearthstone-card-lifecycle-ui-"));
-const failures = [];
-const scenarioFilter = process.env.QA_SCENARIO_FILTER;
-let workArea;
-let workAreas = [];
-
 const scenarioNames = [
   "friendly-short",
   "friendly-tall",
@@ -25,6 +18,20 @@ const scenarioNames = [
   "external-normal",
   "external-pinned"
 ];
+const rawScenarioFilter = process.env.QA_SCENARIO_FILTER;
+if (rawScenarioFilter !== undefined && rawScenarioFilter.trim() === "") {
+  throw new Error("QA_SCENARIO_FILTER 不能为空");
+}
+const scenarioFilter = rawScenarioFilter?.trim();
+if (scenarioFilter && !scenarioNames.includes(scenarioFilter)) {
+  throw new Error(`未知 QA_SCENARIO_FILTER：${scenarioFilter}`);
+}
+
+const fixtureText = await readFile(fixturePath, "utf8");
+const temporaryRoot = await mkdtemp(join(tmpdir(), "hearthstone-card-lifecycle-ui-"));
+const failures = [];
+let workArea;
+let workAreas = [];
 
 const cardCache = {
   source: "脱敏生命周期 QA 卡牌库",
@@ -38,7 +45,7 @@ const cardCache = {
       collectible: 1,
       type: "SPELL",
       cost: 7,
-      text: "随机施放5个法术。"
+      text: "随机施放5个法术。".repeat(120)
     },
     { dbfId: 1, cardId: "BURNED_CARD", name: "烧毁测试牌", collectible: 1, type: "SPELL", cost: 1 },
     { dbfId: 2, cardId: "FRIEND_USE", name: "普通使用牌", collectible: 1, type: "SPELL", cost: 2 },
@@ -80,34 +87,87 @@ async function prepareUserData(name, bounds, opponent = false) {
   return { userData, isolatedPowerLog };
 }
 
+function createChildEnvironment(extraEnvironment, userData, isolatedPowerLog, inspectPath) {
+  const developmentEntryKeys = new Set([
+    "VITE_DEV_SERVER_URL",
+    "ELECTRON_RUN_AS_NODE",
+    "NODE_OPTIONS",
+    "NODE_PATH"
+  ]);
+  const cleanEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) =>
+      !/^QA_/.test(key) &&
+      !/^VITE_/.test(key) &&
+      !developmentEntryKeys.has(key)
+    )
+  );
+  return {
+    ...cleanEnvironment,
+    ...extraEnvironment,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
+    HEARTHSTONE_LOG_DIR: userData,
+    QA_ALLOW_MULTIPLE_INSTANCES: "1",
+    QA_SKIP_LOG_CONFIG_REPAIR: "1",
+    QA_SKIP_ARENA_SCREEN_RECOGNITION: "1",
+    QA_LOCK_LOG_PATH: "1",
+    QA_START_TRACKING: "0",
+    QA_USER_DATA_DIR: userData,
+    QA_LOG_PATH: isolatedPowerLog,
+    QA_INSPECT_PATH: inspectPath,
+    QA_EXIT_AFTER_SCREENSHOT: "1"
+  };
+}
+
+function isProcessGroupAlive(processGroupId) {
+  try {
+    process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ESRCH") return false;
+    if (error && typeof error === "object" && error.code === "EPERM") return true;
+    throw error;
+  }
+}
+
+function signalProcessGroup(processGroupId, signal) {
+  try {
+    process.kill(-processGroupId, signal);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ESRCH") return;
+    throw error;
+  }
+}
+
+async function waitForProcessGroupExit(processGroupId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessGroupAlive(processGroupId) && Date.now() < deadline) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  return !isProcessGroupAlive(processGroupId);
+}
+
+async function terminateProcessGroup(processGroupId) {
+  if (!processGroupId || !isProcessGroupAlive(processGroupId)) return;
+  signalProcessGroup(processGroupId, "SIGTERM");
+  if (await waitForProcessGroupExit(processGroupId, 1_500)) return;
+  signalProcessGroup(processGroupId, "SIGKILL");
+  assert.equal(
+    await waitForProcessGroupExit(processGroupId, 1_500),
+    true,
+    `Electron 进程组 ${processGroupId} 未能清理`
+  );
+}
+
 async function runElectronScenario(name, extraEnvironment = {}, bounds, opponent = false) {
   const { userData, isolatedPowerLog } = await prepareUserData(name, bounds, opponent);
   const inspectPath = join(userData, "inspection.json");
   const child = spawn(electronPath, [projectRoot], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-      HEARTHSTONE_LOG_DIR: userData,
-      QA_ALLOW_MULTIPLE_INSTANCES: "1",
-      QA_SKIP_LOG_CONFIG_REPAIR: "1",
-      QA_SKIP_ARENA_SCREEN_RECOGNITION: "1",
-      QA_START_TRACKING: "0",
-      QA_OPEN_OVERLAY: "0",
-      QA_OPEN_OPPONENT_OVERLAY: "0",
-      QA_OPEN_ARENA_CHOICE_OVERLAY: "0",
-      QA_OPEN_LADDER_DECK_OVERLAY: "0",
-      QA_OPEN_BOARD_ATTACK_OVERLAY: "0",
-      QA_OPEN_ARENA_HERO_RANKING_OVERLAY: "0",
-      QA_OPEN_THREE_WINDOW_LAYOUT: "0",
-      QA_USER_DATA_DIR: userData,
-      QA_LOG_PATH: isolatedPowerLog,
-      QA_INSPECT_PATH: inspectPath,
-      QA_EXIT_AFTER_SCREENSHOT: "1",
-      ...extraEnvironment
-    },
+    env: createChildEnvironment(extraEnvironment, userData, isolatedPowerLog, inspectPath),
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"]
   });
+  const processGroupId = child.pid;
   let output = "";
   child.stdout.on("data", (chunk) => { output += chunk.toString(); });
   child.stderr.on("data", (chunk) => { output += chunk.toString(); });
@@ -126,28 +186,22 @@ async function runElectronScenario(name, extraEnvironment = {}, bounds, opponent
       })
     ]);
     assert.equal(exitCode, 0, `${name} Electron 退出码应为 0\n${output.slice(-2000)}`);
-    return JSON.parse(await readFile(inspectPath, "utf8"));
+    const inspection = JSON.parse(await readFile(inspectPath, "utf8"));
+    assert.equal(
+      inspection.trackerState?.logPath,
+      isolatedPowerLog,
+      `${name}: 只能读取本场临时 Power.log`
+    );
+    return inspection;
   } finally {
     clearTimeout(timeout);
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM");
-      await new Promise((resolveWait) => {
-        const forceTimer = setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-          resolveWait();
-        }, 1500);
-        child.once("exit", () => {
-          clearTimeout(forceTimer);
-          resolveWait();
-        });
-      });
-    }
+    await terminateProcessGroup(processGroupId);
   }
 }
 
 function assertCommon(name, inspection) {
   assert.equal(inspection.consoleErrorCount, 0, `${name}: 控制台不能有错误`);
-  assert.deepEqual(inspection.horizontalOverflowSelectors, [], `${name}: 不能横向溢出`);
+  assertNoHorizontalOverflow(name, inspection);
   assert.deepEqual(
     inspection.designatedScrollOwners,
     ["card-tracking-main"],
@@ -175,6 +229,14 @@ function assertCommon(name, inspection) {
   assert.ok(
     inspection.shellScrollSize.scrollWidth <= inspection.shellScrollSize.clientWidth,
     `${name}: 外壳不能横向滚动`
+  );
+}
+
+function assertNoHorizontalOverflow(name, inspection) {
+  assert.deepEqual(
+    inspection.horizontalOverflowSelectors,
+    [],
+    `${name}: 任意元素都不能横向溢出`
   );
 }
 
@@ -281,6 +343,7 @@ async function verifyOpponentUnknownHand() {
 }
 
 function assertNormalPreview(name, preview) {
+  assertPreviewScrollContract(name, preview);
   assert.equal(preview.visible, true, `${name}: 预览应显示`);
   assert.equal(preview.pinned, false, `${name}: 普通预览不能固定`);
   assert.equal(preview.poolExpanded, false, `${name}: 普通预览不能显示候选池`);
@@ -289,6 +352,7 @@ function assertNormalPreview(name, preview) {
 }
 
 function assertPinnedPreview(name, preview, withOutcomes) {
+  assertPreviewScrollContract(name, preview);
   assert.equal(preview.visible, true, `${name}: 固定预览应显示`);
   assert.equal(preview.pinned, true, `${name}: 必须通过真实固定逻辑`);
   assert.equal(preview.poolExpanded, true, `${name}: 固定预览应展开候选池`);
@@ -296,6 +360,19 @@ function assertPinnedPreview(name, preview, withOutcomes) {
   assert.equal(preview.continueButton, true, `${name}: 候选池必须有继续按钮`);
   assert.equal(preview.afterUnpinHidden, true, `${name}: 取消固定并离开后必须自动隐藏`);
   if (withOutcomes) assertOutcomeDetails(name, preview);
+}
+
+function assertPreviewScrollContract(name, preview) {
+  assert.equal(preview.consoleErrorCount, 0, `${name}: 详情窗口控制台不能有错误`);
+  assert.deepEqual(
+    preview.actualScrollableSelectors,
+    [".card-preview-root"],
+    `${name}: 详情只能由外壳滚动；${JSON.stringify({
+      scrollSize: preview.scrollSize,
+      text: preview.text?.slice(0, 240)
+    })}`
+  );
+  assert.deepEqual(preview.resultScrollableSelectors, [], `${name}: 结果子树不能形成滚动区`);
 }
 
 function assertOutcomeDetails(name, preview) {
