@@ -7,6 +7,7 @@ import type {
   OverlayStatusTone
 } from "./types";
 import { toCardTrackingView } from "./cardTrackingView";
+import { toMatchPulseViewFromState } from "./matchPulse";
 
 export interface OverlayViewOptions {
   maxDeckRows?: number;
@@ -71,6 +72,7 @@ export function toOverlayPanelViewModel(
       }
     : undefined;
   const arena = hasActiveArena && state.arena && !logIssueStatus ? toArenaView(state.arena, maxDeckRows) : undefined;
+  const matchPulse = shouldClearTrackedData ? undefined : toMatchPulseViewFromState(state);
   return {
     cardTracking,
     summary: {
@@ -92,6 +94,7 @@ export function toOverlayPanelViewModel(
     boardAttack: shouldClearTrackedData ? { friendly: 0, opponent: 0 } : state.boardAttack ?? { friendly: 0, opponent: 0 },
     friendlyCounters: shouldClearTrackedData ? undefined : state.matchCounters?.friendly,
     opponentCounters: shouldClearTrackedData ? undefined : state.matchCounters?.opponent,
+    ...(matchPulse ? { matchPulse } : {}),
     status: {
       ...(logIssueStatus ?? constructedRecognitionStatus ?? waitingForGameStatus ?? statusLabels[state.status]),
       detail: logIssueStatus

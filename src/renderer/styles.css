@@ -1283,6 +1283,21 @@ html body:not(:has(.overlay-shell)) .timeline-meta {
   font-size: 10px;
 }
 
+html body:not(:has(.overlay-shell)) .match-pulse-full {
+  min-width: 0;
+  overflow: hidden;
+  color: #dff8ff;
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html body:not(:has(.overlay-shell)) .match-pulse-metric {
+  min-width: 0;
+}
+
 html body:not(:has(.overlay-shell)) .timeline-row h3 {
   overflow: hidden;
   color: #e6eef1;

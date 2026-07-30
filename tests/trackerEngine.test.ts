@@ -42,6 +42,52 @@ describe("parseDeckText", () => {
 });
 
 describe("parseLogLine", () => {
+  it("parses trustworthy match-flow tags without guessing their meaning", () => {
+    const turn = parseLogLine(
+      "D 12:00:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=7"
+    );
+    const step = parseLogLine(
+      "D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION"
+    );
+    const nextStep = parseLogLine(
+      "D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=NEXT_STEP value=MAIN_END"
+    );
+    const currentPlayer = parseLogLine(
+      "D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=2 zone=PLAY cardId= player=2] tag=CURRENT_PLAYER value=1"
+    );
+    const resources = parseLogLine(
+      "D 12:00:04.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=2 zone=PLAY cardId= player=2] tag=RESOURCES value=7"
+    );
+    const resourcesUsed = parseLogLine(
+      "D 12:00:05.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=2 zone=PLAY cardId= player=2] tag=RESOURCES_USED value=2"
+    );
+
+    expect(turn).toEqual([
+      expect.objectContaining({ type: "match-flow", tag: "TURN", value: "7" })
+    ]);
+    expect(step).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "game-setup-complete" }),
+      expect.objectContaining({ type: "match-flow", tag: "STEP", value: "MAIN_ACTION" })
+    ]));
+    expect(nextStep).toEqual([
+      expect.objectContaining({ type: "match-flow", tag: "NEXT_STEP", value: "MAIN_END" })
+    ]);
+    for (const [events, tag, value] of [
+      [currentPlayer, "CURRENT_PLAYER", "1"],
+      [resources, "RESOURCES", "7"],
+      [resourcesUsed, "RESOURCES_USED", "2"]
+    ] as const) {
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: "match-flow",
+          tag,
+          value,
+          entity: expect.objectContaining({ id: "2", controller: 2 })
+        })
+      ]);
+    }
+  });
+
   it("parses zone changes", () => {
     const events = parseLogLine(
       "D 12:00:00.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=1 cardId=CS2_029 player=1] tag=ZONE value=HAND"
@@ -173,6 +219,88 @@ describe("parseLogLine", () => {
 });
 
 describe("TrackerEngine", () => {
+  it("publishes match flow and stamps trusted turns onto uses, burns, and events", () => {
+    const engine = createLifecycleEngine("1x 友方使用牌\n1x 烧毁测试牌");
+
+    engine.applyText([
+      "D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=7",
+      "D 12:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION",
+      "D 12:00:03.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=CURRENT_PLAYER value=1",
+      "D 12:00:04.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=TURN value=4",
+      "D 12:00:05.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=RESOURCES value=7",
+      "D 12:00:06.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=RESOURCES_USED value=2",
+      "D 12:00:07.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=友方使用牌 id=51 zone=HAND cardId=FRIEND_USE player=1]",
+      "D 12:00:08.000 GameState.DebugPrintPower() - BLOCK_END",
+      ...createHandEntityLines(10, 1, 300),
+      "D 12:00:30.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=烧毁测试牌 id=43 zone=DECK cardId=BURNED_CARD player=1] tag=ZONE value=GRAVEYARD"
+    ].join("\n"));
+
+    const state = engine.getState();
+    expect(state.matchFlow).toEqual({
+      globalTurn: 7,
+      activeSide: "friendly",
+      phase: "action",
+      friendly: { turn: 4, mana: 7, manaUsed: 2 }
+    });
+    expect(state.cardTracking.friendly.used.items[0]).toMatchObject({
+      entityId: "51",
+      turn: 7
+    });
+    expect(state.cardTracking.friendly.burned.items[0]).toMatchObject({
+      entityId: "43",
+      turn: 7
+    });
+    expect(state.events.find((event) => event.cardId === "BURNED_CARD")).toMatchObject({
+      turn: 7
+    });
+  });
+
+  it("clears match flow at both new-game and game-end boundaries", () => {
+    const engine = createLifecycleEngine();
+    engine.resetForGame();
+    engine.applyText([
+      "D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=7",
+      "D 12:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=CURRENT_PLAYER value=1"
+    ].join("\n"));
+    expect(engine.getState().matchFlow).toEqual({
+      globalTurn: 7,
+      activeSide: "friendly"
+    });
+
+    engine.resetForGame();
+    expect(engine.getState().matchFlow).toBeUndefined();
+
+    engine.applyLine(
+      "D 12:10:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=8"
+    );
+    engine.applyLine(
+      "D 12:10:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=FINAL_GAMEOVER"
+    );
+    expect(engine.getState().matchFlow).toBeUndefined();
+  });
+
+  it("applies player-name and entity-detail match-flow tags with their real controller", () => {
+    const engine = new TrackerEngine();
+    engine.setFriendlyController(2);
+    engine.resetForGame();
+    engine.applyText([
+      "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
+      "D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=本地玩家 tag=CURRENT_PLAYER value=1",
+      "D 12:00:01.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=9",
+      "D 12:00:02.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=本地玩家 id=2 zone=PLAY cardId= player=2] CardID=",
+      "D 12:00:02.050 GameState.DebugPrintPower() -     tag=TURN value=4",
+      "D 12:00:02.100 GameState.DebugPrintPower() -     tag=RESOURCES value=8",
+      "D 12:00:02.200 GameState.DebugPrintPower() -     tag=RESOURCES_USED value=3"
+    ].join("\n"));
+
+    expect(engine.getState().matchFlow).toEqual({
+      globalTurn: 9,
+      activeSide: "friendly",
+      friendly: { turn: 4, mana: 8, manaUsed: 3 }
+    });
+  });
+
   it("shows Aviana beside Hamuul after the opponent reaches full moon", () => {
     const fixture = readFileSync(
       join(process.cwd(), "fixtures/logs/opponent-aviana-full-moon/Power.log"),
@@ -1371,6 +1499,112 @@ ${generatedCopies.replaceAll("GameState", "PowerTaskList")}
       totalCards: 32,
       remainingCards: 32,
       drawnCards: 0
+    });
+  });
+
+  it("groups inserted deck cards by their source and decrements the remaining count when drawn", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "SOURCE_001", name: "天空主母", type: "MINION" },
+      { id: 2, cardId: "TOKEN_001", name: "星界碎片", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ deckText: "1x 基础牌", cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyLine("D 20:28:00.0000000 GameState.DebugPrintPower() - CREATE_GAME");
+    engine.setFriendlyDeckSnapshot({ initialDeckSize: 1, remainingDeckSize: 1 });
+    engine.applyLine(
+      "D 20:28:20.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION"
+    );
+    engine.applyLine(
+      "D 20:28:21.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Updating [entityName=天空主母 id=219 zone=PLAY zonePos=1 cardId=SOURCE_001 player=1] CardID=SOURCE_001"
+    );
+
+    const generated = Array.from({ length: 10 }, (_, index) => {
+      const entityId = 300 + index;
+      return `
+D 20:28:22.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=${entityId} CardID=
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:22.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=${entityId} tag=DISPLAYED_CREATOR value=219
+D 20:28:22.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=${entityId} CardID=TOKEN_001
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK`;
+    }).join("\n");
+    engine.applyText(generated);
+
+    expect(engine.getState().cardTracking.deckInsertions?.friendly.groups).toEqual([{
+      sourceEntityId: "219",
+      sourceName: "天空主母创建",
+      remainingCount: 10
+    }]);
+    expect(engine.getState().deck.find((card) => card.cardId === "TOKEN_001")).toMatchObject({
+      name: "星界碎片",
+      remaining: 10
+    });
+
+    engine.applyLine(
+      "D 20:28:23.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=300 zone=DECK zonePos=1 cardId=TOKEN_001 player=1] tag=ZONE value=HAND"
+    );
+
+    expect(engine.getState().cardTracking.deckInsertions?.friendly.groups[0]).toMatchObject({
+      sourceName: "天空主母创建",
+      remainingCount: 9
+    });
+
+    engine.applyLine(
+      "D 20:28:24.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=301 zone=DECK zonePos=1 cardId=TOKEN_001 player=1] tag=ZONE value=HAND"
+    );
+
+    expect(engine.getState().cardTracking.deckInsertions?.friendly.groups[0]).toMatchObject({
+      sourceName: "天空主母创建",
+      remainingCount: 8
+    });
+  });
+
+  it("tracks top and bottom insertions, then clears only their positions after a deck shuffle", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "SOURCE_001", name: "天空主母", type: "MINION" },
+      { id: 2, cardId: "TOKEN_001", name: "星界碎片", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ deckText: "1x 基础牌", cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 20:28:00.0000000 GameState.DebugPrintPower() - CREATE_GAME
+D 20:28:20.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+D 20:28:21.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Updating [entityName=天空主母 id=219 zone=PLAY zonePos=1 cardId=SOURCE_001 player=1] CardID=SOURCE_001
+D 20:28:22.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=300 CardID=
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:22.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=300 tag=DISPLAYED_CREATOR value=219
+D 20:28:22.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=300 CardID=TOKEN_001
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:22.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=300 zone=DECK zonePos=0 cardId=TOKEN_001 player=1] tag=ZONE_POSITION value=1
+D 20:28:23.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=301 CardID=
+D 20:28:23.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:23.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:23.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=301 tag=DISPLAYED_CREATOR value=219
+D 20:28:23.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=301 CardID=TOKEN_001
+D 20:28:23.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:23.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=301 zone=DECK zonePos=0 cardId=TOKEN_001 player=1] tag=ZONE_POSITION value=3
+`);
+
+    expect(engine.getState().cardTracking.deckInsertions?.friendly.placements).toEqual([
+      expect.objectContaining({ entityId: "300", position: "top", cardName: "星界碎片" }),
+      expect.objectContaining({ entityId: "301", position: "bottom", cardName: "星界碎片" })
+    ]);
+
+    engine.applyLine(
+      "D 20:28:23.5000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=300 zone=DECK zonePos=1 cardId=TOKEN_001 player=1] tag=ZONE_POSITION value=2"
+    );
+
+    expect(engine.getState().cardTracking.deckInsertions?.friendly.placements).toEqual([
+      expect.objectContaining({ entityId: "301", position: "bottom", cardName: "星界碎片" })
+    ]);
+
+    engine.applyLine("D 20:28:24.0000000 GameState.DebugPrintPower() - SHUFFLE_DECK PlayerID=1");
+
+    expect(engine.getState().cardTracking.deckInsertions?.friendly).toMatchObject({
+      groups: [{ sourceName: "天空主母创建", remainingCount: 2 }],
+      placements: []
     });
   });
 

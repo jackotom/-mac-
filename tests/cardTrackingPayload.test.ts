@@ -58,14 +58,23 @@ describe("compact card tracking payload", () => {
     expect(serialized.length).toBeLessThan(500_000);
   });
 
-  it("publishes one side-neutral base detail when both players use the same card", () => {
+  it("keeps base details neutral and publishes truthful friendly spell history separately", () => {
     const cardDatabase = createCardDatabase([
       {
         id: 110_001,
-        cardId: "NORMAL_SPELL",
-        name: "普通法术",
+        cardId: "EXPENSIVE_SPELL",
+        name: "高费法术",
         collectible: 1,
-        type: "SPELL"
+        type: "SPELL",
+        cost: 5
+      },
+      {
+        id: 110_003,
+        cardId: "CHEAP_SPELL",
+        name: "低费法术",
+        collectible: 1,
+        type: "SPELL",
+        cost: 2
       },
       {
         id: 110_002,
@@ -79,22 +88,44 @@ describe("compact card tracking payload", () => {
     engine.setFriendlyController(1);
     engine.applyText([
       "D 21:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
-      "D 21:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=普通法术 id=401 zone=HAND cardId=NORMAL_SPELL player=1]",
+      "D 21:00:01.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=高费法术 id=401 zone=HAND cardId=EXPENSIVE_SPELL player=1]",
       "D 21:00:01.100 GameState.DebugPrintPower() - BLOCK_END",
-      "D 21:00:02.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星空投影球 id=402 zone=HAND cardId=TOY_378 player=1]",
+      "D 21:00:02.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=低费法术 id=404 zone=HAND cardId=CHEAP_SPELL player=1]",
       "D 21:00:02.100 GameState.DebugPrintPower() - BLOCK_END",
+      "D 21:00:02.200 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=低费法术 id=404 zone=PLAY cardId=CHEAP_SPELL player=1] tag=ZONE value=HAND",
+      "D 21:00:02.300 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=低费法术 id=404 zone=HAND cardId=CHEAP_SPELL player=1]",
+      "D 21:00:02.400 GameState.DebugPrintPower() - BLOCK_END",
+      "D 21:00:02.500 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星空投影球 id=402 zone=DECK cardId=TOY_378 player=1] tag=ZONE value=HAND",
+      "D 21:00:02.600 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=NUM_SPELLS_PLAYED_THIS_GAME value=7",
       "D 21:00:03.000 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=星空投影球 id=403 zone=HAND cardId=TOY_378 player=2]",
+      "D 21:00:03.050 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=对手 id=2 zone=PLAY cardId= player=2] tag=NUM_SPELLS_PLAYED_THIS_GAME value=4",
       "D 21:00:03.100 GameState.DebugPrintPower() - BLOCK_END"
     ].join("\n"));
 
     const tracking = engine.getState().cardTracking!;
     const sharedKey = "id:toy_378";
-    expect(tracking.friendly.used.items.some((item) => item.card?.cardKey === sharedKey)).toBe(true);
+    expect(tracking.friendly.current.hand.cards.some((card) => card.cardKey === sharedKey)).toBe(true);
     expect(tracking.opponent.used.items.some((item) => item.card?.cardKey === sharedKey)).toBe(true);
     expect(Object.keys(tracking.detailsByCardKey).filter((key) => key === sharedKey)).toHaveLength(1);
     expect(tracking.detailsByCardKey[sharedKey]).not.toHaveProperty("playedSpellsThisGame");
     expect(tracking.detailsByCardKey[sharedKey]).not.toHaveProperty("gameContextSections");
     expect(tracking.detailsByCardKey[sharedKey]).not.toHaveProperty("cardOutcomeSections");
+    expect(tracking.contextDetailsBySideAndCardKey.friendly[sharedKey]).toEqual({
+      playedSpellsThisGame: [
+        expect.objectContaining({ cardId: "CHEAP_SPELL", name: "低费法术", manaCost: 2 }),
+        expect.objectContaining({ cardId: "CHEAP_SPELL", name: "低费法术", manaCost: 2 }),
+        expect.objectContaining({ cardId: "EXPENSIVE_SPELL", name: "高费法术", manaCost: 5 })
+      ],
+      playedSpellsThisGameCount: 7,
+      playedSpellsThisGameIncomplete: true
+    });
+    expect(tracking.contextDetailsBySideAndCardKey.opponent[sharedKey]).toEqual({
+      playedSpellsThisGame: [
+        expect.objectContaining({ cardId: "TOY_378", name: "星空投影球" })
+      ],
+      playedSpellsThisGameCount: 4,
+      playedSpellsThisGameIncomplete: true
+    });
   });
 });
 

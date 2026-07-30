@@ -8,6 +8,7 @@ import type {
 import type { CardDetails } from "../shared/cardDatabase";
 import type { LadderDeckRecommendationResult } from "../shared/ladderDeckRecommendation";
 import { toCardTrackingView } from "./cardTrackingView";
+import { toMatchPulseViewFromState } from "./matchPulse";
 
 export type DashboardDataState = "ready" | "empty" | "unavailable" | "error";
 
@@ -45,7 +46,7 @@ export interface DashboardOpponentCardView {
   readonly cardId?: string;
   readonly hidden: boolean;
   readonly count: number;
-  readonly turn: "?";
+  readonly turn?: number;
   readonly details?: CardDetails;
 }
 
@@ -56,7 +57,7 @@ export interface DashboardOpponentView {
   readonly deckCount?: number;
   readonly handCount?: number;
   readonly secretCount?: number;
-  readonly currentTurn: "?";
+  readonly currentTurn?: number;
   readonly fatigueDamage?: number;
   readonly playedCards: readonly DashboardOpponentCardView[];
 }
@@ -255,7 +256,7 @@ export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardO
     ...(item.cardId ? { cardId: item.cardId } : {}),
     hidden: item.hidden,
     count: 1,
-    turn: "?",
+    ...(item.turn === undefined ? {} : { turn: item.turn }),
     details: item.details
   }));
   const deckCount = toZoneCount(opponent.current.deck);
@@ -271,6 +272,7 @@ export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardO
     tracker.matchCounters?.opponent.corpses !== undefined ||
     tracker.matchCounters?.opponent.spellsPlayed !== undefined
   );
+  const matchPulse = toMatchPulseViewFromState(tracker);
 
   return {
     state: hasOpponentData ? "ready" : "empty",
@@ -279,7 +281,9 @@ export function toDashboardOpponentView(tracker: PublicTrackerState): DashboardO
     deckCount: hasOpponentData ? deckCount : undefined,
     handCount: hasOpponentData ? handCount : undefined,
     secretCount: hasOpponentData ? secretCount : undefined,
-    currentTurn: "?",
+    ...(matchPulse?.turn === undefined
+      ? {}
+      : { currentTurn: matchPulse.turn }),
     fatigueDamage: tracker.matchCounters?.opponent.nextFatigueDamage,
     playedCards
   };

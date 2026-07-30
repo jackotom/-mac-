@@ -16,6 +16,7 @@ import { BoardAttackOverlay } from "./components/BoardAttackOverlay";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { LadderDeckRecommendationPanel } from "./components/LadderDeckRecommendationPanel";
 import { TopBar, trackerStatusLabels } from "./components/TopBar";
+import { MatchPulse } from "./components/MatchPulse";
 import type { MainView } from "./components/TopBar";
 import { toOverlayPanelViewModel } from "./overlayView";
 import { toDashboardOpponentView } from "./dashboardView";
@@ -23,6 +24,7 @@ import { shouldApplyInitialTrackerState } from "./stateInitialization";
 import { createSynchronousActionLock, selectVisibleNotice, shouldRequestCardLibrary } from "./frontendStability";
 import { preserveArenaChoiceStatistics } from "./arenaChoiceStability";
 import { parseMatchHistoryResult, parsePublicTrackerState, parseTrackerSettings } from "./runtimeValidation";
+import { toMatchPulseViewFromState } from "./matchPulse";
 import {
   LEGACY_USED_COUNT_KEY,
   LEGACY_USED_ROWS_KEY,
@@ -82,7 +84,11 @@ function createAppCardTracking(gameKey: string): PublicCardTracking {
     friendly: player(false),
     opponent: player(true),
     opponentSecretSlots: [],
-    detailsByCardKey: {}
+    detailsByCardKey: {},
+    contextDetailsBySideAndCardKey: {
+      friendly: {},
+      opponent: {}
+    }
   };
 }
 
@@ -1136,7 +1142,7 @@ function App() {
             <section className="dashboard-grid" aria-label="记牌器工作区">
               <DeckPanel cards={deckCards} summary={deckSummary} logIssue={logRepairNotice ? undefined : logIssue} />
               <EventFeed events={events} />
-              {state.arena && state.arena.status !== "inactive" ? (
+              {state.arena && state.arena.status !== "inactive" && state.arena.status !== "playing" ? (
                 <ArenaPanel state={state.arena} />
               ) : (
                 <OpponentPanel overview={opponentOverview} playedCards={opponentUsedCards} />
@@ -1277,7 +1283,7 @@ function DesktopSidebar({
         <span className="sidebar-brand-mark" aria-hidden="true"><Layers3 size={27} /></span>
         <span>
           <strong>炉石助手</strong>
-          <small>v0.2.9</small>
+          <small>v0.3.0</small>
         </span>
       </section>
       <nav className="sidebar-nav" aria-label="工作区">
@@ -1307,6 +1313,7 @@ function DesktopSidebar({
 }
 
 function DashboardOverview({ state, status }: { state: PublicTrackerState; status: TrackerStatus }) {
+  const matchPulse = toMatchPulseViewFromState(state);
   const items = [
     {
       label: "牌库剩余",
@@ -1315,7 +1322,9 @@ function DashboardOverview({ state, status }: { state: PublicTrackerState; statu
     },
     { label: "已抽", value: state.summary.drawnCards.toLocaleString("zh-CN"), icon: Activity },
     { label: "对手已出", value: state.cardTracking.opponent.used.totalCount.toLocaleString("zh-CN"), icon: Swords },
-    { label: "当前状态", value: status.isLoading ? "正在读取" : trackerStatusLabels[status.state], icon: Activity }
+    ...(matchPulse?.fullLabel
+      ? []
+      : [{ label: "当前状态", value: status.isLoading ? "正在读取" : trackerStatusLabels[status.state], icon: Activity }])
   ];
 
   return (
@@ -1327,6 +1336,13 @@ function DashboardOverview({ state, status }: { state: PublicTrackerState; statu
           <strong>{value}</strong>
         </article>
       ))}
+      {matchPulse ? (
+        <article className="overview-stat metric match-pulse-metric">
+          <Activity aria-hidden="true" size={17} />
+          <span>当前进程</span>
+          <MatchPulse pulse={matchPulse} variant="full" />
+        </article>
+      ) : null}
     </section>
   );
 }
@@ -1713,7 +1729,7 @@ function toGameEvents(events: TrackerEvent[]): GameEvent[] {
     id: event.id,
     kind: mapEventKind(event),
     actor: event.player === "friendly" ? "me" : event.player === "opponent" ? "opponent" : "system",
-    turn: "?",
+    ...(event.turn === undefined ? {} : { turn: event.turn }),
     timestamp: formatTimeLabel(event.at),
     title: eventTitle(event),
     detail: eventDetail(event)
@@ -1726,11 +1742,11 @@ function toOpponentOverview(state: PublicTrackerState): OpponentOverview {
 
   return {
     heroClass: "未知职业",
-    currentTurn: opponent.currentTurn,
-    handSize: opponent.handCount ?? "?",
-    deckRemaining: opponent.deckCount ?? "?",
-    secretsInPlay: opponent.secretCount ?? "?",
-    fatigueDamage: opponent.fatigueDamage ?? "?",
+    ...(opponent.currentTurn === undefined ? {} : { currentTurn: opponent.currentTurn }),
+    ...(opponent.handCount === undefined ? {} : { handSize: opponent.handCount }),
+    ...(opponent.deckCount === undefined ? {} : { deckRemaining: opponent.deckCount }),
+    ...(opponent.secretCount === undefined ? {} : { secretsInPlay: opponent.secretCount }),
+    ...(opponent.fatigueDamage === undefined ? {} : { fatigueDamage: opponent.fatigueDamage }),
     lastAction: latestOpponentEvent ? eventTitle(latestOpponentEvent) : "等待对手动作"
   };
 }
@@ -1741,7 +1757,7 @@ function toOpponentUsedCards(state: PublicTrackerState): OpponentPlayedCard[] {
     name: card.name,
     hidden: card.hidden,
     cost: card.details?.manaCost,
-    turn: card.turn,
+    ...(card.turn === undefined ? {} : { turn: card.turn }),
     count: card.count,
     details: card.details
   }));

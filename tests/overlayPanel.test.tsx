@@ -43,14 +43,14 @@ function tracking(
       totalCount: 1,
       countLabel: "1",
       truncated: false,
-      items: [{ id: "burn-1", sequence: 1, displayName: "烧毁牌", hidden: false, confidence: "inferred" }]
+      items: [{ id: "burn-1", sequence: 1, turn: 7, displayName: "烧毁牌", hidden: false, confidence: "inferred" }]
     },
     used: {
       key: "used",
       totalCount: 1,
       countLabel: "1",
       truncated: false,
-      items: [{ id: "use-1", sequence: 2, displayName: "已使用牌", hidden: false, confidence: "confirmed" }]
+      items: [{ id: "use-1", sequence: 2, turn: 8, displayName: "已使用牌", hidden: false, confidence: "confirmed" }]
     },
     secretSlots: [...secretSlots]
   };
@@ -85,6 +85,57 @@ describe("standard tracker overlay", () => {
     expect(container.querySelector('[data-group-key="deck"]')).toHaveAttribute("data-expanded", "true");
     expect(container.querySelector('[data-group-key="hand"]')).toHaveAttribute("data-expanded", "true");
     expect(screen.queryByText("其他")).not.toBeInTheDocument();
+  });
+
+  it("shows inserted deck groups as two-line counts while keeping ordinary deck cards", () => {
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+    const lifecycle = {
+      ...tracking(),
+      current: {
+        ...tracking().current,
+        deck: {
+          ...tracking().current.deck,
+          knownCount: 6,
+          totalCount: 6,
+          countLabel: "6",
+          cards: [
+            { id: "deck-normal", name: "普通牌", count: 1 },
+            { id: "deck-generated", name: "星界碎片", count: 5 }
+          ]
+        }
+      },
+      deckInsertions: {
+        groups: [{ sourceEntityId: "219", sourceName: "天空主母创建", remainingCount: 10 }],
+        placements: [
+          { entityId: "300", position: "top" as const, cardName: "真实置顶牌" },
+          { entityId: "301", position: "bottom" as const }
+        ]
+      }
+    };
+    const preview = render(<OverlayPanel view={view({}, lifecycle)} />);
+
+    const generated = screen.getByText("天空主母创建").closest(".overlay-deck-insertion-group");
+    expect(generated).not.toBeNull();
+    expect(generated?.children).toHaveLength(2);
+    expect(generated).toHaveTextContent("10张卡牌");
+    expect(generated).not.toHaveTextContent("星界碎片");
+    expect(screen.getByText("普通牌")).toBeInTheDocument();
+    expect(screen.getByText("星界碎片")).toBeInTheDocument();
+    expect(screen.getByLabelText("牌库位置记录")).toHaveTextContent("置顶：真实置顶牌");
+    expect(screen.getByLabelText("牌库位置记录")).toHaveTextContent("置底：未知卡牌");
+
+    preview.rerender(<OverlayPanel view={view({}, {
+      ...lifecycle,
+      deckInsertions: {
+        groups: [{ sourceEntityId: "219", sourceName: "天空主母创建", remainingCount: 9 }],
+        placements: []
+      }
+    })} />);
+
+    expect(screen.getByText("9张卡牌")).toBeInTheDocument();
+    expect(screen.queryByLabelText("牌库位置记录")).not.toBeInTheDocument();
+    expect(screen.getByText("普通牌")).toBeInTheDocument();
+    expect(screen.getByText("星界碎片")).toBeInTheDocument();
   });
 
   it("keeps exactly one group open on each short page", () => {
@@ -171,7 +222,22 @@ describe("standard tracker overlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "历史" }));
 
     expect(screen.getByText("烧毁牌")).toBeInTheDocument();
+    expect(screen.getByText("第7回合")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /已使用.*1/ })).toBeInTheDocument();
+  });
+
+  it("shows the compact trusted match pulse without exceeding one row", () => {
+    render(<OverlayPanel view={view({
+      matchPulse: {
+        turn: 7,
+        activeSide: "friendly",
+        fullLabel: "第7回合 · 我方行动 · 法力5/7",
+        compactLabel: "7回 · 我 · 5/7",
+        actorLabel: "我方回合"
+      }
+    })} />);
+
+    expect(screen.getByLabelText("当前对局进程")).toHaveTextContent("7回 · 我 · 5/7");
   });
 
   it("keeps global effects separate from physical card locations", () => {

@@ -6,6 +6,7 @@ import type {
   CollectionDeckScanResult,
   LogCandidate,
   PublicCardZone,
+  PublicDeckInsertionTracking,
   PublicLogConfigStatus,
   PublicTrackingConfidence,
   PublicTrackingStatus,
@@ -95,7 +96,7 @@ export interface GameEvent {
   id: string;
   kind: GameEventKind;
   actor: "me" | "opponent" | "system";
-  turn: number | "?";
+  turn?: number;
   timestamp: string;
   title: string;
   detail: string;
@@ -103,11 +104,11 @@ export interface GameEvent {
 
 export interface OpponentOverview {
   heroClass: string;
-  currentTurn: number | "?";
-  handSize: number | "?";
-  deckRemaining: number | "?";
-  secretsInPlay: number | "?";
-  fatigueDamage: number | "?";
+  currentTurn?: number;
+  handSize?: number;
+  deckRemaining?: number;
+  secretsInPlay?: number;
+  fatigueDamage?: number;
   lastAction: string;
 }
 
@@ -116,7 +117,7 @@ export interface OpponentPlayedCard {
   name?: string;
   hidden: boolean;
   cost?: number;
-  turn: number | "?";
+  turn?: number;
   count: number;
   details?: CardDetails;
 }
@@ -139,6 +140,7 @@ export interface OverlayCardItem {
 export interface OverlayHistoryItem {
   readonly id: string;
   readonly sequence: number;
+  readonly turn?: number;
   readonly displayName?: string;
   readonly cardId?: string;
   readonly hidden: boolean;
@@ -171,6 +173,7 @@ export interface OverlayCardTrackingView {
   readonly burned: OverlayCardHistoryView;
   readonly used: OverlayCardHistoryView;
   readonly secretSlots: readonly OverlaySecretSlot[];
+  readonly deckInsertions?: PublicDeckInsertionTracking;
 }
 
 export interface OverlayStatusView {
@@ -244,6 +247,14 @@ export interface OverlayPublicMatchCounters {
   spellsPlayed?: number;
 }
 
+export interface MatchPulseView {
+  readonly turn?: number;
+  readonly activeSide?: "friendly" | "opponent";
+  readonly fullLabel?: string;
+  readonly compactLabel?: string;
+  readonly actorLabel?: string;
+}
+
 export interface OverlayPanelViewModel {
   cardTracking: OverlayCardTrackingView;
   summary: OverlayDeckSummary;
@@ -255,6 +266,7 @@ export interface OverlayPanelViewModel {
   boardAttack?: OverlayBoardAttack;
   friendlyCounters?: OverlayPublicMatchCounters;
   opponentCounters?: OverlayPublicMatchCounters;
+  matchPulse?: MatchPulseView;
   status: OverlayStatusView;
   arena?: OverlayArenaView;
 }

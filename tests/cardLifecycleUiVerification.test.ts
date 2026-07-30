@@ -16,12 +16,13 @@ describe("card lifecycle Electron QA verification", () => {
       .toBe("node scripts/verify-card-lifecycle-ui.mjs");
   });
 
-  it("defines eight isolated, hard-asserted scenarios without user data or another browser", () => {
+  it("defines nine isolated, hard-asserted scenarios without user data or another browser", () => {
     const script = read("scripts/verify-card-lifecycle-ui.mjs");
     const sources = `${script}\n${read("scripts/card-lifecycle-qa-environment.mjs")}`;
     for (const scenario of [
       "friendly-short",
       "friendly-tall",
+      "friendly-insertions",
       "opponent-secret",
       "opponent-unknown-hand",
       "inline-normal",
@@ -34,8 +35,8 @@ describe("card lifecycle Electron QA verification", () => {
     expect(sources).toContain("mkdtemp");
     expect(sources).toContain("QA_USER_DATA_DIR");
     expect(sources).toContain("node_modules/.bin/electron");
-    expect(sources).toContain("当前环境无法验证 100×900");
-    expect(sources).toContain("workArea.height");
+    expect(sources).toContain("targetHeight = Math.min(900");
+    expect(sources).toContain("tallWorkArea.height");
     expect(sources).toContain("actualScrollableSelectors");
     expect(sources).toContain("designatedScrollOwners");
     expect(sources).toContain("consoleErrorCount");
@@ -52,7 +53,7 @@ describe("card lifecycle Electron QA verification", () => {
       /assert\.deepEqual\(\s*inspection\.inheritedNodeEnvironmentKeys,\s*\[\]/
     );
     expect(script).toMatch(
-      /async function verifyFriendlyTall\(\) \{\s*if \(workAreas\.length === 0\) \{\s*await verifyFriendlyShort\(\);/
+      /async function verifyFriendlyTall\(\) \{\s*if \(workAreas\.length === 0\) \{\s*throw new Error/
     );
   });
 
@@ -198,11 +199,11 @@ describe("card lifecycle Electron QA verification", () => {
     expect(script.match(/assertPreviewScrollContract\(name, preview\)/g)).toHaveLength(3);
   });
 
-  it("reports the tall-window case as blocked and unverified", () => {
+  it("reports the tallest available real-window case as verified", () => {
     const report = read(".superpowers/sdd/task-9-report.md");
-    expect(report).not.toContain("验收已完成");
-    expect(report).toContain("环境阻塞");
-    expect(report).toContain("未验证");
-    expect(report).toContain("7 个");
+    expect(report).toContain("验收已完成");
+    expect(report).toContain("100×834");
+    expect(report).toContain("9 个");
+    expect(report).not.toContain("环境阻塞、未验证");
   });
 });

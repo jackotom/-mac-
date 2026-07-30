@@ -50,7 +50,7 @@ export function EventFeed({ events }: EventFeedProps) {
                 </div>
                 <article>
                   <div className="timeline-meta">
-                    <span>回合 {event.turn}</span>
+                    {event.turn === undefined ? null : <span>第{event.turn}回合</span>}
                     <span>{event.timestamp}</span>
                     <span>{actorLabels[event.actor]}</span>
                   </div>

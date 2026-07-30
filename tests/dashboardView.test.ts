@@ -89,7 +89,11 @@ const truthfulLiveState = createPublicTrackerState({
       }
     },
     opponentSecretSlots: [{ entityId: "secret-1", candidates: [] }],
-    detailsByCardKey: {}
+    detailsByCardKey: {},
+    contextDetailsBySideAndCardKey: {
+      friendly: {},
+      opponent: {}
+    }
   }
 });
 
@@ -164,7 +168,6 @@ describe("dashboard view model", () => {
       id: "hidden-use-1",
       hidden: true,
       count: 1,
-      turn: "?",
       details: undefined
     });
     expect(hiddenUse).not.toHaveProperty("name");
@@ -261,11 +264,11 @@ describe("dashboard view model", () => {
       deckCount: 23,
       handCount: 7,
       secretCount: 1,
-      currentTurn: "?",
+      currentTurn: undefined,
       fatigueDamage: 3,
       playedCards: [
-        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", hidden: false, count: 1, turn: "?" },
-        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", hidden: false, count: 1, turn: "?" }
+        { id: "used-12", name: "寒冰箭", cardId: "CS2_024", hidden: false, count: 1 },
+        { id: "used-11", name: "寒冰箭", cardId: "CS2_024", hidden: false, count: 1 }
       ]
     });
     expect(view.events.items).toEqual([
@@ -301,7 +304,7 @@ describe("dashboard view model", () => {
     expect(view.opponent.deckCount).toBeUndefined();
     expect(view.opponent.handCount).toBeUndefined();
     expect(view.opponent.secretCount).toBe(0);
-    expect(view.opponent.currentTurn).toBe("?");
+    expect(view.opponent.currentTurn).toBeUndefined();
     expect(view.opponent.fatigueDamage).toBeUndefined();
   });
 
@@ -325,7 +328,7 @@ describe("dashboard view model", () => {
       deckCount: undefined,
       handCount: undefined,
       secretCount: undefined,
-      currentTurn: "?",
+      currentTurn: undefined,
       fatigueDamage: undefined,
       playedCards: []
     });

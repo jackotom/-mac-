@@ -266,6 +266,7 @@ function TrackingGroup({
             : <CurrentItems
                 group={group as OverlayCardZoneView}
                 secretSlots={groupKey === "secret" ? view.secretSlots : []}
+                deckInsertions={groupKey === "deck" ? view.deckInsertions : undefined}
                 emptyLabel={deckPresentation?.emptyLabel}
                 activeCard={activeCard}
                 onActiveCardChange={onActiveCardChange}
@@ -279,12 +280,14 @@ function TrackingGroup({
 function CurrentItems({
   group,
   secretSlots,
+  deckInsertions,
   emptyLabel,
   activeCard,
   onActiveCardChange
 }: {
   readonly group: OverlayCardZoneView;
   readonly secretSlots: OverlayCardTrackingView["secretSlots"];
+  readonly deckInsertions?: OverlayCardTrackingView["deckInsertions"];
   readonly emptyLabel?: string;
   readonly activeCard?: OverlayCardItem;
   readonly onActiveCardChange: (card: OverlayCardItem | undefined) => void;
@@ -292,9 +295,13 @@ function CurrentItems({
   const undisclosed = group.key === "hand" && group.totalCount !== undefined
     ? Math.max(0, group.totalCount - group.knownCount)
     : 0;
-  const hasContent = group.cards.length > 0 || undisclosed > 0 || secretSlots.length > 0;
+  const hasContent = group.cards.length > 0 ||
+    undisclosed > 0 ||
+    secretSlots.length > 0 ||
+    Boolean(deckInsertions?.groups.length || deckInsertions?.placements.length);
   return (
     <>
+      {deckInsertions ? <DeckInsertionSummary tracking={deckInsertions} /> : null}
       <CardRows
         items={group.cards}
         activeCard={activeCard}
@@ -321,6 +328,37 @@ function CurrentItems({
   );
 }
 
+function DeckInsertionSummary({
+  tracking
+}: {
+  readonly tracking: NonNullable<OverlayCardTrackingView["deckInsertions"]>;
+}) {
+  return (
+    <>
+      {tracking.groups.length > 0 ? (
+        <div className="overlay-deck-insertion-groups" aria-label="牌库生成记录">
+          {tracking.groups.map((group) => (
+            <div className="overlay-deck-insertion-group" key={group.sourceEntityId}>
+              <strong title={group.sourceName}>{group.sourceName}</strong>
+              <span>{group.remainingCount}张卡牌</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {tracking.placements.length > 0 ? (
+        <div className="overlay-deck-placements" aria-label="牌库位置记录">
+          {tracking.placements.map((placement) => (
+            <p key={placement.entityId}>
+              <span>{placement.position === "top" ? "置顶" : "置底"}：</span>
+              <strong>{placement.cardName?.trim() || "未知卡牌"}</strong>
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function HistoryItems({ group }: { readonly group: OverlayCardHistoryView }) {
   if (group.items.length === 0) {
     return <p className="overlay-card-group-empty">暂无记录</p>;
@@ -329,11 +367,14 @@ function HistoryItems({ group }: { readonly group: OverlayCardHistoryView }) {
     <ul className="overlay-compact-card-list">
       {group.items.map((item) => (
         <li key={item.id}>
-          <CardHoverPreview details={item.details} className="overlay-compact-card-row">
+          <CardHoverPreview details={item.details} className="overlay-compact-card-row overlay-history-card-row">
             <span className="overlay-card-cost" aria-label="顺序">{item.sequence}</span>
             <span className="overlay-card-art">
               <strong>{item.hidden ? "未公开记录" : item.displayName}</strong>
             </span>
+            {item.turn === undefined ? null : (
+              <span className="overlay-history-turn">第{item.turn}回合</span>
+            )}
             <span className="overlay-history-confidence">
               {item.confidence === "confirmed" ? "确认" : "推断"}
             </span>

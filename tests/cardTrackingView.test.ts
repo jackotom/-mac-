@@ -63,6 +63,145 @@ function actualOutcome(name: string, dbfId: number) {
 }
 
 describe("card tracking renderer mapping", () => {
+  it("sorts only the deck by mana then name while leaving unknown costs last", () => {
+    const value = tracking();
+    const cards = [
+      { cardKey: "id:unknown", name: "未知费用", count: 1 },
+      { cardKey: "id:two-b", name: "同费乙", count: 1 },
+      { cardKey: "id:one", name: "一费牌", count: 1 },
+      { cardKey: "id:two-a", name: "同费甲", count: 1 }
+    ];
+    setZone(value, "friendly", "deck", {
+      status: "known",
+      knownCount: 4,
+      totalCount: 4,
+      cards
+    });
+    setZone(value, "friendly", "hand", {
+      status: "known",
+      knownCount: 4,
+      totalCount: 4,
+      cards
+    });
+    setZone(value, "opponent", "deck", {
+      status: "known",
+      knownCount: 4,
+      totalCount: 4,
+      cards
+    });
+    setTrackingField(value, "detailsByCardKey", {
+      "id:one": { dbfId: 1, name: "一费牌", manaCost: 1, isSpell: false, relatedCards: [] },
+      "id:two-a": { dbfId: 2, name: "同费甲", manaCost: 2, isSpell: false, relatedCards: [] },
+      "id:two-b": { dbfId: 3, name: "同费乙", manaCost: 2, isSpell: false, relatedCards: [] }
+    });
+
+    const view = toCardTrackingView(value, "friendly", { showSecretCandidates: true });
+
+    expect(view.current.deck.cards.map((card) => card.name)).toEqual([
+      "一费牌",
+      "同费甲",
+      "同费乙",
+      "未知费用"
+    ]);
+    expect(view.current.hand.cards.map((card) => card.name)).toEqual(cards.map((card) => card.name));
+    const opponentView = toCardTrackingView(value, "opponent", { showSecretCandidates: true });
+    expect(opponentView.current.deck.cards.map((card) => card.name))
+      .toEqual(cards.map((card) => card.name));
+  });
+
+  it("passes only the selected side's inserted-deck summary and placements", () => {
+    const value = tracking();
+    setTrackingField(value, "deckInsertions", {
+      friendly: {
+        groups: [{ sourceEntityId: "219", sourceName: "天空主母创建", remainingCount: 9 }],
+        placements: [
+          { entityId: "300", position: "top", cardName: "星界碎片" },
+          { entityId: "301", position: "bottom" }
+        ]
+      },
+      opponent: {
+        groups: [{ sourceEntityId: "500", sourceName: "对手来源创建", remainingCount: 5 }],
+        placements: []
+      }
+    });
+
+    const friendly = toCardTrackingView(value, "friendly", { showSecretCandidates: true });
+    const opponent = toCardTrackingView(value, "opponent", { showSecretCandidates: true });
+
+    expect(friendly.deckInsertions).toEqual({
+      groups: [{ sourceEntityId: "219", sourceName: "天空主母创建", remainingCount: 9 }],
+      placements: [
+        { entityId: "300", position: "top", cardName: "星界碎片" },
+        { entityId: "301", position: "bottom" }
+      ]
+    });
+    expect(opponent.deckInsertions?.groups).toEqual([
+      { sourceEntityId: "500", sourceName: "对手来源创建", remainingCount: 5 }
+    ]);
+  });
+
+  it("merges only the selected side context details into current and history cards", () => {
+    const value = tracking();
+    const card = { cardKey: "id:toy_378", cardId: "TOY_378", name: "星空投影球", count: 1 };
+    setZone(value, "friendly", "hand", {
+      status: "known",
+      knownCount: 1,
+      totalCount: 1,
+      cards: [card]
+    });
+    setZone(value, "opponent", "hand", {
+      status: "known",
+      knownCount: 1,
+      totalCount: 1,
+      cards: [card]
+    });
+    setHistory(value, "friendly", "used", {
+      totalCount: 1,
+      truncated: false,
+      items: [{
+        id: "friendly-use",
+        sequence: 1,
+        entityId: "friendly-orb",
+        card: { cardKey: card.cardKey, cardId: card.cardId, name: card.name },
+        confidence: "confirmed"
+      }]
+    });
+    setTrackingField(value, "detailsByCardKey", {
+      [card.cardKey]: {
+        dbfId: 110_001,
+        cardId: card.cardId,
+        name: card.name,
+        manaCost: 10,
+        isSpell: true,
+        relatedCards: []
+      }
+    });
+    setTrackingField(value, "contextDetailsBySideAndCardKey", {
+      friendly: {
+        [card.cardKey]: {
+          playedSpellsThisGame: [{ dbfId: 1, name: "本局法术", manaCost: 2 }],
+          playedSpellsThisGameCount: 7,
+          playedSpellsThisGameIncomplete: true
+        }
+      },
+      opponent: {}
+    });
+
+    const friendly = toCardTrackingView(value, "friendly", { showSecretCandidates: true });
+    const opponent = toCardTrackingView(value, "opponent", { showSecretCandidates: true });
+
+    expect(friendly.current.hand.cards[0]?.details).toMatchObject({
+      playedSpellsThisGameCount: 7,
+      playedSpellsThisGameIncomplete: true
+    });
+    expect(friendly.used.items[0]?.details).toMatchObject({
+      playedSpellsThisGameCount: 7,
+      playedSpellsThisGameIncomplete: true
+    });
+    expect(opponent.current.hand.cards[0]?.details).not.toHaveProperty("playedSpellsThisGame");
+    expect(value.detailsByCardKey[card.cardKey]).not.toHaveProperty("playedSpellsThisGame");
+  });
+
   it("keeps a hidden history action without inventing a card name", () => {
     const value = tracking();
     setHistory(value, "friendly", "burned", {
@@ -71,9 +210,10 @@ describe("card tracking renderer mapping", () => {
       items: [{
         id: "burn-1",
         sequence: 4,
+        turn: 7,
         entityId: "44",
         confidence: "inferred"
-      }]
+      }] as PublicCardHistoryGroup["items"]
     });
 
     const view = toCardTrackingView(value, "friendly", { showSecretCandidates: true });
@@ -82,6 +222,7 @@ describe("card tracking renderer mapping", () => {
     expect(view.burned.items).toEqual([{
       id: "burn-1",
       sequence: 4,
+      turn: 7,
       displayName: undefined,
       hidden: true,
       confidence: "inferred",

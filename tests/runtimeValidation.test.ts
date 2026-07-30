@@ -37,6 +37,11 @@ function overwriteDetailsByCardKey(state: CompleteTrackerState, value: unknown):
   tracking.detailsByCardKey = value;
 }
 
+function overwriteContextDetails(state: CompleteTrackerState, value: unknown): void {
+  const tracking = state.cardTracking as unknown as Record<string, unknown>;
+  tracking.contextDetailsBySideAndCardKey = value;
+}
+
 function createDetailsWithOutcomeSections() {
   return {
     dbfId: 315,
@@ -140,6 +145,95 @@ describe("card tracking runtime validation", () => {
     expect(state.events).not.toBe(overrides.events);
     expect(state.events[0]).not.toBe(overrides.events[0]);
     expect(state.summary).not.toBe(overrides.summary);
+  });
+
+  it("accepts inserted-deck summaries but rejects duplicate source groups", () => {
+    const state = createPublicTrackerState();
+    (state.cardTracking as unknown as Record<string, unknown>).deckInsertions = {
+      friendly: {
+        groups: [{ sourceEntityId: "219", sourceName: "天空主母创建", remainingCount: 9 }],
+        placements: [
+          { entityId: "300", position: "top", cardName: "星界碎片" },
+          { entityId: "301", position: "bottom" }
+        ]
+      },
+      opponent: { groups: [], placements: [] }
+    };
+    expect(() => parsePublicTrackerState(state)).not.toThrow();
+
+    const duplicate = structuredClone(state);
+    const friendly = duplicate.cardTracking.deckInsertions!.friendly as unknown as {
+      groups: unknown[];
+    };
+    friendly.groups.push({
+      sourceEntityId: "219",
+      sourceName: "重复来源",
+      remainingCount: 1
+    });
+    expect(() => parsePublicTrackerState(duplicate)).toThrow(/卡牌生命周期数据无效/);
+  });
+
+  it("accepts side-scoped spell history counts without copying them into shared card details", () => {
+    const state = createPublicTrackerState();
+    overwriteContextDetails(state, {
+      friendly: {
+        "id:toy_378": {
+          playedSpellsThisGame: [
+            { dbfId: 1, name: "奥术飞弹", manaCost: 1 },
+            { dbfId: 2, name: "火球术", manaCost: 4 }
+          ],
+          playedSpellsThisGameCount: 7,
+          playedSpellsThisGameIncomplete: true
+        }
+      },
+      opponent: {}
+    });
+
+    expect(parsePublicTrackerState(state).cardTracking.contextDetailsBySideAndCardKey.friendly)
+      .toHaveProperty("id:toy_378");
+    expect(state.cardTracking.detailsByCardKey).not.toHaveProperty("id:toy_378");
+  });
+
+  it("rejects malformed side-scoped spell history instead of inventing missing cards", () => {
+    const tooSmall = createPublicTrackerState();
+    overwriteContextDetails(tooSmall, {
+      friendly: {
+        "id:toy_378": {
+          playedSpellsThisGame: [
+            { dbfId: 1, name: "奥术飞弹" },
+            { dbfId: 2, name: "火球术" }
+          ],
+          playedSpellsThisGameCount: 1
+        }
+      },
+      opponent: {}
+    });
+    expect(() => parsePublicTrackerState(tooSmall)).toThrow(/卡牌生命周期数据无效/);
+
+    const unknownField = createPublicTrackerState();
+    overwriteContextDetails(unknownField, {
+      friendly: {
+        "id:toy_378": {
+          playedSpellsThisGame: [],
+          fabricatedCards: ["不存在的法术"]
+        }
+      },
+      opponent: {}
+    });
+    expect(() => parsePublicTrackerState(unknownField)).toThrow(/卡牌生命周期数据无效/);
+
+    const contradictory = createPublicTrackerState();
+    overwriteContextDetails(contradictory, {
+      friendly: {
+        "id:toy_378": {
+          playedSpellsThisGame: [{ dbfId: 1, name: "奥术飞弹" }],
+          playedSpellsThisGameCount: 1,
+          playedSpellsThisGameIncomplete: true
+        }
+      },
+      opponent: {}
+    });
+    expect(() => parsePublicTrackerState(contradictory)).toThrow(/卡牌生命周期数据无效/);
   });
 
   it("rejects known groups whose total differs from the known count", () => {

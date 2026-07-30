@@ -20,18 +20,25 @@ export function OpponentPanel({ overview, playedCards }: OpponentPanelProps) {
         </div>
       </div>
 
-      <div className="overview-grid" aria-label="对手回合概览">
-        <StatTile icon={Timer} label="当前回合" value={overview.currentTurn.toString()} />
-        <StatTile icon={Hand} label="手牌" value={overview.handSize.toString()} />
-        <StatTile icon={Swords} label="牌库" value={overview.deckRemaining.toString()} />
-        <StatTile icon={ShieldQuestion} label="奥秘" value={overview.secretsInPlay.toString()} />
-      </div>
+      {[
+        overview.currentTurn,
+        overview.handSize,
+        overview.deckRemaining,
+        overview.secretsInPlay
+      ].some((value) => value !== undefined) ? (
+        <div className="overview-grid" aria-label="对手回合概览">
+          {overview.currentTurn === undefined ? null : <StatTile icon={Timer} label="当前回合" value={String(overview.currentTurn)} />}
+          {overview.handSize === undefined ? null : <StatTile icon={Hand} label="手牌" value={String(overview.handSize)} />}
+          {overview.deckRemaining === undefined ? null : <StatTile icon={Swords} label="牌库" value={String(overview.deckRemaining)} />}
+          {overview.secretsInPlay === undefined ? null : <StatTile icon={ShieldQuestion} label="奥秘" value={String(overview.secretsInPlay)} />}
+        </div>
+      ) : null}
 
-      <div className="fatigue-block">
+      {overview.fatigueDamage === undefined ? null : <div className="fatigue-block">
         <Flame aria-hidden="true" size={18} />
         <span>疲劳伤害</span>
         <strong>{overview.fatigueDamage}</strong>
-      </div>
+      </div>}
 
       <section className="last-action" aria-label="对手最近动作">
         <span>最近动作</span>
@@ -63,12 +70,12 @@ export function OpponentPanel({ overview, playedCards }: OpponentPanelProps) {
                     )}
                     <div>
                       <strong title={displayName} aria-label={displayName}>{displayName}</strong>
-                      <small>
-                        回合 {card.turn}
+                      {card.turn !== undefined || (card.details?.attack !== undefined && card.details.health !== undefined) ? <small>
+                        {card.turn === undefined ? null : `第${card.turn}回合`}
                         {card.details?.attack !== undefined && card.details.health !== undefined
-                          ? ` · ${card.details.attack}/${card.details.health}`
+                          ? `${card.turn === undefined ? "" : " · "}${card.details.attack}/${card.details.health}`
                           : ""}
-                      </small>
+                      </small> : null}
                     </div>
                     <em>x{card.count}</em>
                   </summary>
