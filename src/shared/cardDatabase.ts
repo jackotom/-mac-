@@ -494,6 +494,25 @@ export function normalizeCardId(cardId: string): string {
   return cardId.trim().toLocaleLowerCase();
 }
 
+export function cardArtworkSources(
+  card: Pick<CardInfo, "cardId" | "cropImageUrl" | "imageUrl">,
+  order: "crop-first" | "image-first" = "crop-first"
+): readonly string[] {
+  const normalizedCardId = card.cardId?.trim().toLocaleUpperCase("en-US");
+  const derived = normalizedCardId && /^[A-Z0-9_]+$/u.test(normalizedCardId)
+    ? {
+        crop: `https://art.hearthstonejson.com/v1/tiles/${encodeURIComponent(normalizedCardId)}.jpg`,
+        image: `https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/${encodeURIComponent(normalizedCardId)}.png`
+      }
+    : undefined;
+  const sources = order === "image-first"
+    ? [card.imageUrl, card.cropImageUrl, derived?.image, derived?.crop]
+    : [card.cropImageUrl, card.imageUrl, derived?.crop, derived?.image];
+  return sources.filter((source, index, items): source is string =>
+    Boolean(source) && items.indexOf(source) === index
+  );
+}
+
 function parseCardInfo(value: unknown): CardInfo | undefined {
   if (!isRecord(value)) {
     return undefined;

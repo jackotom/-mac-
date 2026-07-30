@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CardLibraryPanel, type CardLibraryCard, type CardLibraryFilters } from "../src/renderer/components/CardLibraryPanel";
+import { createCardDatabase, listCardLibrary } from "../src/shared/cardDatabase";
 
 const filters: CardLibraryFilters = {
   heroClass: "",
@@ -131,6 +132,27 @@ describe("CardLibraryPanel", () => {
 
     expect(document.querySelector(".card-library-art")).toHaveClass("is-empty");
     expect(document.querySelector(".card-library-art")).toHaveAccessibleName("卡图不可用");
+  });
+
+  it("renders derived artwork for a legacy card record without official image fields", () => {
+    const database = createCardDatabase([
+      {
+        dbfId: 69622,
+        cardId: "CORE_EX1_144",
+        name: "暗影步",
+        collectible: true,
+        cardType: "法术"
+      }
+    ]);
+    const result = listCardLibrary(database);
+
+    renderPanel({ cards: result.items });
+
+    expect(document.querySelector<HTMLImageElement>(".card-library-art img")).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/tiles/CORE_EX1_144.jpg"
+    );
+    expect(screen.queryByLabelText("卡图不可用")).not.toBeInTheDocument();
   });
 
   it("shows loading, error, and empty states without a broken grid", () => {

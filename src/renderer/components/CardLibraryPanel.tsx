@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, Database, ImageOff, Search } from "lucide-react";
-import { useState } from "react";
-import type { CardDetails } from "../../shared/cardDatabase";
+import { useEffect, useState } from "react";
+import { cardArtworkSources, type CardDetails } from "../../shared/cardDatabase";
 import "../cardLibraryStyles.css";
 import { CardDetailBody } from "./CardDetailBody";
 import { CardHoverPreview } from "./CardHoverPreview";
@@ -219,10 +219,12 @@ function CardLibraryTile({
 }
 
 function CardArtwork({ card }: { card: CardLibraryCard }) {
-  const sources = [card.cropImageUrl, card.imageUrl].filter((source, index, items): source is string => Boolean(source) && items.indexOf(source) === index);
+  const sources = cardArtworkSources(card);
+  const sourcesKey = sources.join("\n");
   const [sourceIndex, setSourceIndex] = useState(0);
   const source = sources[sourceIndex];
   const isUnavailable = !source;
+  useEffect(() => setSourceIndex(0), [sourcesKey]);
 
   return (
     <span className={`card-library-art${isUnavailable ? " is-empty" : ""}`} aria-label={isUnavailable ? "卡图不可用" : undefined}>
