@@ -2137,6 +2137,97 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
+  it("syncs each Underground Arena replacement into the tracker before redraft completion", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 19:11:23.943 Arena.SetDraftMode - REDRAFTING",
+      "D 19:11:27.660 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9475577956",
+      "D 19:11:27.929 DraftManager.OnChoicesAndContents - Draft Deck ID: 9475577955, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 19:11:28.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_RETAINED`
+      )
+    ].join("\n") + "\n", "utf8");
+
+    const service = new TrackerService(undefined, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: arenaLog });
+
+    for (let index = 1; index <= 4; index += 1) {
+      await appendFile(
+        arenaLog,
+        `D 19:11:${String(31 + index).padStart(2, "0")}.000 Client chooses: [TEST_REPLACEMENT_${index}]\n`,
+        "utf8"
+      );
+      await vi.waitFor(() => {
+        const state = service.getState();
+        expect(state.arena).toMatchObject({
+          status: "redrafting",
+          draftCount: 24 + index,
+          unresolvedCount: 6 - index
+        });
+        expect(state.deckName).toBe("竞技场牌库");
+        expect(state.summary.totalCards).toBe(30);
+        expect(state.deck).toEqual(expect.arrayContaining([
+          expect.objectContaining({ cardId: `TEST_REPLACEMENT_${index}`, count: 1 }),
+          expect.objectContaining({ name: "未解析竞技场牌", count: 6 - index, unresolved: true })
+        ]));
+      }, { timeout: 2_000, interval: 25 });
+    }
+
+    await appendFile(arenaLog, [
+      "D 19:11:50.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9475577955, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 19:11:50.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_RETAINED`
+      ),
+      ...Array.from(
+        { length: 4 },
+        (_value, index) => `D 19:11:51.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_REPLACEMENT_${index + 1}`
+      ),
+      "D 19:11:52.000 Arena.SetDraftMode - REDRAFTING"
+    ].join("\n") + "\n", "utf8");
+    await vi.waitFor(() => {
+      const state = service.getState();
+      expect(state.arena).toMatchObject({ status: "redrafting", draftCount: 28, unresolvedCount: 2 });
+      expect(state.summary.totalCards).toBe(30);
+      expect(state.deck.filter((card) => card.cardId?.startsWith("TEST_REPLACEMENT_"))).toHaveLength(4);
+    }, { timeout: 2_000, interval: 25 });
+
+    await appendFile(
+      arenaLog,
+      "D 19:11:57.000 Client chooses: [TEST_REPLACEMENT_5]\n",
+      "utf8"
+    );
+    await vi.waitFor(() => {
+      const state = service.getState();
+      expect(state.arena).toMatchObject({ status: "redrafting", draftCount: 29, unresolvedCount: 1 });
+      expect(state.summary.totalCards).toBe(30);
+      expect(state.deck).toEqual(expect.arrayContaining([
+        expect.objectContaining({ cardId: "TEST_REPLACEMENT_5", count: 1 }),
+        expect.objectContaining({ name: "未解析竞技场牌", count: 1, unresolved: true })
+      ]));
+    }, { timeout: 2_000, interval: 25 });
+
+    await appendFile(arenaLog, "D 19:11:57.365 Arena.SetDraftMode - ACTIVE_DRAFT_DECK\n", "utf8");
+    await vi.waitFor(() => {
+      const state = service.getState();
+      expect(state.arena).toMatchObject({ status: "complete", draftCount: 29, unresolvedCount: 1 });
+      expect(state.summary.totalCards).toBe(30);
+      expect(state.deck).toEqual(expect.arrayContaining([
+        expect.objectContaining({ cardId: "TEST_REPLACEMENT_5", count: 1 }),
+        expect.objectContaining({ name: "未解析竞技场牌", count: 1, unresolved: true })
+      ]));
+    }, { timeout: 2_000, interval: 25 });
+
+    await service.dispose();
+  });
+
   it("rebuilds Arena state when a truncated log is quickly rewritten past the old offset", async () => {
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");

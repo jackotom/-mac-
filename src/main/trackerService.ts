@@ -1330,12 +1330,24 @@ export class TrackerService {
     }
 
     const arenaState = this.arena.getState();
-    if (arenaState.status === "drafting" || arenaState.status === "redrafting") {
+    if (arenaState.status === "drafting") {
       this.lastArenaDeckSignature = undefined;
       this.engine.clearArenaDeck();
       return;
     }
-    if (arenaState.status !== "complete" && arenaState.status !== "playing") {
+    if (
+      arenaState.status === "redrafting" &&
+      (arenaState.deck.length === 0 || Boolean(arenaState.redraftPool?.length))
+    ) {
+      this.lastArenaDeckSignature = undefined;
+      this.engine.clearArenaDeck();
+      return;
+    }
+    if (
+      arenaState.status !== "redrafting" &&
+      arenaState.status !== "complete" &&
+      arenaState.status !== "playing"
+    ) {
       return;
     }
 
@@ -1347,7 +1359,11 @@ export class TrackerService {
         ]
       : arenaState.deck;
     const trackerEngineDeck = trackerDeck.map(({ pickRate: _pickRate, deckImpact: _deckImpact, ...card }) => card);
-    const signature = JSON.stringify(trackerEngineDeck);
+    const signature = JSON.stringify({
+      phase: arenaState.status === "redrafting" ? "redrafting" : "final",
+      redraftGenerationId: arenaState.status === "redrafting" ? arenaState.redraftGenerationId : undefined,
+      deck: trackerEngineDeck
+    });
     const trackerDeckName = "竞技场牌库";
     const trackerAlreadyShowsArenaDeck = this.engine.getState().deckName === trackerDeckName;
     if (
