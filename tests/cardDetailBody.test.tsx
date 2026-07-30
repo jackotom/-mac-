@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CardDetailBody } from "../src/renderer/components/CardDetailBody";
 import type { CardDetails } from "../src/shared/cardDatabase";
@@ -81,6 +81,25 @@ describe("CardDetailBody related cards", () => {
     );
 
     expect(screen.getByLabelText("炎爆术无卡图")).toHaveTextContent("无图");
+  });
+
+  it("uses the card id as a fallback for the main card image", () => {
+    render(<CardDetailBody details={baseDetails} mode="interactive" />);
+
+    const artwork = screen.getByRole("img", { name: "匣中古神 卡牌图" });
+    expect(artwork).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/VAC_520.png"
+    );
+
+    fireEvent.error(artwork);
+    expect(artwork).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/tiles/VAC_520.jpg"
+    );
+
+    fireEvent.error(artwork);
+    expect(screen.getByText("无图片")).toBeInTheDocument();
   });
 
   it("keeps the theoretical pool separate from the five spells actually cast this game", () => {

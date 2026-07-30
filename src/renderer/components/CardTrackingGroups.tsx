@@ -4,7 +4,8 @@ import {
   useRef,
   useState
 } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ImageOff } from "lucide-react";
+import { cardArtworkSources } from "../../shared/cardDatabase";
 import type { PublicCardZone } from "../../shared/types";
 import {
   resolveFriendlyDefault,
@@ -19,6 +20,7 @@ import {
 import type {
   OverlayCardHistoryView,
   OverlayCardItem,
+  OverlaySecretCandidate,
   OverlayCardTrackingView,
   OverlayCardZoneView
 } from "../types";
@@ -319,6 +321,7 @@ function CurrentItems({
                     details={candidate.details}
                     className="opponent-secret-candidate-preview"
                   >
+                    <SecretCandidateArtwork candidate={candidate} />
                     <strong>{candidate.name}</strong>
                     <span>{candidate.status === "excluded" ? "已排除" : "可能"}</span>
                   </CardHoverPreview>
@@ -330,6 +333,42 @@ function CurrentItems({
       ))}
       {!hasContent ? <p className="overlay-card-group-empty">{emptyLabel ?? "暂无记录"}</p> : null}
     </>
+  );
+}
+
+function SecretCandidateArtwork({
+  candidate
+}: {
+  readonly candidate: OverlaySecretCandidate;
+}) {
+  const sources = cardArtworkSources({
+    cardId: candidate.details?.cardId ?? candidate.id,
+    cropImageUrl: candidate.details?.cropImageUrl,
+    imageUrl: candidate.details?.imageUrl
+  }, "image-first");
+  const sourcesKey = sources.join("\n");
+  const [sourceState, setSourceState] = useState({ key: sourcesKey, index: 0 });
+  const sourceIndex = sourceState.key === sourcesKey ? sourceState.index : 0;
+  const source = sources[sourceIndex];
+
+  return source ? (
+    <img
+      className="opponent-secret-candidate-thumb"
+      src={source}
+      alt={`${candidate.name}卡图`}
+      loading="lazy"
+      onError={() => setSourceState((current) => ({
+        key: sourcesKey,
+        index: (current.key === sourcesKey ? current.index : 0) + 1
+      }))}
+    />
+  ) : (
+    <span
+      aria-label={`${candidate.name}无卡图`}
+      className="opponent-secret-candidate-thumb is-empty"
+    >
+      <ImageOff aria-hidden="true" size={13} />
+    </span>
   );
 }
 

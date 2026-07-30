@@ -489,6 +489,23 @@ describe("card database details", () => {
     expect(cardArtworkSources(getCardInfo(database, 99001)!)).toEqual([]);
   });
 
+  it("preserves mixed-case card ids required by the artwork service", () => {
+    const database = createCardDatabase([
+      {
+        dbfId: 99002,
+        cardId: "VAN_tt_010",
+        name: "法术偏转",
+        collectible: true,
+        cardType: "法术"
+      }
+    ]);
+
+    expect(cardArtworkSources(getCardInfo(database, 99002)!)).toEqual([
+      "https://art.hearthstonejson.com/v1/tiles/VAN_tt_010.jpg",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/VAN_tt_010.png"
+    ]);
+  });
+
   it("normalizes card classes from official and legacy metadata", () => {
     const database = createCardDatabase([
       { dbfId: 3001, cardId: "MAGE_CARD", name: "法师卡", playerClass: "mage", type: "SPELL" },

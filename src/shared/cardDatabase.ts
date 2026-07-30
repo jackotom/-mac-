@@ -498,11 +498,11 @@ export function cardArtworkSources(
   card: Pick<CardInfo, "cardId" | "cropImageUrl" | "imageUrl">,
   order: "crop-first" | "image-first" = "crop-first"
 ): readonly string[] {
-  const normalizedCardId = card.cardId?.trim().toLocaleUpperCase("en-US");
-  const derived = normalizedCardId && /^[A-Z0-9_]+$/u.test(normalizedCardId)
+  const artworkCardId = card.cardId?.trim();
+  const derived = artworkCardId && /^[A-Z0-9_]+$/iu.test(artworkCardId)
     ? {
-        crop: `https://art.hearthstonejson.com/v1/tiles/${encodeURIComponent(normalizedCardId)}.jpg`,
-        image: `https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/${encodeURIComponent(normalizedCardId)}.png`
+        crop: `https://art.hearthstonejson.com/v1/tiles/${encodeURIComponent(artworkCardId)}.jpg`,
+        image: `https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/${encodeURIComponent(artworkCardId)}.png`
       }
     : undefined;
   const sources = order === "image-first"

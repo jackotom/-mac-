@@ -148,6 +148,60 @@ describe("opponent overlay", () => {
     expect(screen.getByText("已排除")).toBeInTheDocument();
   });
 
+  it("shows artwork for secret predictions even when legacy details omit image URLs", () => {
+    const details = {
+      dbfId: 585,
+      cardId: "EX1_287",
+      name: "法术反制",
+      manaCost: 3,
+      cardType: "法术",
+      text: "当你的对手施放一个法术时，反制该法术。",
+      isSpell: true,
+      relatedCards: []
+    };
+    const secret: OverlaySecretSlot = {
+      id: "slot-1",
+      label: "? 1",
+      candidates: [
+        { id: "EX1_287", name: "法术反制", status: "possible", details }
+      ]
+    };
+
+    render(<OpponentOverlayPanel view={view(opponentTracking([secret]))} isCollapsed={false} />);
+
+    const artwork = screen.getByRole("img", { name: "法术反制卡图" });
+    expect(artwork).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/EX1_287.png"
+    );
+
+    fireEvent.error(artwork);
+    expect(artwork).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/tiles/EX1_287.jpg"
+    );
+
+    fireEvent.error(artwork);
+    expect(screen.getByLabelText("法术反制无卡图")).toBeInTheDocument();
+  });
+
+  it("can derive a secret prediction image before full card details arrive", () => {
+    const secret: OverlaySecretSlot = {
+      id: "slot-1",
+      label: "? 1",
+      candidates: [
+        { id: "EX1_289", name: "寒冰屏障", status: "possible" }
+      ]
+    };
+
+    render(<OpponentOverlayPanel view={view(opponentTracking([secret]))} isCollapsed={false} />);
+
+    expect(screen.getByRole("img", { name: "寒冰屏障卡图" })).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/EX1_289.png"
+    );
+  });
+
   it("does not open an empty preview for a candidate without card details", () => {
     const showCardPreview = vi.fn(async () => undefined);
     Object.defineProperty(window, "hearthstoneTracker", {

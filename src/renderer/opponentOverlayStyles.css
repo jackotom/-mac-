@@ -150,9 +150,29 @@
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
+}
+
+.opponent-secret-candidate-thumb {
+  display: grid;
+  width: 20px;
+  height: 26px;
+  place-items: center;
+  object-fit: cover;
+  border: 1px solid rgba(255, 209, 141, 0.28);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.opponent-secret-candidate-thumb.is-empty {
+  color: rgba(214, 224, 230, 0.56);
+}
+
+.secret-candidate-excluded .opponent-secret-candidate-thumb {
+  opacity: 0.46;
+  filter: grayscale(1) saturate(0);
 }
 
 .opponent-secret-candidates strong {

@@ -1,5 +1,10 @@
 import { useState, type ReactNode } from "react";
-import type { CardDetails, CardOutcomeNode, RelatedCardInfo } from "../../shared/cardDatabase";
+import {
+  cardArtworkSources,
+  type CardDetails,
+  type CardOutcomeNode,
+  type RelatedCardInfo
+} from "../../shared/cardDatabase";
 import type { PublicCardContextDetails } from "../../shared/types";
 
 const CARD_POOL_BATCH_SIZE = 12;
@@ -37,24 +42,7 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
 
   return (
     <div className={`card-detail-body${className ? ` ${className}` : ""}`}>
-      {details.imageUrl || details.cropImageUrl ? (
-        <img
-          className="card-detail-image"
-          src={details.imageUrl ?? details.cropImageUrl}
-          alt={`${details.name} 卡牌图`}
-          loading="eager"
-          onError={(event) => {
-            if (details.cropImageUrl && event.currentTarget.src !== details.cropImageUrl) {
-              event.currentTarget.src = details.cropImageUrl;
-              return;
-            }
-
-            event.currentTarget.style.display = "none";
-          }}
-        />
-      ) : (
-        <div className="card-detail-image card-detail-image-empty">无图片</div>
-      )}
+      <CardDetailArtwork details={details} />
       <div className="card-detail-copy">
         <div className="card-detail-heading">
           <strong title={details.name}>{details.name}</strong>
@@ -109,6 +97,29 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
         />
       ))}
     </div>
+  );
+}
+
+function CardDetailArtwork({ details }: { readonly details: CardDetails }) {
+  const sources = cardArtworkSources(details, "image-first");
+  const sourcesKey = sources.join("\n");
+  const [sourceState, setSourceState] = useState({ key: sourcesKey, index: 0 });
+  const sourceIndex = sourceState.key === sourcesKey ? sourceState.index : 0;
+  const source = sources[sourceIndex];
+
+  return source ? (
+    <img
+      className="card-detail-image"
+      src={source}
+      alt={`${details.name} 卡牌图`}
+      loading="eager"
+      onError={() => setSourceState((current) => ({
+        key: sourcesKey,
+        index: (current.key === sourcesKey ? current.index : 0) + 1
+      }))}
+    />
+  ) : (
+    <div className="card-detail-image card-detail-image-empty">无图片</div>
   );
 }
 
