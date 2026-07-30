@@ -1,6 +1,7 @@
 import type {
   PublicCardHistoryGroup,
   PublicCardHistoryItem,
+  PublicCardContextDetails,
   PublicCardTracking,
   PublicCardZone,
   PublicCardZoneGroup
@@ -35,9 +36,12 @@ export function toCardTrackingView(
       zone,
       toCurrentGroup(tracking, zone, player.current[zone], side, secretSlots.length)
     ])) as Readonly<Record<PublicCardZone, OverlayCardZoneView>>,
-    burned: toHistoryGroup(tracking, "burned", player.burned),
-    used: toHistoryGroup(tracking, "used", player.used),
-    secretSlots
+    burned: toHistoryGroup(tracking, side, "burned", player.burned),
+    used: toHistoryGroup(tracking, side, "used", player.used),
+    secretSlots,
+    ...(tracking.deckInsertions?.[side]
+      ? { deckInsertions: tracking.deckInsertions[side] }
+      : {})
   };
 }
 
@@ -48,6 +52,17 @@ function toCurrentGroup(
   side: "friendly" | "opponent",
   secretSlotCount: number
 ): OverlayCardZoneView {
+  const cards = group.cards.map((card): OverlayCardItem => {
+    const details = detailsForSide(tracking, side, card.cardKey);
+    return {
+      id: `${zone}-${card.cardKey}`,
+      name: card.name,
+      count: card.count,
+      cost: details?.manaCost,
+      thumbnailUrl: details?.cropImageUrl ?? details?.imageUrl,
+      details
+    };
+  });
   return {
     key: zone,
     status: group.status,
@@ -56,18 +71,16 @@ function toCurrentGroup(
     countLabel: side === "opponent" && zone === "secret"
       ? `当前 ${secretSlotCount}`
       : toZoneCountLabel(group),
-    cards: group.cards.map((card): OverlayCardItem => {
-      const details = tracking.detailsByCardKey[card.cardKey];
-      return {
-        id: `${zone}-${card.cardKey}`,
-        name: card.name,
-        count: card.count,
-        cost: details?.manaCost,
-        thumbnailUrl: details?.cropImageUrl ?? details?.imageUrl,
-        details
-      };
-    })
+    cards: side === "friendly" && zone === "deck"
+      ? [...cards].sort(compareDeckCards)
+      : cards
   };
+}
+
+function compareDeckCards(left: OverlayCardItem, right: OverlayCardItem): number {
+  const leftCost = left.cost ?? Number.POSITIVE_INFINITY;
+  const rightCost = right.cost ?? Number.POSITIVE_INFINITY;
+  return leftCost - rightCost || left.name.localeCompare(right.name, "zh-CN");
 }
 
 function toZoneCountLabel(group: PublicCardZoneGroup): string {
@@ -82,6 +95,7 @@ function toZoneCountLabel(group: PublicCardZoneGroup): string {
 
 function toHistoryGroup(
   tracking: PublicCardTracking,
+  side: "friendly" | "opponent",
   key: "burned" | "used",
   group: PublicCardHistoryGroup
 ): OverlayCardHistoryView {
@@ -92,28 +106,41 @@ function toHistoryGroup(
       ? `最近 ${group.items.length} / 共 ${group.totalCount}`
       : String(group.totalCount),
     truncated: group.truncated,
-    items: group.items.map((item) => toHistoryItem(tracking, item))
+    items: group.items.map((item) => toHistoryItem(tracking, side, item))
   };
 }
 
 function toHistoryItem(
   tracking: PublicCardTracking,
+  side: "friendly" | "opponent",
   item: PublicCardHistoryItem
 ): OverlayHistoryItem {
   const baseDetails = item.card
-    ? tracking.detailsByCardKey[item.card.cardKey]
+    ? detailsForSide(tracking, side, item.card.cardKey)
     : undefined;
   const details = mergeHistoryDetails(baseDetails, item.outcomeSections, item.card);
 
   return {
     id: item.id,
     sequence: item.sequence,
+    ...(item.turn === undefined ? {} : { turn: item.turn }),
     displayName: item.card?.name,
     ...(item.card?.cardId ? { cardId: item.card.cardId } : {}),
     hidden: item.card === undefined,
     confidence: item.confidence,
     details
   };
+}
+
+function detailsForSide(
+  tracking: PublicCardTracking,
+  side: "friendly" | "opponent",
+  cardKey: string
+): CardDetails | undefined {
+  const base = tracking.detailsByCardKey[cardKey];
+  const context: PublicCardContextDetails | undefined =
+    tracking.contextDetailsBySideAndCardKey[side][cardKey];
+  return base && context ? { ...base, ...context } : base;
 }
 
 function mergeHistoryDetails(

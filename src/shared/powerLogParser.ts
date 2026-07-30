@@ -1,6 +1,21 @@
-import type { EntitySnapshot, MatchResult, ParsedLogEvent, Zone } from "./types.js";
+import type {
+  EntitySnapshot,
+  MatchFlowLogEvent,
+  MatchFlowTag,
+  MatchResult,
+  ParsedLogEvent,
+  Zone
+} from "./types.js";
 
 const KNOWN_ZONES = new Set(["DECK", "HAND", "PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SETASIDE", "SECRET"]);
+const MATCH_FLOW_TAGS = new Set<MatchFlowTag>([
+  "TURN",
+  "STEP",
+  "NEXT_STEP",
+  "CURRENT_PLAYER",
+  "RESOURCES",
+  "RESOURCES_USED"
+]);
 const START_OF_GAME_GLOBAL_EFFECT_CARD_IDS = new Set([
   "GIL_692", "CORE_GIL_692",
   "GIL_826", "CORE_GIL_826",
@@ -58,8 +73,21 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     return [];
   }
 
-  if (/tag=(?:STEP|NEXT_STEP)\s+value=(?:MAIN_READY|MAIN_ACTION)\b/i.test(line)) {
-    return [{ type: "game-setup-complete", raw: line }];
+  const deckShuffle = line.match(/\bSHUFFLE_DECK\s+PlayerID=(\d+)\b/i);
+  if (deckShuffle) {
+    return [{
+      type: "deck-shuffle",
+      playerId: Number(deckShuffle[1]),
+      raw: line
+    }];
+  }
+
+  if (/\bTAG_CHANGE\b.*tag=(?:STEP|NEXT_STEP)\s+value=(?:MAIN_READY|MAIN_ACTION)\b/i.test(line)) {
+    const matchFlow = parseMatchFlowEvent(line);
+    return [
+      { type: "game-setup-complete", raw: line },
+      ...(matchFlow ? [matchFlow] : [])
+    ];
   }
 
   if (/BLOCK_END\b/.test(line)) {
@@ -136,6 +164,10 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
 
   const events: ParsedLogEvent[] = [];
   const entity = parseEntity(line);
+  const matchFlow = parseMatchFlowEvent(line, entity);
+  if (matchFlow) {
+    events.push(matchFlow);
+  }
   const playerCounter = parsePlayerCounter(line, entity);
   if (playerCounter) {
     events.push(playerCounter);
@@ -163,10 +195,12 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     });
   }
 
-  if (parseTagValueNumber(line, "DISPLAYED_CREATOR") !== undefined) {
+  const displayedCreator = parseTagValueNumber(line, "DISPLAYED_CREATOR");
+  if (displayedCreator !== undefined) {
     events.push({
       type: "generated-entity",
       entityId: entity.id,
+      creatorEntityId: String(displayedCreator),
       raw: line
     });
   }
@@ -195,10 +229,40 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     });
   }
 
+  const zonePosition = parseTagValueNumber(line, "ZONE_POSITION");
+  if (zonePosition !== undefined) {
+    events.push({
+      type: "zone-position",
+      entityId: entity.id,
+      controller: entity.controller,
+      position: zonePosition,
+      raw: line
+    });
+  }
+
   const attack = parseTagValueNumber(line, "ATK");
   if (attack !== undefined) events.push({ type: "attack-change", entityId: entity.id, attack, raw: line });
 
   return events;
+}
+
+function parseMatchFlowEvent(
+  line: string,
+  entity = parseEntity(line)
+): MatchFlowLogEvent | undefined {
+  const match = line.match(/\btag=(TURN|STEP|NEXT_STEP|CURRENT_PLAYER|RESOURCES|RESOURCES_USED)\s+value=([^\s]+)/i);
+  const tag = match?.[1]?.toUpperCase() as MatchFlowTag | undefined;
+  if (!tag || !MATCH_FLOW_TAGS.has(tag) || match?.[2] === undefined) {
+    return undefined;
+  }
+
+  return {
+    type: "match-flow",
+    tag,
+    value: match[2],
+    entity,
+    raw: line
+  };
 }
 
 function parsePlayerCounter(

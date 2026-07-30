@@ -79,6 +79,20 @@ describe("opponent overlay", () => {
     expect(screen.getByText("未公开 ×4")).toBeInTheDocument();
   });
 
+  it("shows the opponent's inserted-deck counts without listing generated card names", () => {
+    render(<OpponentOverlayPanel view={view({
+      ...opponentTracking(),
+      deckInsertions: {
+        groups: [{ sourceEntityId: "500", sourceName: "对手来源创建", remainingCount: 5 }],
+        placements: [{ entityId: "501", position: "top" }]
+      }
+    })} isCollapsed={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /牌库.*\?/ }));
+    expect(screen.getByLabelText("牌库生成记录")).toHaveTextContent("对手来源创建5张卡牌");
+    expect(screen.getByLabelText("牌库位置记录")).toHaveTextContent("置顶：未知卡牌");
+  });
+
   it("keeps global effects and public counters", () => {
     render(<OpponentOverlayPanel view={view(opponentTracking(), {
       opponentGlobalEffects: [{ id: "global-1", name: "对手全局效果", count: 1 }],
@@ -88,6 +102,22 @@ describe("opponent overlay", () => {
     expect(screen.getByText("对手全局效果")).toBeInTheDocument();
     expect(screen.getByText("疲劳")).toBeInTheDocument();
     expect(screen.getByText("法术")).toBeInTheDocument();
+  });
+
+  it("shows only the active side from match pulse", () => {
+    render(<OpponentOverlayPanel view={view(opponentTracking(), {
+      matchPulse: {
+        turn: 7,
+        activeSide: "friendly",
+        fullLabel: "第7回合 · 我方行动 · 法力5/7",
+        compactLabel: "7回 · 我 · 5/7",
+        actorLabel: "我方回合"
+      }
+    })} isCollapsed={false} />);
+
+    const pulse = screen.getByLabelText("当前行动方");
+    expect(pulse).toHaveTextContent("我方回合");
+    expect(pulse).not.toHaveTextContent(/7|5\/7/);
   });
 
   it("shows secret count on the collapsed restore button", () => {

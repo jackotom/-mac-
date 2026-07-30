@@ -60,6 +60,25 @@ function expectMetric(metrics: HTMLElement, label: "评分" | "选取率" | "胜
 }
 
 describe("ArenaPanel", () => {
+  it("keeps the game left-to-right choice order and marks only the highest score", () => {
+    render(<ArenaPanel state={{
+      ...state,
+      currentChoices: [
+        { name: "左侧候选", count: 1, cardId: "LEFT", score: 80 },
+        { name: "中间最佳", count: 1, cardId: "MIDDLE", score: 120 },
+        { name: "右侧候选", count: 1, cardId: "RIGHT", score: 95 }
+      ]
+    }} />);
+
+    const choices = within(screen.getByRole("region", { name: "当前候选牌" }))
+      .getAllByRole("listitem");
+    expect(choices.map((choice) => choice.querySelector(".arena-choice-row strong")?.textContent))
+      .toEqual(["左侧候选", "中间最佳", "右侧候选"]);
+    expect(within(choices[0]).queryByText("首选")).not.toBeInTheDocument();
+    expect(within(choices[1]).getByText("首选")).toBeInTheDocument();
+    expect(within(choices[2]).queryByText("首选")).not.toBeInTheDocument();
+  });
+
   it("renders score, pick rate, and high-win pick rate below every live draft choice", () => {
     render(<ArenaPanel state={state} />);
 

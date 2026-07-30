@@ -5,6 +5,33 @@ import { describe, expect, it } from "vitest";
 const styles = readFileSync(join(process.cwd(), "src/renderer/opponentOverlayStyles.css"), "utf8");
 
 describe("opponent secret list styles", () => {
+  it("reserves compact rows for counters with and without match pulse", () => {
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\):has\(\.overlay-public-counters\)\s*\{\s*grid-template-rows:\s*24px 26px 30px minmax\(0,\s*1fr\);/
+    );
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\):has\(\.match-pulse-actor\):has\(\.overlay-public-counters\)\s*\{\s*grid-template-rows:\s*24px 18px 26px 30px minmax\(0,\s*1fr\);/
+    );
+  });
+
+  it("reserves a real row for global effects in every compact status combination", () => {
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\):has\(> \.overlay-card-group\)\s*\{\s*grid-template-rows:\s*24px 26px minmax\(19px,\s*96px\) minmax\(0,\s*1fr\);/
+    );
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\):has\(\.overlay-public-counters\):has\(> \.overlay-card-group\)\s*\{\s*grid-template-rows:\s*24px 26px 30px minmax\(19px,\s*96px\) minmax\(0,\s*1fr\);/
+    );
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\):has\(\.match-pulse-actor\):has\(> \.overlay-card-group\)\s*\{\s*grid-template-rows:\s*24px 18px 26px minmax\(19px,\s*96px\) minmax\(0,\s*1fr\);/
+    );
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\):has\(\.match-pulse-actor\):has\(\.overlay-public-counters\):has\(> \.overlay-card-group\)\s*\{\s*grid-template-rows:\s*24px 18px 26px 30px minmax\(19px,\s*96px\) minmax\(0,\s*1fr\);/
+    );
+    expect(styles).toMatch(
+      /\.opponent-overlay-shell:has\(\.card-tracking-layout\) > \.overlay-card-group\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/
+    );
+  });
+
   it("keeps every secret slot as a compact readable row", () => {
     expect(styles).toMatch(
       /\.opponent-secret-section\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?align-content:\s*start;[\s\S]*?overflow:\s*visible;/

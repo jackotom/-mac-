@@ -117,6 +117,90 @@ describe("CardDetailBody related cards", () => {
     expect(within(actual).getAllByRole("listitem")).toHaveLength(5);
   });
 
+  it("shows the trusted spell total, incomplete progress, and only recognized names grouped by cost", () => {
+    const details = {
+      ...baseDetails,
+      playedSpellsThisGame: [
+        { dbfId: 21, name: "五费甲", manaCost: 5, cardType: "法术" },
+        { dbfId: 22, name: "二费甲", manaCost: 2, cardType: "法术" },
+        { dbfId: 23, name: "五费乙", manaCost: 5, cardType: "法术" },
+        { dbfId: 24, name: "二费乙", manaCost: 2, cardType: "法术" }
+      ],
+      playedSpellsThisGameCount: 7,
+      playedSpellsThisGameIncomplete: true
+    } as typeof baseDetails & {
+      playedSpellsThisGame: readonly {
+        dbfId: number;
+        name: string;
+        manaCost: number;
+        cardType: string;
+      }[];
+      playedSpellsThisGameCount: number;
+      playedSpellsThisGameIncomplete: boolean;
+    };
+
+    render(<CardDetailBody mode="interactive" details={details} />);
+
+    const actual = screen.getByRole("region", { name: "本局已施放 7 个法术" });
+    expect(actual).toHaveTextContent("本局已施放 7 个法术");
+    expect(actual).toHaveTextContent("已识别 4/7");
+    expect(within(actual).getByText("2费")).toBeInTheDocument();
+    expect(within(actual).getByText("5费")).toBeInTheDocument();
+    expect(within(actual).getAllByRole("listitem")).toHaveLength(4);
+    expect(actual).not.toHaveTextContent("未知法术");
+  });
+
+  it("shows a trusted total even when no spell names were recognized", () => {
+    const details = {
+      ...baseDetails,
+      playedSpellsThisGameCount: 7,
+      playedSpellsThisGameIncomplete: true
+    } as typeof baseDetails & {
+      playedSpellsThisGameCount: number;
+      playedSpellsThisGameIncomplete: boolean;
+    };
+
+    render(<CardDetailBody mode="interactive" details={details} />);
+
+    const actual = screen.getByRole("region", { name: "本局已施放 7 个法术" });
+    expect(actual).toHaveTextContent("已识别 0/7");
+    expect(actual).toHaveTextContent("本局还没有识别到法术名单");
+  });
+
+  it("uses the real empty-state copy when the trusted spell total is zero", () => {
+    const details = {
+      ...baseDetails,
+      playedSpellsThisGame: [],
+      playedSpellsThisGameCount: 0
+    } as typeof baseDetails & {
+      playedSpellsThisGame: readonly [];
+      playedSpellsThisGameCount: number;
+    };
+
+    render(<CardDetailBody mode="interactive" details={details} />);
+
+    expect(screen.getByRole("region", { name: "本局已施放 0 个法术" }))
+      .toHaveTextContent("本局还没有施放过法术");
+  });
+
+  it("does not invent a total when an incomplete list has no trusted count", () => {
+    const details = {
+      ...baseDetails,
+      playedSpellsThisGame: [{ dbfId: 21, name: "已识别法术", manaCost: 5 }],
+      playedSpellsThisGameIncomplete: true
+    } as typeof baseDetails & {
+      playedSpellsThisGame: readonly { dbfId: number; name: string; manaCost: number }[];
+      playedSpellsThisGameIncomplete: boolean;
+    };
+
+    render(<CardDetailBody mode="interactive" details={details} />);
+
+    const actual = screen.getByRole("region", { name: "本局已识别 1 个法术" });
+    expect(actual).toHaveTextContent("完整数量未知");
+    expect(actual).not.toHaveTextContent("1/1");
+    expect(actual).not.toHaveTextContent("本局已施放 1 个法术");
+  });
+
   it("shows a clear zero-result state for the actual spells without hiding the theoretical pool", () => {
     render(
       <CardDetailBody

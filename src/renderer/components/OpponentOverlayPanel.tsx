@@ -4,6 +4,7 @@ import type { OpponentOverlayPanelProps, OverlayCardItem, OverlayStatusTone } fr
 import { CollapsibleCardGroup } from "./OverlayPanel";
 import { CardTrackingGroups } from "./CardTrackingGroups";
 import { PublicMatchCounters } from "./PublicMatchCounters";
+import { MatchPulse } from "./MatchPulse";
 
 export function OpponentOverlayPanel({
   view,
@@ -64,6 +65,7 @@ export function OpponentOverlayPanel({
         </section>
       ) : (
         <>
+          <MatchPulse pulse={view.matchPulse} variant="actor" />
           <section className="opponent-tracking-summary" aria-label="对手概览">
             <span>牌库 <strong>{view.cardTracking.current.deck.countLabel}</strong></span>
             <span>手牌 <strong>{view.cardTracking.current.hand.countLabel}</strong></span>

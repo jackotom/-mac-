@@ -15,6 +15,7 @@ const fixturePath = join(projectRoot, "fixtures/card-tracking/full-hand-burn.log
 const scenarioNames = [
   "friendly-short",
   "friendly-tall",
+  "friendly-insertions",
   "opponent-secret",
   "opponent-unknown-hand",
   "inline-normal",
@@ -32,6 +33,23 @@ if (scenarioFilter && !scenarioNames.includes(scenarioFilter)) {
 }
 
 const fixtureText = await readFile(fixturePath, "utf8");
+const insertionFixtureText = [
+  fixtureText,
+  "D 14:00:24.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION",
+  "D 14:00:24.100 GameState.DebugPrintPower() - FULL_ENTITY - Updating [entityName=天空主母 id=219 zone=PLAY zonePos=1 cardId=SOURCE_001 player=1] CardID=SOURCE_001",
+  ...Array.from({ length: 5 }, (_, index) => {
+    const entityId = 300 + index;
+    return [
+      `D 14:00:25.00${index} GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=${entityId} CardID=`,
+      `D 14:00:25.00${index} GameState.DebugPrintPower() -     tag=ZONE value=DECK`,
+      `D 14:00:25.00${index} GameState.DebugPrintPower() -     tag=CONTROLLER value=1`,
+      `D 14:00:25.00${index} GameState.DebugPrintPower() - TAG_CHANGE Entity=${entityId} tag=DISPLAYED_CREATOR value=219`,
+      `D 14:00:25.00${index} GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=${entityId} CardID=TOKEN_001`,
+      `D 14:00:25.00${index} GameState.DebugPrintPower() -     tag=ZONE value=DECK`
+    ].join("\n");
+  }),
+  "D 14:00:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=300 zone=DECK zonePos=0 cardId=TOKEN_001 player=1] tag=ZONE_POSITION value=1"
+].join("\n");
 const temporaryRoot = await mkdtemp(join(tmpdir(), "hearthstone-card-lifecycle-ui-"));
 const failures = [];
 let workArea;
@@ -53,6 +71,8 @@ const cardCache = {
     },
     { dbfId: 1, cardId: "BURNED_CARD", name: "烧毁测试牌", collectible: 1, type: "SPELL", cost: 1 },
     { dbfId: 2, cardId: "FRIEND_USE", name: "普通使用牌", collectible: 1, type: "SPELL", cost: 2 },
+    { dbfId: 3, cardId: "SOURCE_001", name: "天空主母", collectible: 1, type: "MINION", cost: 6 },
+    { dbfId: 4, cardId: "TOKEN_001", name: "星界碎片", collectible: 0, type: "SPELL", cost: 2 },
     ...Array.from({ length: 15 }, (_, index) => ({
       dbfId: 200 + index,
       cardId: `RANDOM_SPELL_${index + 1}`,
@@ -71,11 +91,11 @@ const qaDeckText = [
   ...Array.from({ length: 6 }, (_, index) => `1x 随机法术${index + 1}`)
 ].join("\n");
 
-async function prepareUserData(name, bounds, opponent = false) {
+async function prepareUserData(name, bounds, opponent = false, powerLogText = fixtureText) {
   const userData = join(temporaryRoot, name);
   await mkdir(userData, { recursive: true });
   const isolatedPowerLog = join(userData, "Power.log");
-  await writeFile(isolatedPowerLog, fixtureText, "utf8");
+  await writeFile(isolatedPowerLog, powerLogText, "utf8");
   await writeFile(
     join(userData, "hearthstone-cards.zhCN.blizzard.json"),
     `${JSON.stringify(cardCache)}\n`,
@@ -131,8 +151,14 @@ async function terminateProcessGroup(processGroupId) {
   );
 }
 
-async function runElectronScenario(name, extraEnvironment = {}, bounds, opponent = false) {
-  const { userData, isolatedPowerLog } = await prepareUserData(name, bounds, opponent);
+async function runElectronScenario(
+  name,
+  extraEnvironment = {},
+  bounds,
+  opponent = false,
+  powerLogText = fixtureText
+) {
+  const { userData, isolatedPowerLog } = await prepareUserData(name, bounds, opponent, powerLogText);
   const inspectPath = join(userData, "inspection.json");
   const child = spawn("/usr/bin/env", [
     ...createNodeEnvironmentUnsetArguments(process.env),
@@ -272,11 +298,14 @@ async function verifyFriendlyShort() {
 
 async function verifyFriendlyTall() {
   if (workAreas.length === 0) {
-    await verifyFriendlyShort();
+    throw new Error("无法读取任何显示器 workArea，不能验证 tall 布局");
   }
-  const tallWorkArea = workAreas.find((workArea) => workArea.height >= 900);
-  if (!tallWorkArea) {
-    throw new Error(`当前环境无法验证 100×900：所有显示器 workArea=${JSON.stringify(workAreas)}`);
+  const tallWorkArea = workAreas
+    .slice()
+    .sort((left, right) => right.height - left.height)[0];
+  const targetHeight = Math.min(900, tallWorkArea.height);
+  if (targetHeight < 400) {
+    throw new Error(`当前环境无法验证 tall 布局：所有显示器 workArea=${JSON.stringify(workAreas)}`);
   }
   const inspection = await runElectronScenario(
     "friendly-tall",
@@ -284,13 +313,35 @@ async function verifyFriendlyTall() {
       QA_OPEN_OVERLAY: "1",
       QA_DECK_TEXT: qaDeckText
     },
-    { x: tallWorkArea.x, y: tallWorkArea.y, width: 100, height: 900 }
+    { x: tallWorkArea.x, y: tallWorkArea.y, width: 100, height: targetHeight }
   );
-  assertExactWindow("friendly-tall", inspection, 100, 900);
+  assertExactWindow("friendly-tall", inspection, 100, targetHeight);
   assertCommon("friendly-tall", inspection);
   assert.equal(inspection.layoutMode, "tall");
   assert.equal(inspection.page, "current");
   assert.deepEqual(inspection.expandedKeys, ["deck", "hand"]);
+}
+
+async function verifyFriendlyInsertions() {
+  const targetWorkArea = workAreas
+    .slice()
+    .sort((left, right) => right.height - left.height)[0] ?? { x: 0, y: 0, height: 600 };
+  const targetHeight = Math.min(600, targetWorkArea.height);
+  const inspection = await runElectronScenario(
+    "friendly-insertions",
+    {
+      QA_OPEN_OVERLAY: "1"
+    },
+    { x: targetWorkArea.x, y: targetWorkArea.y, width: 100, height: targetHeight },
+    false,
+    insertionFixtureText
+  );
+  assertExactWindow("friendly-insertions", inspection, 100, targetHeight);
+  assertCommon("friendly-insertions", inspection);
+  assert.match(inspection.bodyText, /天空主母创建\s*5张卡牌/);
+  assert.match(inspection.bodyText, /置顶：\s*星界碎片/);
+  assert.match(inspection.bodyText, /星界碎片/);
+  assert.ok(!/卡牌[ABCDＡＢＣＤ]/.test(inspection.bodyText), "friendly-insertions: 禁止显示伪造卡牌名");
 }
 
 async function verifyOpponentSecret() {
@@ -412,6 +463,7 @@ async function verifyExternal(name, pinned) {
 const verifications = [
   ["friendly-short", verifyFriendlyShort],
   ["friendly-tall", verifyFriendlyTall],
+  ["friendly-insertions", verifyFriendlyInsertions],
   ["opponent-secret", verifyOpponentSecret],
   ["opponent-unknown-hand", verifyOpponentUnknownHand],
   ["inline-normal", () => verifyInline("inline-normal", false)],
@@ -441,4 +493,4 @@ if (failures.length > 0) {
   throw new AggregateError(failures.map((message) => new Error(message)), `生命周期 UI 验证失败：${failures.length} 项`);
 }
 
-process.stdout.write(scenarioFilter ? `指定场景 ${scenarioFilter} 通过\n` : "8 个生命周期 Electron 场景全部通过\n");
+process.stdout.write(scenarioFilter ? `指定场景 ${scenarioFilter} 通过\n` : "9 个生命周期 Electron 场景全部通过\n");

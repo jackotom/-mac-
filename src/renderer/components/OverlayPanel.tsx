@@ -4,6 +4,7 @@ import type { OverlayCardItem, OverlayPanelProps, OverlayStatusTone } from "../t
 import { CardHoverPreview } from "./CardHoverPreview";
 import { CardTrackingGroups } from "./CardTrackingGroups";
 import { PublicMatchCounters } from "./PublicMatchCounters";
+import { MatchPulse } from "./MatchPulse";
 
 export function OverlayPanel({ view, className = "overlay-shell", style, onClose, onOpenSettings, isLoading = false, loadError }: OverlayPanelProps) {
   const needsLogRepair = view.status.tone === "offline";
@@ -107,6 +108,7 @@ function NormalOverlay({ view }: { view: OverlayPanelProps["view"] }) {
         </span>
       </section>
 
+      <MatchPulse pulse={view.matchPulse} variant="compact" />
       <PublicMatchCounters side="friendly" counters={view.friendlyCounters} />
 
       {unresolvedCount > 0 ? (

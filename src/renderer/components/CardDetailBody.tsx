@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import type { CardDetails, CardOutcomeNode, RelatedCardInfo } from "../../shared/cardDatabase";
+import type { PublicCardContextDetails } from "../../shared/types";
 
 const CARD_POOL_BATCH_SIZE = 12;
 
 interface CardDetailBodyProps {
-  readonly details?: CardDetails;
+  readonly details?: CardDetails & PublicCardContextDetails;
   readonly className?: string;
   readonly mode: "summary" | "interactive";
 }
@@ -20,19 +21,25 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
     !details.isSpell && details.attack !== undefined && details.attack > 0 ? `攻击 ${details.attack}` : undefined,
     !details.isSpell && details.health !== undefined && details.health > 0 ? `生命 ${details.health}` : undefined
   ].filter((value): value is string => value !== undefined);
-  const playedSpells = details.playedSpellsThisGame;
+  const spellContext = details;
+  const playedSpells = spellContext.playedSpellsThisGame;
+  const hasStructuredPlayedSpellContext =
+    spellContext.playedSpellsThisGameCount !== undefined ||
+    spellContext.playedSpellsThisGameIncomplete !== undefined;
   const cardPoolSections = details.cardPoolSections ?? [];
   const cardOutcomeSections = details.cardOutcomeSections ?? [];
-  const gameContextSections = details.gameContextSections ?? (
-    playedSpells === undefined
-      ? []
-      : [{
-          key: "played-spells",
-          title: "本局已施放法术",
-          emptyText: "本局还没有施放过法术",
-          cards: playedSpells
-        }]
-  );
+  const gameContextSections = hasStructuredPlayedSpellContext
+    ? (details.gameContextSections ?? []).filter((section) => section.key !== "played-spells")
+    : details.gameContextSections ?? (
+        playedSpells === undefined
+          ? []
+          : [{
+              key: "played-spells",
+              title: "本局已施放法术",
+              emptyText: "本局还没有施放过法术",
+              cards: playedSpells
+            }]
+      );
 
   return (
     <div className={`card-detail-body${className ? ` ${className}` : ""}`}>
@@ -86,6 +93,13 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
           title={section.title}
         />
       ))}
+      {hasStructuredPlayedSpellContext ? (
+        <PlayedSpellsSection
+          cards={playedSpells ?? []}
+          incomplete={spellContext.playedSpellsThisGameIncomplete === true}
+          totalCount={spellContext.playedSpellsThisGameCount}
+        />
+      ) : null}
       {gameContextSections.map((section) => (
         <CardListSection
           cards={section.cards}
@@ -97,6 +111,77 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
       ))}
     </div>
   );
+}
+
+function PlayedSpellsSection({
+  cards,
+  incomplete,
+  totalCount
+}: {
+  readonly cards: readonly RelatedCardInfo[];
+  readonly incomplete: boolean;
+  readonly totalCount?: number;
+}) {
+  const trustedTotal = Number.isInteger(totalCount) && (totalCount ?? -1) >= cards.length
+    ? totalCount!
+    : undefined;
+  const groups = groupPlayedSpellsByCost(cards);
+  const title = trustedTotal === undefined
+    ? `本局已识别 ${cards.length} 个法术`
+    : `本局已施放 ${trustedTotal} 个法术`;
+  return (
+    <div aria-label={title} className="card-related-list card-spell-history card-game-context played-spells-context" role="region">
+      <span>{title}</span>
+      {trustedTotal !== undefined && cards.length < trustedTotal ? (
+        <small className="played-spells-progress">已识别 {cards.length}/{trustedTotal}</small>
+      ) : incomplete && trustedTotal === undefined ? (
+        <small className="played-spells-progress">完整数量未知</small>
+      ) : null}
+      {cards.length === 0 ? (
+        <div className="card-spell-history-empty">
+          {trustedTotal === 0 ? "本局还没有施放过法术" : "本局还没有识别到法术名单"}
+        </div>
+      ) : (
+        <div className="played-spells-groups">
+          {groups.map((group) => (
+            <section className="played-spells-cost-group" key={group.key}>
+              <strong>{group.label}</strong>
+              <div className="card-related-cards" role="list">
+                {group.cards.map((card, index) => (
+                  <RelatedCardRow
+                    card={card}
+                    key={`${card.cardId ?? card.dbfId}-${index}`}
+                    role="listitem"
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function groupPlayedSpellsByCost(cards: readonly RelatedCardInfo[]) {
+  const groups = new Map<number | "unknown", RelatedCardInfo[]>();
+  cards.forEach((card) => {
+    const key = Number.isInteger(card.manaCost) && (card.manaCost ?? -1) >= 0
+      ? card.manaCost!
+      : "unknown";
+    groups.set(key, [...(groups.get(key) ?? []), card]);
+  });
+  return [...groups.entries()]
+    .sort(([left], [right]) => {
+      if (left === "unknown") return right === "unknown" ? 0 : 1;
+      if (right === "unknown") return -1;
+      return left - right;
+    })
+    .map(([cost, groupedCards]) => ({
+      key: String(cost),
+      label: cost === "unknown" ? "费用未知" : `${cost}费`,
+      cards: groupedCards
+    }));
 }
 
 function CardPoolSection({

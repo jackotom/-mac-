@@ -269,3 +269,11 @@ First-run placement is left-two/right-one: the Arena hero ranking is at the left
 - opponent secret slot count is independent from the number of candidates in each slot.
 
 Legacy shared fields remain for one compatibility version, but renderer state is validated with required `cardTracking` and no longer falls back to those fields.
+
+## v0.3.0 log contracts
+
+- `TURN`, `CURRENT_PLAYER`, `RESOURCES` and `RESOURCES_USED` feed one match-flow state.
+- `DISPLAYED_CREATOR` binds inserted deck entities to the effect source; the public group count is computed from entities still in `DECK`.
+- `ZONE_POSITION=1` marks a tracked insertion as top. A position equal to the current deck size marks bottom.
+- `SHUFFLE_DECK PlayerID=n` invalidates that player's top/bottom records. It does not remove inserted entities, source groups, or known identities.
+- Generated entities remain deduplicated by entity id across `GameState` and `PowerTaskList` copies.

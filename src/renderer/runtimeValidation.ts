@@ -31,6 +31,9 @@ export function parsePublicTrackerState(value: unknown): PublicTrackerState {
   if (!isOptionalMatchCounters(value.matchCounters)) {
     throw new Error("本局公开计数数据无效，已拒绝更新界面。");
   }
+  if (!isOptionalMatchFlow(value.matchFlow)) {
+    throw new Error("对局进程数据无效，已拒绝更新界面。");
+  }
   if (!isPublicCardTracking(value.cardTracking)) {
     throw new Error("卡牌生命周期数据无效，已拒绝更新界面。");
   }
@@ -135,10 +138,13 @@ function isZoneCard(value: unknown): boolean {
 }
 
 function isPublicCardTracking(value: unknown): boolean {
-  if (!hasExactKeys(value, [
-    "schemaVersion", "gameKey", "friendly", "opponent", "opponentSecretSlots", "detailsByCardKey"
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "schemaVersion", "gameKey", "friendly", "opponent", "opponentSecretSlots",
+    "detailsByCardKey", "contextDetailsBySideAndCardKey", "deckInsertions"
   ]) || value.schemaVersion !== 1 || !isNonEmptyString(value.gameKey) ||
-      !Array.isArray(value.opponentSecretSlots) || !isRecord(value.detailsByCardKey)) {
+      !Array.isArray(value.opponentSecretSlots) || !isRecord(value.detailsByCardKey) ||
+      !isPublicCardContextBySide(value.contextDetailsBySideAndCardKey) ||
+      (value.deckInsertions !== undefined && !isPublicDeckInsertionsBySide(value.deckInsertions))) {
     return false;
   }
 
@@ -156,6 +162,35 @@ function isPublicCardTracking(value: unknown): boolean {
   const current = opponent.current as Record<string, unknown>;
   const secret = current.secret as Record<string, unknown>;
   return secret.totalCount === value.opponentSecretSlots.length;
+}
+
+function isPublicDeckInsertionsBySide(value: unknown): boolean {
+  return hasExactKeys(value, ["friendly", "opponent"]) &&
+    isPublicDeckInsertionTracking(value.friendly) &&
+    isPublicDeckInsertionTracking(value.opponent);
+}
+
+function isPublicDeckInsertionTracking(value: unknown): boolean {
+  return hasExactKeys(value, ["groups", "placements"]) &&
+    Array.isArray(value.groups) &&
+    hasUniqueStrings(value.groups, "sourceEntityId") &&
+    value.groups.every((group) =>
+      isRecord(group) &&
+      hasExactKeys(group, ["sourceEntityId", "sourceName", "remainingCount"]) &&
+      isNonEmptyString(group.sourceEntityId) &&
+      isNonEmptyString(group.sourceName) &&
+      isPositiveInteger(group.remainingCount)
+    ) &&
+    Array.isArray(value.placements) &&
+    hasUniqueStrings(value.placements, "entityId") &&
+    value.placements.every((placement) =>
+      isRecord(placement) &&
+      hasOnlyKeys(placement, ["entityId", "position", "cardName", "cardId"]) &&
+      isNonEmptyString(placement.entityId) &&
+      isOneOf(placement.position, ["top", "bottom"]) &&
+      isOptionalString(placement.cardName) &&
+      isOptionalString(placement.cardId)
+    );
 }
 
 function isPublicPlayerCardTracking(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
@@ -218,9 +253,10 @@ function isPublicCardHistoryGroup(value: unknown, outcomeBudget: OutcomeTreeBudg
 
 function isPublicCardHistoryItem(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
   return isRecord(value) &&
-    hasOnlyKeys(value, ["id", "sequence", "entityId", "card", "confidence", "outcomeSections"]) &&
+    hasOnlyKeys(value, ["id", "sequence", "entityId", "turn", "card", "confidence", "outcomeSections"]) &&
     isNonEmptyString(value.id) && isNonNegativeInteger(value.sequence) &&
-    isNonEmptyString(value.entityId) && (
+    isNonEmptyString(value.entityId) &&
+    (value.turn === undefined || isPositiveInteger(value.turn)) && (
       value.card === undefined ||
       (isRecord(value.card) && hasOnlyKeys(value.card, ["cardKey", "cardId", "name"]) &&
         isNonEmptyString(value.card.cardKey) && isOptionalString(value.card.cardId) &&
@@ -256,6 +292,60 @@ function isRelatedCard(value: unknown): boolean {
     isOptionalString(value.cardType) && isOptionalString(value.rarity) &&
     isOptionalString(value.text) && isOptionalString(value.imageUrl) &&
     isOptionalString(value.cropImageUrl);
+}
+
+function isPublicCardContextBySide(value: unknown): boolean {
+  return hasExactKeys(value, ["friendly", "opponent"]) &&
+    isCardContextMap(value.friendly) &&
+    isCardContextMap(value.opponent);
+}
+
+function isCardContextMap(value: unknown): boolean {
+  return isRecord(value) && Object.entries(value).every(([cardKey, details]) =>
+    isNonEmptyString(cardKey) && isPublicCardContextDetails(details));
+}
+
+function isPublicCardContextDetails(value: unknown): boolean {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "gameContextSections",
+    "playedSpellsThisGame",
+    "playedSpellsThisGameCount",
+    "playedSpellsThisGameIncomplete"
+  ])) {
+    return false;
+  }
+  const playedSpells = value.playedSpellsThisGame;
+  const count = value.playedSpellsThisGameCount;
+  const incomplete = value.playedSpellsThisGameIncomplete;
+  return (
+    value.gameContextSections === undefined ||
+    isGameContextSections(value.gameContextSections)
+  ) && (
+    playedSpells === undefined ||
+    (Array.isArray(playedSpells) && playedSpells.every(isRelatedCard))
+  ) && (
+    count === undefined ||
+    (isNonNegativeInteger(count) && (!Array.isArray(playedSpells) || count >= playedSpells.length))
+  ) && (
+    incomplete === undefined ||
+    typeof incomplete === "boolean"
+  ) && (
+    incomplete !== true ||
+    count === undefined ||
+    !Array.isArray(playedSpells) ||
+    count > playedSpells.length
+  );
+}
+
+function isGameContextSections(value: unknown): boolean {
+  return Array.isArray(value) && value.every((section) =>
+    isRecord(section) &&
+    hasExactKeys(section, ["key", "title", "emptyText", "cards"]) &&
+    isNonEmptyString(section.key) &&
+    isNonEmptyString(section.title) &&
+    isNonEmptyString(section.emptyText) &&
+    Array.isArray(section.cards) &&
+    section.cards.every(isRelatedCard));
 }
 
 function isCardOutcomeSections(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {
@@ -322,6 +412,35 @@ function isOptionalMatchCounters(value: unknown): boolean {
     hasExactKeys(value, ["friendly", "opponent"]) &&
     isPlayerMatchCounters(value.friendly) &&
     isPlayerMatchCounters(value.opponent)
+  );
+}
+
+function isOptionalMatchFlow(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "globalTurn", "activeSide", "phase", "friendly", "opponent"
+  ])) {
+    return false;
+  }
+  return isOptionalPositiveInteger(value.globalTurn) &&
+    (value.activeSide === undefined || isOneOf(value.activeSide, ["friendly", "opponent"])) &&
+    (value.phase === undefined || isOneOf(value.phase, ["mulligan", "start", "action", "end"])) &&
+    isOptionalPlayerTurnState(value.friendly) &&
+    isOptionalPlayerTurnState(value.opponent);
+}
+
+function isOptionalPlayerTurnState(value: unknown): boolean {
+  return value === undefined || (
+    isRecord(value) &&
+    hasOnlyKeys(value, ["turn", "mana", "manaUsed"]) &&
+    isOptionalPositiveInteger(value.turn) &&
+    isOptionalNonNegativeInteger(value.mana) &&
+    isOptionalNonNegativeInteger(value.manaUsed) &&
+    (
+      !isNonNegativeInteger(value.mana) ||
+      !isNonNegativeInteger(value.manaUsed) ||
+      value.manaUsed <= value.mana
+    )
   );
 }
 
@@ -417,6 +536,10 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isOptionalNonNegativeInteger(value: unknown): boolean {
   return value === undefined || isNonNegativeInteger(value);
+}
+
+function isOptionalPositiveInteger(value: unknown): boolean {
+  return value === undefined || isPositiveInteger(value);
 }
 
 function isOptionalFiniteNumber(value: unknown): boolean {

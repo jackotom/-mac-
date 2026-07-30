@@ -10,7 +10,7 @@ interface ArenaPanelProps {
 
 export function ArenaPanel({ state }: ArenaPanelProps) {
   const latestChoices = state.currentChoices;
-  const sortedChoices = sortChoices(latestChoices);
+  const recommendedChoiceIndex = findRecommendedChoiceIndex(latestChoices);
   const latestPick = state.picks[state.picks.length - 1];
   const statusLabel = state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成";
   const confirmedCount = 30 - state.unresolvedCount;
@@ -50,7 +50,7 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
             <span>自动评分</span>
           </div>
           <ul>
-            {sortedChoices.map((choice, index) => (
+            {latestChoices.map((choice, index) => (
               <li key={`${choice.cardId ?? choice.name}-${choice.entityId ?? "choice"}`}>
                 <details className="card-detail-disclosure arena-choice-disclosure">
                   <summary className="arena-choice-row">
@@ -65,7 +65,7 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
                     <Score
                       score={choice.score}
                       quality={choice.quality}
-                      isRecommended={index === 0 && choice.score !== undefined}
+                      isRecommended={index === recommendedChoiceIndex}
                     />
                     <ArenaChoiceMetrics choice={choice} />
                   </summary>
@@ -118,8 +118,16 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
   );
 }
 
-function sortChoices(choices: readonly ArenaCardChoice[]) {
-  return [...choices].sort((left, right) => (right.score ?? -1) - (left.score ?? -1));
+function findRecommendedChoiceIndex(choices: readonly ArenaCardChoice[]): number {
+  let recommendedIndex = -1;
+  let recommendedScore = Number.NEGATIVE_INFINITY;
+  choices.forEach((choice, index) => {
+    if (choice.score !== undefined && choice.score > recommendedScore) {
+      recommendedIndex = index;
+      recommendedScore = choice.score;
+    }
+  });
+  return recommendedIndex;
 }
 
 function Score({

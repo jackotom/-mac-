@@ -4,12 +4,57 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parsePlayerLog, parsePowerLog } from "../src/main/logParsers.js";
-import { inspectFriendlyDeckSnapshot, selectCurrentPowerGameText } from "../src/shared/powerLogParser.js";
+import {
+  inspectFriendlyDeckSnapshot,
+  parseLogLine,
+  selectCurrentPowerGameText
+} from "../src/shared/powerLogParser.js";
 
 const fixtureDir = resolve("fixtures/logs/session-2026-07-10");
 const duplicateFixtureDir = resolve("fixtures/logs/constructed-duplicate-create");
 
 describe("log parsers", () => {
+  it("parses generated-card sources, deck positions, and deck shuffles", () => {
+    expect(parseLogLine(
+      "D 12:00:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Generated id=88 zone=DECK zonePos=0 cardId=TEST_002 player=1] tag=DISPLAYED_CREATOR value=41"
+    )).toContainEqual(expect.objectContaining({
+      type: "generated-entity",
+      entityId: "88",
+      creatorEntityId: "41"
+    }));
+    expect(parseLogLine(
+      "D 12:00:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Generated id=88 zone=DECK zonePos=0 cardId=TEST_002 player=1] tag=ZONE_POSITION value=1"
+    )).toContainEqual(expect.objectContaining({
+      type: "zone-position",
+      entityId: "88",
+      controller: 1,
+      position: 1
+    }));
+    expect(parseLogLine(
+      "D 12:00:00.000 GameState.DebugPrintPower() - SHUFFLE_DECK PlayerID=1"
+    )).toEqual([expect.objectContaining({
+      type: "deck-shuffle",
+      playerId: 1
+    })]);
+  });
+
+  it("keeps entity-detail match-flow tags available for later entity binding", () => {
+    expect(parseLogLine(
+      "D 12:00:00.000 GameState.DebugPrintPower() -         tag=TURN value=5"
+    )).toContainEqual(expect.objectContaining({
+      type: "match-flow",
+      tag: "TURN",
+      value: "5"
+    }));
+    expect(parseLogLine(
+      "D 12:00:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=9"
+    )).toContainEqual(expect.objectContaining({
+      type: "match-flow",
+      tag: "TURN",
+      value: "9"
+    }));
+  });
+
   it("parses Power.log game, draw, reveal, and play events", async () => {
     const content = await readFile(resolve(fixtureDir, "Power.log"), "utf8");
     const events = parsePowerLog(content);

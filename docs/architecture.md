@@ -75,3 +75,10 @@
 - 随机施法结果按本次 `usageId` 绑定，不按牌名或 `cardId` 汇总。双倍施放、重复法术、回手再用和古神套古神都保留各自顺序与层级。
 - 奥秘槽位数量和每个槽位的候选数量分开计算。
 - renderer 只读取必填的 `cardTracking`；旧共享字段保留一个版本供非 renderer 兼容。
+
+## v0.3.0 对局流程与牌库插入
+
+- `MatchFlow` 统一维护回合、行动方和双方本回合法力，日志缺字段时省略，不推测。
+- `cardTracking.contextDetailsBySideAndCardKey` 按双方隔离投影球等单局动态详情。
+- `cardTracking.deckInsertions` 独立发布来源剩余数量与置顶、置底位置，普通牌库行仍是牌名与数量的唯一列表。
+- `DISPLAYED_CREATOR` 关联来源，离开牌库实时减少来源数量；`SHUFFLE_DECK` 只使位置失效。

@@ -56,7 +56,11 @@ export function createEmptyCardTracking(gameKey: string): PublicCardTracking {
     friendly: createPlayerTracking(false),
     opponent: createPlayerTracking(true),
     opponentSecretSlots: [],
-    detailsByCardKey: {}
+    detailsByCardKey: {},
+    contextDetailsBySideAndCardKey: {
+      friendly: {},
+      opponent: {}
+    }
   };
 }
 

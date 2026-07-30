@@ -1,4 +1,9 @@
-import type { CardDetails, CardOutcomeSection } from "./cardDatabase.js";
+import type {
+  CardDetails,
+  CardOutcomeSection,
+  GameContextSection,
+  RelatedCardInfo
+} from "./cardDatabase.js";
 import type { ArenaCardRating, ArenaScoreQuality } from "./arenaRatings.js";
 
 export type Zone = "DECK" | "HAND" | "PLAY" | "GRAVEYARD" | "REMOVEDFROMGAME" | "SETASIDE" | "SECRET" | "UNKNOWN";
@@ -136,6 +141,7 @@ export interface TrackerEvent {
   at: string;
   kind: EventKind;
   player: "friendly" | "opponent" | "unknown";
+  turn?: number;
   cardName?: string;
   fromZone?: Zone;
   toZone?: Zone;
@@ -159,6 +165,22 @@ export interface PlayerMatchCounters {
 export interface MatchCounters {
   readonly friendly: PlayerMatchCounters;
   readonly opponent: PlayerMatchCounters;
+}
+
+export type MatchFlowPhase = "mulligan" | "start" | "action" | "end";
+
+export interface PlayerTurnState {
+  readonly turn?: number;
+  readonly mana?: number;
+  readonly manaUsed?: number;
+}
+
+export interface MatchFlowSnapshot {
+  readonly globalTurn?: number;
+  readonly activeSide?: "friendly" | "opponent";
+  readonly phase?: MatchFlowPhase;
+  readonly friendly?: PlayerTurnState;
+  readonly opponent?: PlayerTurnState;
 }
 
 export type MatchResult = "win" | "loss" | "tie";
@@ -265,6 +287,7 @@ export interface PublicCardHistoryItem {
   readonly id: string;
   readonly sequence: number;
   readonly entityId: string;
+  readonly turn?: number;
   readonly card?: Omit<PublicKnownCard, "count">;
   readonly confidence: PublicTrackingConfidence;
   readonly outcomeSections?: readonly CardOutcomeSection[];
@@ -282,6 +305,31 @@ export interface PublicPlayerCardTracking {
   readonly used: PublicCardHistoryGroup;
 }
 
+export interface PublicCardContextDetails {
+  readonly gameContextSections?: readonly GameContextSection[];
+  readonly playedSpellsThisGame?: readonly RelatedCardInfo[];
+  readonly playedSpellsThisGameCount?: number;
+  readonly playedSpellsThisGameIncomplete?: boolean;
+}
+
+export interface PublicDeckInsertionGroup {
+  readonly sourceEntityId: string;
+  readonly sourceName: string;
+  readonly remainingCount: number;
+}
+
+export interface PublicDeckPlacement {
+  readonly entityId: string;
+  readonly position: "top" | "bottom";
+  readonly cardName?: string;
+  readonly cardId?: string;
+}
+
+export interface PublicDeckInsertionTracking {
+  readonly groups: readonly PublicDeckInsertionGroup[];
+  readonly placements: readonly PublicDeckPlacement[];
+}
+
 export interface PublicCardTracking {
   readonly schemaVersion: 1;
   readonly gameKey: string;
@@ -289,6 +337,14 @@ export interface PublicCardTracking {
   readonly opponent: PublicPlayerCardTracking;
   readonly opponentSecretSlots: readonly OpponentSecretSlot[];
   readonly detailsByCardKey: Readonly<Record<string, CardDetails>>;
+  readonly contextDetailsBySideAndCardKey: Readonly<{
+    friendly: Readonly<Record<string, PublicCardContextDetails>>;
+    opponent: Readonly<Record<string, PublicCardContextDetails>>;
+  }>;
+  readonly deckInsertions?: Readonly<{
+    friendly: PublicDeckInsertionTracking;
+    opponent: PublicDeckInsertionTracking;
+  }>;
 }
 
 export const LEGACY_USED_ROWS_KEY: "opponentPlayed" = "opponentPlayed";
@@ -318,6 +374,7 @@ export interface PublicTrackerState {
   opponentSecrets?: OpponentSecretSlot[];
   boardAttack?: BoardAttackSummary;
   matchCounters?: MatchCounters;
+  matchFlow?: MatchFlowSnapshot;
   events: TrackerEvent[];
   summary: TrackerSummary;
   arena?: ArenaState;
@@ -383,6 +440,8 @@ export interface EntitySnapshot {
   cardType?: string;
   attachedToEntityId?: string;
   storedEntityId?: string;
+  displayedCreatorEntityId?: string;
+  zonePosition?: number;
 }
 
 export interface SecretCandidate {
@@ -463,6 +522,21 @@ export interface EntityReferenceLogEvent {
 export interface GeneratedEntityLogEvent {
   type: "generated-entity";
   entityId?: string;
+  creatorEntityId?: string;
+  raw: string;
+}
+
+export interface DeckShuffleLogEvent {
+  type: "deck-shuffle";
+  playerId: number;
+  raw: string;
+}
+
+export interface ZonePositionLogEvent {
+  type: "zone-position";
+  entityId?: string;
+  controller?: number;
+  position: number;
   raw: string;
 }
 
@@ -512,10 +586,28 @@ export interface PlayerCounterLogEvent {
   raw: string;
 }
 
+export type MatchFlowTag =
+  | "TURN"
+  | "STEP"
+  | "NEXT_STEP"
+  | "CURRENT_PLAYER"
+  | "RESOURCES"
+  | "RESOURCES_USED";
+
+export interface MatchFlowLogEvent {
+  type: "match-flow";
+  tag: MatchFlowTag;
+  value: string;
+  entity: EntitySnapshot;
+  raw: string;
+}
+
 export type ParsedLogEvent =
   | ZoneChangeLogEvent
   | EntityLogEvent
   | GeneratedEntityLogEvent
+  | DeckShuffleLogEvent
+  | ZonePositionLogEvent
   | ControllerLogEvent
   | AttackLogEvent
   | ActionBoundaryLogEvent
@@ -527,7 +619,8 @@ export type ParsedLogEvent =
   | GameEndLogEvent
   | GlobalEffectLogEvent
   | PlayerIdentityLogEvent
-  | PlayerCounterLogEvent;
+  | PlayerCounterLogEvent
+  | MatchFlowLogEvent;
 
 export interface LogCandidate {
   path: string;

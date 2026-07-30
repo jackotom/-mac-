@@ -2195,6 +2195,107 @@ body:has(.overlay-shell) {
   white-space: nowrap;
 }
 
+.match-pulse-compact {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(113, 148, 173, 0.3);
+  color: #ccefff;
+  background: rgba(8, 28, 51, 0.97);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overlay-normal:has(.card-tracking-layout):has(.match-pulse-compact) {
+  grid-template-rows: 26px 18px minmax(0, 1fr);
+}
+
+.overlay-normal:has(.card-tracking-layout):has(.match-pulse-compact):has(.overlay-unresolved-warning) {
+  grid-template-rows: 26px 18px 18px minmax(0, 1fr);
+}
+
+.overlay-history-card-row {
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+}
+
+.overlay-history-turn {
+  align-self: center;
+  padding-right: 3px;
+  color: #b8d8ea;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.overlay-deck-insertion-groups,
+.overlay-deck-placements {
+  display: grid;
+  min-width: 0;
+  border-bottom: 1px solid rgba(126, 160, 184, 0.2);
+  background: rgba(10, 29, 48, 0.82);
+}
+
+.overlay-deck-insertion-group {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: repeat(2, 14px);
+  padding: 2px 5px;
+  border-bottom: 1px solid rgba(126, 160, 184, 0.12);
+}
+
+.overlay-deck-insertion-group:last-child {
+  border-bottom: 0;
+}
+
+.overlay-deck-insertion-group strong,
+.overlay-deck-insertion-group span {
+  overflow: hidden;
+  font-size: 8.5px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overlay-deck-insertion-group strong {
+  color: #dceaf2;
+}
+
+.overlay-deck-insertion-group span {
+  color: #f2c66f;
+}
+
+.overlay-deck-placements {
+  gap: 1px;
+  padding: 2px 5px;
+}
+
+.overlay-deck-placements p {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+  font-size: 8.5px;
+  line-height: 15px;
+}
+
+.overlay-deck-placements span {
+  color: #8fb4c9;
+}
+
+.overlay-deck-placements strong {
+  overflow: hidden;
+  color: #dceaf2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Arena pregame: Firestone-style pick rate / card / deck impact table. */
 .overlay-shell:has(.overlay-arena-stats) {
   --arena-stats-bg: #030a19;

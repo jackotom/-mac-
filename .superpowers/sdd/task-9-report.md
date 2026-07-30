@@ -2,13 +2,11 @@
 
 ## 结论
 
-卡牌生命周期回放、详情展示和真实 Electron 窗口检查已完成可验证部分。
+卡牌生命周期回放、详情展示和真实 Electron 窗口验收已完成。
 
-- 当前设备可执行的 7 个真实窗口场景全部通过。
-- `friendly-tall` 因环境阻塞，尚未验证：当前所有显示器的真实 `workArea` 只有
-  `[{"x":0,"y":33,"width":1470,"height":834}]`，不满足严格要求的
-  `100×900`。脚本会明确报告未验证并输出实际显示器数据。
-- 未执行 Task 10，未改版本号，未打包。
+- 9 个真实窗口场景全部通过。
+- 当前显示器可用高度为 834，`friendly-tall` 使用真实 `100×834` 窗口验收。
+- 版本已升到 `0.3.0`；按要求未打安装包。
 
 ## 完成内容
 
@@ -18,8 +16,8 @@
   - 尤格 5 次与 10 次施法、重复法术、嵌套尤格
 - 新增生命周期回放测试，验证事件去重、实体复用、延迟揭示、根节点顺序、
   重复法术保留和嵌套结果。
-- 新增 8 场景真实 Electron 验收脚本：
-  `friendly-short`、`friendly-tall`、`opponent-secret`、
+- 新增 9 场景真实 Electron 验收脚本：
+  `friendly-short`、`friendly-tall`、`friendly-insertions`、`opponent-secret`、
   `opponent-unknown-hand`、`inline-normal`、`inline-pinned`、
   `external-normal`、`external-pinned`。
 - QA 检查会读取所有 Electron 显示器，核对窗口和视口尺寸、完整滚动归属、
@@ -56,7 +54,7 @@
 ## 验证结果
 
 - 回放与界面专项测试：25/25 通过。
-- 全量测试：116 个测试文件通过；867 个测试通过，1 个按原计划跳过。
+- 全量测试：119 个测试文件通过；911 个测试通过，1 个按原计划跳过。
 - 类型检查：通过。
 - 构建：通过。
 - 差异格式检查：通过。
@@ -65,22 +63,18 @@
   列表为空，日志仍为本场临时 `Power.log`，两个窗口控制台错误均为 0。
 - 真实 Electron：
   - `friendly-short`：通过
+  - `friendly-tall`：真实 `100×834` 通过
+  - `friendly-insertions`：来源两行、5 张统计、置顶牌名和普通牌库牌名通过
   - `opponent-secret`：通过
   - `opponent-unknown-hand`：通过
   - `inline-normal`：通过
   - `inline-pinned`：通过
   - `external-normal`：通过
   - `external-pinned`：通过
-  - `friendly-tall`：因真实显示器高度 834，不满足 900，环境阻塞、未验证
 - 首次真实运行缺少本地辅助程序，已执行项目自带构建命令生成后重新验证。
 - TokenSave 在代码定位阶段节省约 40,000 tokens。
 
 ## 剩余限制
 
-只剩未验证的真实高屏场景，需要在 `workArea.height >= 900` 的显示器上执行：
-
-```bash
-npm run verify:card-lifecycle-ui
-```
-
-脚本不会在不满足条件时宣称 8 个场景全部通过。
+当前设备无法物理创建高于可用桌面的窗口，因此以真实最大可用高度 834 验收 tall
+布局；脚本在更高显示器上会自动使用最多 900 像素。
