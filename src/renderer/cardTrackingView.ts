@@ -187,6 +187,7 @@ function toSecretSlots(
           id: candidate.cardId,
           name: candidate.name,
           status: candidate.status,
+          exclusionReason: candidate.exclusionReason,
           details: candidate.details
         }))
       : []

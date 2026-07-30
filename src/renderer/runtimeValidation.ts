@@ -274,9 +274,14 @@ function isOpponentSecretSlot(value: unknown): boolean {
 }
 
 function isSecretCandidate(value: unknown): boolean {
-  return isRecord(value) && hasOnlyKeys(value, ["cardId", "name", "status", "details"]) &&
+  return isRecord(value) && hasOnlyKeys(value, ["cardId", "name", "status", "exclusionReason", "details"]) &&
     isNonEmptyString(value.cardId) && isNonEmptyString(value.name) &&
     isOneOf(value.status, ["possible", "excluded"]) &&
+    (value.exclusionReason === undefined || isOneOf(value.exclusionReason, [
+      "spell-played-without-trigger",
+      "minion-played-without-trigger",
+      "hero-attacked-without-trigger"
+    ])) &&
     (value.details === undefined || isCardDetails(value.details));
 }
 

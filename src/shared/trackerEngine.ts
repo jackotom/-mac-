@@ -83,6 +83,8 @@ interface CardOutcomeBlockFrame {
   readonly key: string;
   readonly blockType?: string;
   readonly entityId?: string;
+  readonly entity?: EntitySnapshot;
+  readonly target?: EntitySnapshot;
   readonly parent?: CardOutcomeBlockFrame;
   readonly rootSemanticKey: string;
   readonly rootLogSource: CardOutcomeLogSource;
@@ -207,7 +209,9 @@ export class TrackerEngine {
   private completedCardOutcomeDedupKeys = new Set<string>();
   private cardOutcomeOccurrencesBySource = new Map<string, number>();
   private cardOutcomeFrameSequence = 0;
-  private lastBlockBoundaryFingerprint: string | undefined;
+  private lastBlockBoundary:
+    | { readonly fingerprint: string; readonly source: string }
+    | undefined;
   private pendingKnownEntityReturn: EntitySnapshot | undefined;
   private pendingKnownEntityReturnCandidateIds = new Set<string>();
   private matchFlow: MatchFlow;
@@ -672,7 +676,17 @@ export class TrackerEngine {
     }
 
     if (event.type === "block-boundary") {
-      this.applyCardOutcomeBoundary(event);
+      if (
+        /\bTriggerKeyword=SECRET\b/i.test(event.raw) &&
+        event.entity?.id &&
+        this.isKnownOpponentController(event.entity.controller)
+      ) {
+        this.secretTracker.observeSecretActivity(event.entity.id);
+      }
+      const frame = this.applyCardOutcomeBoundary(event);
+      if (frame) {
+        this.applySecretActionBoundary(event.phase, frame);
+      }
       return;
     }
 
@@ -748,9 +762,6 @@ export class TrackerEngine {
         const info = this.findCardInfo(cardId, event.entity?.name ?? existing?.name);
         const isFriendlyPlay = event.action === "play" && this.isFriendlyController(controller);
         const isOpponentPlay = event.action === "play" && this.isKnownOpponentController(controller);
-        const action = isFriendlyPlay && info?.cardType === "法术"
-          ? "friendly-spell"
-          : isFriendlyPlay && info?.cardType === "随从" ? "friendly-minion" : "other";
         if (this.gameActive && event.entity?.id && (isFriendlyPlay || isOpponentPlay)) {
           const use = this.recordCardUse(
             event.entity.id,
@@ -760,8 +771,7 @@ export class TrackerEngine {
           );
           this.bindPendingCardOutcomeFrame(use);
         }
-        this.secretTracker.beginAction(action);
-      } else this.secretTracker.endAction();
+      }
       return;
     }
 
@@ -2329,7 +2339,7 @@ export class TrackerEngine {
     this.completedCardOutcomeDedupKeys.clear();
     this.cardOutcomeOccurrencesBySource.clear();
     this.cardOutcomeFrameSequence = 0;
-    this.lastBlockBoundaryFingerprint = undefined;
+    this.lastBlockBoundary = undefined;
   }
 
   private buildCardDetails(card: CardInfo, side: CardOutcomeSide): CardDetails {
@@ -2399,12 +2409,20 @@ export class TrackerEngine {
     });
   }
 
-  private applyCardOutcomeBoundary(event: Extract<ParsedLogEvent, { type: "block-boundary" }>) {
+  private applyCardOutcomeBoundary(
+    event: Extract<ParsedLogEvent, { type: "block-boundary" }>
+  ): CardOutcomeBlockFrame | undefined {
     const fingerprint = blockBoundaryFingerprint(event);
-    if (event.phase === "start" && fingerprint === this.lastBlockBoundaryFingerprint) {
-      return;
+    const source = cardOutcomeLogSource(event.raw).counterKey;
+    if (
+      this.lastBlockBoundary?.fingerprint === fingerprint &&
+      this.lastBlockBoundary.source !== source &&
+      isMirroredPowerLogSource(this.lastBlockBoundary.source) &&
+      isMirroredPowerLogSource(source)
+    ) {
+      return undefined;
     }
-    this.lastBlockBoundaryFingerprint = event.phase === "start" ? fingerprint : undefined;
+    this.lastBlockBoundary = { fingerprint, source };
 
     if (event.phase === "end") {
       const frame = this.cardOutcomeBlockStack.pop();
@@ -2416,7 +2434,7 @@ export class TrackerEngine {
           frame.rootLogSource
         );
       }
-      return;
+      return frame;
     }
 
     const parent = this.cardOutcomeBlockStack.at(-1);
@@ -2427,6 +2445,8 @@ export class TrackerEngine {
       key: frameKey,
       blockType: event.blockType,
       entityId: event.entity?.id,
+      entity: event.entity,
+      target: event.target,
       parent,
       rootSemanticKey: parent?.rootSemanticKey ?? boundaryKey,
       rootLogSource: parent?.rootLogSource ?? cardOutcomeLogSource(event.raw),
@@ -2445,6 +2465,72 @@ export class TrackerEngine {
         this.configureCardOutcomeFrame(frame, entity);
       }
     }
+    return frame;
+  }
+
+  private applySecretActionBoundary(
+    phase: "start" | "end",
+    frame: CardOutcomeBlockFrame
+  ) {
+    if (frame.blockType !== "PLAY" && frame.blockType !== "ATTACK") {
+      return;
+    }
+    if (phase === "end") {
+      this.secretTracker.endAction();
+      return;
+    }
+
+    const existing = frame.entity?.id ? this.entities.get(frame.entity.id) : undefined;
+    const entity = existing ? { ...existing, ...frame.entity } : frame.entity;
+    const targetExisting = frame.target?.id ? this.entities.get(frame.target.id) : undefined;
+    const target = targetExisting ? { ...targetExisting, ...frame.target } : frame.target;
+    if (!entity || !this.isFriendlyController(entity.controller)) {
+      this.secretTracker.beginAction("other");
+      return;
+    }
+
+    if (frame.blockType === "PLAY") {
+      const info = this.findCardInfo(entity.cardId, entity.name);
+      const cardType = info?.cardType ?? entity.cardType;
+      const kind = isCardType(cardType, "SPELL", "法术")
+        ? "friendly-spell"
+        : isCardType(cardType, "MINION", "随从") ? "friendly-minion" : "other";
+      const canBeCountered = !info?.mechanics?.some((mechanic) =>
+        mechanic === "CANT_BE_COUNTERED" || mechanic === "CANTBECOUNTERED"
+      );
+      this.secretTracker.beginAction({
+        kind,
+        canBeCountered,
+        opponentBoardHasSpace: this.opponentBoardHasSpace()
+      });
+      return;
+    }
+
+    const targetInfo = this.findCardInfo(target?.cardId, target?.name);
+    const targetCardType = targetInfo?.cardType ?? target?.cardType;
+    const attacksOpponentHero =
+      this.isKnownOpponentController(target?.controller) &&
+      isCardType(targetCardType, "HERO", "英雄");
+    this.secretTracker.beginAction({
+      kind: attacksOpponentHero ? "friendly-attack-opponent-hero" : "other",
+      opponentBoardHasSpace: this.opponentBoardHasSpace()
+    });
+  }
+
+  private opponentBoardHasSpace(): boolean {
+    const occupied = [...this.entities.values()].filter((entity) => {
+      if (entity.zone !== "PLAY" || !this.isKnownOpponentController(entity.controller)) {
+        return false;
+      }
+      const info = this.findCardInfo(entity.cardId, entity.name);
+      const cardType = info?.cardType ?? entity.cardType;
+      if (cardType) {
+        return isCardType(cardType, "MINION", "随从") ||
+          isCardType(cardType, "LOCATION", "地标");
+      }
+      return Boolean(entity.cardId || entity.name);
+    }).length;
+    return occupied < 7;
   }
 
   private resolveCurrentCardOutcomeFrame(entity: EntitySnapshot) {
@@ -2698,6 +2784,15 @@ function blockBoundaryFingerprint(event: Extract<ParsedLogEvent, { type: "block-
   return `${event.phase}:${timestamp}:${boundary}`;
 }
 
+function isCardType(
+  cardType: string | undefined,
+  english: string,
+  chinese: string
+): boolean {
+  const normalized = cardType?.trim().toUpperCase();
+  return normalized === english || cardType?.trim() === chinese;
+}
+
 function cardOutcomeLogSource(raw: string): CardOutcomeLogSource {
   const source = raw.match(/\b(GameState|PowerTaskList)\.DebugPrintPower\(\)/)?.[1];
   if (source) {
@@ -2711,6 +2806,10 @@ function cardOutcomeLogSource(raw: string): CardOutcomeLogSource {
     counterKey: fallback,
     dedupGroup: `source:${fallback}`
   };
+}
+
+function isMirroredPowerLogSource(source: string): boolean {
+  return source === "GameState" || source === "PowerTaskList";
 }
 
 function cardOutcomeContentFingerprint(outcome: RecordedCardOutcome) {

@@ -1,28 +1,115 @@
 import { listCardInfos, normalizeHeroClass, toCardDetails, type CardDatabase } from "./cardDatabase.js";
 import type { OpponentSecretSlot, SecretCandidate } from "./types.js";
 
-type SupportedAction = "friendly-spell" | "friendly-minion" | "other";
+export type SupportedSecretAction =
+  | "friendly-spell"
+  | "friendly-minion"
+  | "friendly-attack-opponent-hero"
+  | "other";
 
-const SUPPORTED_NON_TRIGGER_RULES: Readonly<Record<string, SupportedAction>> = {
-  EX1_287: "friendly-spell",
-  DMF_236: "friendly-spell",
-  EX1_294: "friendly-minion",
-  LOOT_101: "friendly-minion",
-  REV_828: "friendly-minion"
+export interface SecretActionObservation {
+  readonly kind: SupportedSecretAction;
+  readonly canBeCountered?: boolean;
+  readonly opponentBoardHasSpace?: boolean;
+}
+
+type SecretExclusionReason = NonNullable<SecretCandidate["exclusionReason"]>;
+
+interface SecretNonTriggerRule {
+  readonly action: SupportedSecretAction;
+  readonly reason: SecretExclusionReason;
+  readonly requiresCounterableCard?: boolean;
+  readonly requiresOpponentBoardSpace?: boolean;
+}
+
+const SUPPORTED_NON_TRIGGER_RULES: Readonly<Record<string, SecretNonTriggerRule>> = {
+  EX1_287: {
+    action: "friendly-spell",
+    reason: "spell-played-without-trigger",
+    requiresCounterableCard: true
+  },
+  DMF_236: {
+    action: "friendly-spell",
+    reason: "spell-played-without-trigger"
+  },
+  AV_226: {
+    action: "friendly-spell",
+    reason: "spell-played-without-trigger"
+  },
+  KAR_004: {
+    action: "friendly-spell",
+    reason: "spell-played-without-trigger",
+    requiresOpponentBoardSpace: true
+  },
+  REV_827: {
+    action: "friendly-spell",
+    reason: "spell-played-without-trigger",
+    requiresOpponentBoardSpace: true
+  },
+  EX1_294: {
+    action: "friendly-minion",
+    reason: "minion-played-without-trigger",
+    requiresOpponentBoardSpace: true
+  },
+  LOOT_101: {
+    action: "friendly-minion",
+    reason: "minion-played-without-trigger"
+  },
+  BT_707: {
+    action: "friendly-minion",
+    reason: "minion-played-without-trigger",
+    requiresOpponentBoardSpace: true
+  },
+  MAW_006: {
+    action: "friendly-minion",
+    reason: "minion-played-without-trigger",
+    requiresCounterableCard: true
+  },
+  EX1_289: {
+    action: "friendly-attack-opponent-hero",
+    reason: "hero-attacked-without-trigger"
+  },
+  EX1_610: {
+    action: "friendly-attack-opponent-hero",
+    reason: "hero-attacked-without-trigger"
+  },
+  EX1_130: {
+    action: "friendly-attack-opponent-hero",
+    reason: "hero-attacked-without-trigger",
+    requiresOpponentBoardSpace: true
+  },
+  LOOT_079: {
+    action: "friendly-attack-opponent-hero",
+    reason: "hero-attacked-without-trigger",
+    requiresOpponentBoardSpace: true
+  }
 };
 
 export class SecretTracker {
   private readonly slots = new Map<string, { candidates: SecretCandidate[]; revealedCardId?: string }>();
   private opponentClass?: string;
-  private action?: SupportedAction;
+  private readonly actions: Array<{
+    observation: SecretActionObservation;
+    slotIds: ReadonlySet<string>;
+    hadSecretActivity: boolean;
+  }> = [];
 
   constructor(private readonly database?: CardDatabase) {}
 
   setOpponentClass(heroClass?: string) {
     this.opponentClass = normalizeHeroClass(heroClass);
     for (const slot of this.slots.values()) {
-      const previous = new Map(slot.candidates.map((candidate) => [candidate.cardId, candidate.status]));
-      slot.candidates = this.buildCandidates().map((candidate) => ({ ...candidate, status: previous.get(candidate.cardId) ?? candidate.status }));
+      const previous = new Map(slot.candidates.map((candidate) => [canonicalSecretCardId(candidate.cardId), candidate]));
+      slot.candidates = this.buildCandidates().map((candidate) => {
+        const prior = previous.get(canonicalSecretCardId(candidate.cardId));
+        return prior
+          ? {
+              ...candidate,
+              status: prior.status,
+              ...(prior.exclusionReason ? { exclusionReason: prior.exclusionReason } : {})
+            }
+          : candidate;
+      });
     }
   }
 
@@ -34,29 +121,63 @@ export class SecretTracker {
     const slot = this.slots.get(entityId);
     if (!slot) return;
     const knownCard = this.database
-      ? listCardInfos(this.database).find((card) => (card.cardId ?? card.id)?.toUpperCase() === cardId.toUpperCase())
+      ? listCardInfos(this.database).find((card) =>
+          canonicalSecretCardId(card.cardId ?? card.id ?? "") === canonicalSecretCardId(cardId)
+        )
       : undefined;
-    if (knownCard && !knownCard.mechanics?.includes("SECRET")) {
+    if (knownCard && !isSecretCard(knownCard)) {
       this.slots.delete(entityId);
       return;
     }
     slot.revealedCardId = cardId;
+    this.markSecretActivity(entityId);
   }
 
-  leaveSecret(entityId: string) { this.slots.delete(entityId); }
-  beginAction(action: SupportedAction) { this.action = action; }
+  leaveSecret(entityId: string) {
+    this.markSecretActivity(entityId);
+    this.slots.delete(entityId);
+  }
+
+  observeSecretActivity(entityId: string) {
+    this.markSecretActivity(entityId);
+  }
+
+  beginAction(action: SupportedSecretAction | SecretActionObservation) {
+    this.actions.push({
+      observation: typeof action === "string" ? { kind: action } : action,
+      slotIds: new Set(this.slots.keys()),
+      hadSecretActivity: false
+    });
+  }
+
   endAction() {
-    const action = this.action;
-    this.action = undefined;
-    if (!action) return;
-    for (const slot of this.slots.values()) {
-      slot.candidates = slot.candidates.map((candidate) =>
-        SUPPORTED_NON_TRIGGER_RULES[candidate.cardId] === action ? { ...candidate, status: "excluded" } : candidate
-      );
+    const frame = this.actions.pop();
+    if (!frame || frame.hadSecretActivity) return;
+    for (const slotId of frame.slotIds) {
+      const slot = this.slots.get(slotId);
+      if (!slot) continue;
+      slot.candidates = slot.candidates.map((candidate) => {
+        const rule = SUPPORTED_NON_TRIGGER_RULES[canonicalSecretCardId(candidate.cardId)];
+        if (
+          rule?.action !== frame.observation.kind ||
+          (rule.requiresCounterableCard && frame.observation.canBeCountered === false) ||
+          (rule.requiresOpponentBoardSpace && frame.observation.opponentBoardHasSpace !== true)
+        ) {
+          return candidate;
+        }
+        return {
+          ...candidate,
+          status: "excluded",
+          exclusionReason: rule.reason
+        };
+      });
     }
   }
 
-  reset() { this.slots.clear(); this.action = undefined; }
+  reset() {
+    this.slots.clear();
+    this.actions.length = 0;
+  }
 
   getSlots(): OpponentSecretSlot[] {
     return [...this.slots].map(([entityId, slot]) => ({ entityId, candidates: slot.candidates, revealedCardId: slot.revealedCardId }));
@@ -64,9 +185,45 @@ export class SecretTracker {
 
   private buildCandidates(): SecretCandidate[] {
     if (!this.database) return [];
-    return listCardInfos(this.database)
-      .filter((card) => card.collectible === true && card.mechanics?.includes("SECRET") && Boolean(card.cardId))
+    const cardsByCanonicalId = new Map<string, ReturnType<typeof listCardInfos>[number]>();
+    for (const card of listCardInfos(this.database)
+      .filter((candidate) => candidate.collectible === true && isSecretCard(candidate) && Boolean(candidate.cardId))
       .filter((card) => !this.opponentClass || !card.heroClasses?.length || card.heroClasses.includes(this.opponentClass!))
-      .map((card) => ({ cardId: card.cardId!, name: card.name, status: "possible", details: toCardDetails(this.database!, card) }));
+    ) {
+      const canonicalId = canonicalSecretCardId(card.cardId!);
+      const previous = cardsByCanonicalId.get(canonicalId);
+      if (!previous || secretVariantPriority(card.cardId!) < secretVariantPriority(previous.cardId!)) {
+        cardsByCanonicalId.set(canonicalId, card);
+      }
+    }
+    return [...cardsByCanonicalId.values()].map((card) => ({
+      cardId: card.cardId!,
+      name: card.name,
+      status: "possible",
+      details: toCardDetails(this.database!, card)
+    }));
   }
+
+  private markSecretActivity(entityId: string) {
+    for (const frame of this.actions) {
+      if (frame.slotIds.has(entityId)) {
+        frame.hadSecretActivity = true;
+      }
+    }
+  }
+}
+
+function canonicalSecretCardId(cardId: string): string {
+  return cardId.trim().toUpperCase().replace(/^(?:CORE_|VAN_)+/u, "");
+}
+
+function secretVariantPriority(cardId: string): number {
+  const normalized = cardId.trim().toUpperCase();
+  if (normalized.startsWith("CORE_")) return 0;
+  if (normalized.startsWith("VAN_")) return 2;
+  return 1;
+}
+
+function isSecretCard(card: ReturnType<typeof listCardInfos>[number]): boolean {
+  return card.mechanics?.includes("SECRET") === true || /奥秘\s*[:：]/u.test(card.text ?? "");
 }

@@ -448,6 +448,10 @@ export interface SecretCandidate {
   readonly cardId: string;
   readonly name: string;
   readonly status: "possible" | "excluded";
+  readonly exclusionReason?:
+    | "spell-played-without-trigger"
+    | "minion-played-without-trigger"
+    | "hero-attacked-without-trigger";
   readonly details?: CardDetails;
 }
 
@@ -472,8 +476,9 @@ export interface AttackLogEvent {
 export interface ActionBoundaryLogEvent {
   type: "action-boundary";
   phase: "start" | "end";
-  action: "play" | "other";
+  action: "play" | "attack" | "other";
   entity?: EntitySnapshot;
+  target?: EntitySnapshot;
   raw: string;
 }
 
@@ -482,6 +487,7 @@ export interface BlockBoundaryLogEvent {
   phase: "start" | "end";
   blockType?: string;
   entity?: EntitySnapshot;
+  target?: EntitySnapshot;
   raw: string;
 }
 

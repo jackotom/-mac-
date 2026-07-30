@@ -216,6 +216,28 @@ describe("parseLogLine", () => {
     ]));
     expect(ordinaryPlay.some((event) => event.type === "global-effect")).toBe(false);
   });
+
+  it("parses attack blocks with both attacker and target", () => {
+    const events = parseLogLine(
+      "D 12:00:03.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=ATTACK Entity=[entityName=友方随从 id=51 zone=PLAY cardId=TEST_MINION player=1] EffectCardId=0 EffectIndex=0 Target=[entityName=对方英雄 id=4 zone=PLAY cardId=HERO_01 player=2] SubOption=-1"
+    );
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "block-boundary",
+        phase: "start",
+        blockType: "ATTACK",
+        entity: expect.objectContaining({ id: "51", controller: 1 }),
+        target: expect.objectContaining({ id: "4", controller: 2 })
+      }),
+      expect.objectContaining({
+        type: "action-boundary",
+        phase: "start",
+        action: "attack",
+        target: expect.objectContaining({ id: "4", controller: 2 })
+      })
+    ]));
+  });
 });
 
 describe("TrackerEngine", () => {
@@ -1237,6 +1259,109 @@ D 15:50:59.335 GameState.DebugPrintPower() - tag=QUESTLINE value=1
     engine.applyLine("D 12:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=71 zone=HAND cardId= player=2] tag=ZONE value=SECRET");
     expect(engine.getState().opponentSecrets?.map((slot) => slot.entityId)).toEqual(["70", "71"]);
   });
+
+  it("keeps text-identified CORE secrets and waits for the matching outer PLAY end", () => {
+    const richDb = createCardDatabase([
+      {
+        id: 69607,
+        cardId: "CORE_EX1_287",
+        name: "法术反制",
+        collectible: 1,
+        type: "SPELL",
+        playerClass: "MAGE",
+        text: "<b>奥秘：</b>当你的对手施放一个法术时，反制该法术。"
+      },
+      { id: 2, cardId: "TEST_SPELL", name: "测试法术", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=70 zone=HAND cardId= player=2] tag=ZONE value=SECRET
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=测试法术 id=80 zone=HAND cardId=TEST_SPELL player=1] Target=0
+D 12:00:02.100 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=POWER Entity=[entityName=测试法术 id=80 zone=PLAY cardId=TEST_SPELL player=1] Target=0
+D 12:00:02.200 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState().opponentSecrets?.[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "CORE_EX1_287",
+      status: "possible"
+    }));
+
+    engine.applyLine("D 12:00:02.300 PowerTaskList.DebugPrintPower() - BLOCK_END");
+    expect(engine.getState().opponentSecrets?.[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "CORE_EX1_287",
+      status: "excluded",
+      exclusionReason: "spell-played-without-trigger"
+    }));
+  });
+
+  it("keeps other slots possible when one secret reveals and leaves during the action", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "CORE_EX1_287", name: "法术反制", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 2, cardId: "DMF_236", name: "古神在上", collectible: true, type: "SPELL", playerClass: "PALADIN", mechanics: ["SECRET"] },
+      { id: 3, cardId: "TEST_SPELL", name: "测试法术", type: "SPELL" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=70 zone=HAND cardId= player=2] tag=ZONE value=SECRET
+D 12:00:01.100 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=71 zone=HAND cardId= player=2] tag=ZONE value=SECRET
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=测试法术 id=80 zone=HAND cardId=TEST_SPELL player=1] Target=0
+D 12:00:02.100 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=法术反制 id=70 zone=SECRET cardId=CORE_EX1_287 player=2] CardID=CORE_EX1_287
+D 12:00:02.200 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=法术反制 id=70 zone=SECRET cardId=CORE_EX1_287 player=2] tag=ZONE value=GRAVEYARD
+D 12:00:02.300 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState().opponentSecrets).toHaveLength(1);
+    expect(engine.getState().opponentSecrets?.[0].candidates.every(
+      (candidate) => candidate.status === "possible"
+    )).toBe(true);
+  });
+
+  it("excludes hero-attack secrets after a completed friendly attack on the opponent hero", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "VAN_EX1_289", name: "寒冰护体", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 2, cardId: "TEST_MINION", name: "测试随从", type: "MINION" },
+      { id: 3, cardId: "HERO_01", name: "对方英雄", type: "HERO" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=70 zone=HAND cardId= player=2] tag=ZONE value=SECRET
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=ATTACK Entity=[entityName=测试随从 id=80 zone=PLAY cardId=TEST_MINION player=1] Target=[entityName=对方英雄 id=4 zone=PLAY cardId=HERO_01 player=2]
+D 12:00:02.100 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState().opponentSecrets?.[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "VAN_EX1_289",
+      status: "excluded",
+      exclusionReason: "hero-attacked-without-trigger"
+    }));
+  });
+
+  it("does not exclude Mirror Entity when the opponent board is full", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "CORE_EX1_294", name: "镜像实体", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 2, cardId: "TEST_MINION", name: "测试随从", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(1);
+    const opponentBoard = Array.from({ length: 7 }, (_, index) =>
+      `D 12:00:01.${String(index).padStart(3, "0")} PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=测试随从 id=${100 + index} zone=PLAY cardId=TEST_MINION player=2] CardID=TEST_MINION`
+    ).join("\n");
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=70 zone=HAND cardId= player=2] tag=ZONE value=SECRET
+${opponentBoard}
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=测试随从 id=80 zone=HAND cardId=TEST_MINION player=1] Target=0
+D 12:00:02.100 PowerTaskList.DebugPrintPower() - BLOCK_END
+`);
+
+    expect(engine.getState().opponentSecrets?.[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "CORE_EX1_294",
+      status: "possible"
+    }));
+  });
+
   it("groups friendly hand cards from current entity zones", () => {
     const engine = new TrackerEngine({ deckText: "2x Fireball" });
     engine.setFriendlyController(1);

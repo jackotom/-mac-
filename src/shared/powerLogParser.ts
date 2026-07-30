@@ -141,9 +141,10 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
 
   if (/BLOCK_START\b.*BlockType=PLAY\b/.test(line)) {
     const entity = parseEntity(line);
+    const target = parseTarget(line);
     const events: ParsedLogEvent[] = [
-      { type: "block-boundary", phase: "start", blockType: "PLAY", entity, raw: line },
-      { type: "action-boundary", phase: "start", action: "play", entity, raw: line }
+      { type: "block-boundary", phase: "start", blockType: "PLAY", entity, target, raw: line },
+      { type: "action-boundary", phase: "start", action: "play", entity, target, raw: line }
     ];
     if (entity.cardId && PLAYED_GLOBAL_EFFECT_CARD_IDS.has(entity.cardId.toLocaleUpperCase())) {
       events.push({ type: "global-effect", source: "played", entity, raw: line });
@@ -153,13 +154,27 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
 
   const blockStart = line.match(/\bBLOCK_START\b.*?\bBlockType=([A-Z_]+)\b/i);
   if (blockStart) {
-    return [{
+    const entity = parseEntity(line);
+    const target = parseTarget(line);
+    const events: ParsedLogEvent[] = [{
       type: "block-boundary",
       phase: "start",
       blockType: blockStart[1].toUpperCase(),
-      entity: parseEntity(line),
+      entity,
+      target,
       raw: line
     }];
+    if (blockStart[1].toUpperCase() === "ATTACK") {
+      events.push({
+        type: "action-boundary",
+        phase: "start",
+        action: "attack",
+        entity,
+        target,
+        raw: line
+      });
+    }
+    return events;
   }
 
   const events: ParsedLogEvent[] = [];
@@ -312,6 +327,7 @@ export function parseEntity(line: string): EntitySnapshot {
   const cardId = firstMatch(line, [/\bCardID=([A-Za-z0-9_]+)/, /\bcardId=([A-Za-z0-9_]+)/]);
   const rawZone = firstMatch(source, [/\bzone=([A-Z]+)/]);
   const rawController = firstMatch(source, [/\bcontroller=(\d+)/, /\bplayer=(\d+)/]);
+  const cardType = firstMatch(source, [/\bcardType=([A-Z_]+)/i]);
 
   const name = rawName === id ? undefined : normalizeName(rawName);
   return {
@@ -319,8 +335,18 @@ export function parseEntity(line: string): EntitySnapshot {
     name,
     cardId,
     zone: rawZone ? normalizeZone(rawZone) : undefined,
-    controller: rawController ? Number(rawController) : undefined
+    controller: rawController ? Number(rawController) : undefined,
+    cardType
   };
+}
+
+function parseTarget(line: string): EntitySnapshot | undefined {
+  const targetIndex = line.indexOf("Target=");
+  if (targetIndex < 0) return undefined;
+  const value = readEntityValue(line.slice(targetIndex + "Target=".length));
+  if (!value || value === "0") return undefined;
+  const target = parseEntity(value);
+  return target.id || target.name || target.cardId ? target : undefined;
 }
 
 function extractEntitySource(line: string): string {

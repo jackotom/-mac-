@@ -2,7 +2,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toCardTrackingView } from "../src/renderer/cardTrackingView";
 import { OpponentOverlayPanel } from "../src/renderer/components/OpponentOverlayPanel";
-import type { OverlayCardTrackingView, OverlayPanelViewModel, OverlaySecretSlot } from "../src/renderer/types";
+import type {
+  OverlayCardTrackingView,
+  OverlayPanelViewModel,
+  OverlaySecretCandidate,
+  OverlaySecretSlot
+} from "../src/renderer/types";
 import { createEmptyCardTracking } from "./fixtures/publicTrackerState";
 
 afterEach(() => {
@@ -146,6 +151,50 @@ describe("opponent overlay", () => {
       })
     });
     expect(screen.getByText("已排除")).toBeInTheDocument();
+  });
+
+  it("explains why secret candidates were excluded while preserving the legacy fallback", () => {
+    const secret: OverlaySecretSlot = {
+      id: "slot-1",
+      label: "? 1",
+      candidates: [
+        {
+          id: "SPELL_SECRET",
+          name: "法术奥秘",
+          status: "excluded",
+          exclusionReason: "spell-played-without-trigger"
+        },
+        {
+          id: "MINION_SECRET",
+          name: "随从奥秘",
+          status: "excluded",
+          exclusionReason: "minion-played-without-trigger"
+        },
+        {
+          id: "ATTACK_SECRET",
+          name: "攻击奥秘",
+          status: "excluded",
+          exclusionReason: "hero-attacked-without-trigger"
+        },
+        {
+          id: "FUTURE_SECRET",
+          name: "未来奥秘",
+          status: "excluded",
+          exclusionReason: "future-reason"
+        } as unknown as OverlaySecretCandidate
+      ]
+    };
+
+    render(<OpponentOverlayPanel view={view(opponentTracking([secret]))} isCollapsed={false} />);
+
+    expect(screen.getByText("法术未触发")).toHaveAccessibleName("已排除：我方施放法术后未触发");
+    expect(screen.getByText("法术未触发")).toHaveAttribute("title", "已排除：我方施放法术后未触发");
+    expect(screen.getByText("随从未触发")).toHaveAccessibleName("已排除：我方打出随从后未触发");
+    expect(screen.getByText("随从未触发")).toHaveAttribute("title", "已排除：我方打出随从后未触发");
+    expect(screen.getByText("攻击英雄未触发")).toHaveAccessibleName("已排除：我方攻击对方英雄后未触发");
+    expect(screen.getByText("攻击英雄未触发")).toHaveAttribute("title", "已排除：我方攻击对方英雄后未触发");
+    expect(screen.getByText("已排除")).toHaveAccessibleName("已排除");
+    expect(screen.getByText("已排除")).toHaveAttribute("title", "已排除");
   });
 
   it("shows artwork for secret predictions even when legacy details omit image URLs", () => {

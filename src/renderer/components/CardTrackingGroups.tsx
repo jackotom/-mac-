@@ -315,18 +315,21 @@ function CurrentItems({
           <strong className="opponent-secret-slot-label">奥秘 {index + 1}</strong>
           {slot.candidates.length > 0 ? (
             <ul className="opponent-secret-candidates" aria-label={`${slot.label} 候选奥秘`}>
-              {slot.candidates.map((candidate) => (
-                <li key={candidate.id} className={`secret-candidate-${candidate.status}`}>
-                  <CardHoverPreview
-                    details={candidate.details}
-                    className="opponent-secret-candidate-preview"
-                  >
-                    <SecretCandidateArtwork candidate={candidate} />
-                    <strong>{candidate.name}</strong>
-                    <span>{candidate.status === "excluded" ? "已排除" : "可能"}</span>
-                  </CardHoverPreview>
-                </li>
-              ))}
+              {slot.candidates.map((candidate) => {
+                const status = secretCandidateStatus(candidate);
+                return (
+                  <li key={candidate.id} className={`secret-candidate-${candidate.status}`}>
+                    <CardHoverPreview
+                      details={candidate.details}
+                      className="opponent-secret-candidate-preview"
+                    >
+                      <SecretCandidateArtwork candidate={candidate} />
+                      <strong>{candidate.name}</strong>
+                      <span title={status.title} aria-label={status.accessibleLabel}>{status.label}</span>
+                    </CardHoverPreview>
+                  </li>
+                );
+              })}
             </ul>
           ) : <span className="overlay-secret-hidden">候选未显示</span>}
         </section>
@@ -334,6 +337,50 @@ function CurrentItems({
       {!hasContent ? <p className="overlay-card-group-empty">{emptyLabel ?? "暂无记录"}</p> : null}
     </>
   );
+}
+
+type SecretExclusionReason = NonNullable<OverlaySecretCandidate["exclusionReason"]>;
+
+const secretExclusionLabels: Readonly<Record<SecretExclusionReason, {
+  readonly label: string;
+  readonly description: string;
+}>> = {
+  "spell-played-without-trigger": {
+    label: "法术未触发",
+    description: "已排除：我方施放法术后未触发"
+  },
+  "minion-played-without-trigger": {
+    label: "随从未触发",
+    description: "已排除：我方打出随从后未触发"
+  },
+  "hero-attacked-without-trigger": {
+    label: "攻击英雄未触发",
+    description: "已排除：我方攻击对方英雄后未触发"
+  }
+};
+
+function secretCandidateStatus(candidate: OverlaySecretCandidate): {
+  readonly label: string;
+  readonly title?: string;
+  readonly accessibleLabel?: string;
+} {
+  if (candidate.status !== "excluded") {
+    return { label: "可能" };
+  }
+
+  const reason = candidate.exclusionReason;
+  const explanation = typeof reason === "string"
+    ? secretExclusionLabels[reason as SecretExclusionReason]
+    : undefined;
+  if (!explanation) {
+    return { label: "已排除", title: "已排除", accessibleLabel: "已排除" };
+  }
+
+  return {
+    label: explanation.label,
+    title: explanation.description,
+    accessibleLabel: explanation.description
+  };
 }
 
 function SecretCandidateArtwork({
