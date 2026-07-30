@@ -52,6 +52,9 @@ describe("opponent secret list styles", () => {
       /\.opponent-secret-candidates li\s*\{[\s\S]*?flex:\s*1 1 100%;[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/
     );
     expect(styles).toMatch(
+      /\.opponent-secret-candidate-preview\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1;[\s\S]*?display:\s*grid;[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/
+    );
+    expect(styles).toMatch(
       /\.opponent-secret-candidates strong\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
     );
     expect(styles).toMatch(

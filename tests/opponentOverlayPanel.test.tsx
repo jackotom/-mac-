@@ -1,7 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { toCardTrackingView } from "../src/renderer/cardTrackingView";
 import { OpponentOverlayPanel } from "../src/renderer/components/OpponentOverlayPanel";
 import type { OverlayCardTrackingView, OverlayPanelViewModel, OverlaySecretSlot } from "../src/renderer/types";
+import { createEmptyCardTracking } from "./fixtures/publicTrackerState";
+
+afterEach(() => {
+  window.history.replaceState({}, "", "/");
+  delete window.hearthstoneTracker;
+});
 
 function opponentTracking(
   secretSlots: readonly OverlaySecretSlot[] = [],
@@ -26,7 +33,7 @@ function opponentTracking(
         status: "partial",
         knownCount: 1,
         totalCount: handTotal,
-        countLabel: "≥1",
+        countLabel: String(handTotal),
         cards: [{ id: "known-hand", name: "已知手牌", count: 1 }]
       },
       play: empty("play"),
@@ -77,6 +84,90 @@ describe("opponent overlay", () => {
 
     expect(screen.getByText("已知手牌")).toBeInTheDocument();
     expect(screen.getByText("未公开 ×4")).toBeInTheDocument();
+  });
+
+  it("renders exact public deck and hand totals from real tracking state", () => {
+    const tracking = structuredClone(createEmptyCardTracking("opponent-counts"));
+    const current = tracking.opponent.current as unknown as Record<string, unknown>;
+    current.deck = { status: "partial", knownCount: 0, totalCount: 22, cards: [] };
+    current.hand = {
+      status: "partial",
+      knownCount: 1,
+      totalCount: 6,
+      cards: [{ cardKey: "id:known-hand", name: "已知手牌", count: 1 }]
+    };
+    const cardTracking = toCardTrackingView(tracking, "opponent", { showSecretCandidates: true });
+
+    render(<OpponentOverlayPanel view={view(cardTracking)} isCollapsed={false} />);
+
+    expect(screen.getByLabelText("对手概览")).toHaveTextContent("牌库 22");
+    expect(screen.getByLabelText("对手概览")).toHaveTextContent("手牌 6");
+  });
+
+  it("shows the full secret effect when a candidate is hovered", () => {
+    const showCardPreview = vi.fn(async () => undefined);
+    Object.defineProperty(window, "hearthstoneTracker", {
+      configurable: true,
+      value: {
+        showCardPreview,
+        hideCardPreview: vi.fn(async () => undefined)
+      }
+    });
+    window.history.replaceState({}, "", "/?opponent-overlay=1");
+    const details = {
+      dbfId: 585,
+      cardId: "EX1_287",
+      name: "法术反制",
+      manaCost: 3,
+      cardType: "法术",
+      text: "当你的对手施放一个法术时，反制该法术。",
+      isSpell: true,
+      relatedCards: []
+    };
+    const secret: OverlaySecretSlot = {
+      id: "slot-1",
+      label: "? 1",
+      candidates: [
+        { id: "EX1_287", name: "法术反制", status: "possible", details },
+        { id: "EX1_289", name: "寒冰屏障", status: "excluded" }
+      ]
+    };
+    render(<OpponentOverlayPanel view={view(opponentTracking([secret]))} isCollapsed={false} />);
+
+    fireEvent.mouseEnter(screen.getByText("法术反制"));
+
+    expect(showCardPreview).toHaveBeenCalledWith({
+      details,
+      anchorRect: expect.objectContaining({
+        left: expect.any(Number),
+        top: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number)
+      })
+    });
+    expect(screen.getByText("已排除")).toBeInTheDocument();
+  });
+
+  it("does not open an empty preview for a candidate without card details", () => {
+    const showCardPreview = vi.fn(async () => undefined);
+    Object.defineProperty(window, "hearthstoneTracker", {
+      configurable: true,
+      value: {
+        showCardPreview,
+        hideCardPreview: vi.fn(async () => undefined)
+      }
+    });
+    window.history.replaceState({}, "", "/?opponent-overlay=1");
+    const secret: OverlaySecretSlot = {
+      id: "slot-1",
+      label: "? 1",
+      candidates: [{ id: "UNKNOWN", name: "未知奥秘", status: "possible" }]
+    };
+    render(<OpponentOverlayPanel view={view(opponentTracking([secret]))} isCollapsed={false} />);
+
+    fireEvent.mouseEnter(screen.getByText("未知奥秘"));
+
+    expect(showCardPreview).not.toHaveBeenCalled();
   });
 
   it("shows the opponent's inserted-deck counts without listing generated card names", () => {

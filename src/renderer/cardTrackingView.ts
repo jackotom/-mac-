@@ -84,13 +84,13 @@ function compareDeckCards(left: OverlayCardItem, right: OverlayCardItem): number
 }
 
 function toZoneCountLabel(group: PublicCardZoneGroup): string {
-  if (group.status === "unknown") {
-    return "?";
+  if (group.totalCount !== undefined) {
+    return String(group.totalCount);
   }
-  if (group.status === "partial") {
-    return `≥${group.knownCount}`;
+  if (group.status !== "known") {
+    return group.knownCount > 0 ? `≥${group.knownCount}` : "?";
   }
-  return String(group.totalCount ?? group.knownCount);
+  return String(group.knownCount);
 }
 
 function toHistoryGroup(
@@ -186,7 +186,8 @@ function toSecretSlots(
       ? slot.candidates.map((candidate) => ({
           id: candidate.cardId,
           name: candidate.name,
-          status: candidate.status
+          status: candidate.status,
+          details: candidate.details
         }))
       : []
   }));

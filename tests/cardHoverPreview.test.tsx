@@ -513,7 +513,8 @@ describe("CardHoverPreview", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: "星空投影球" }));
 
     const populatedTooltip = screen.getByRole("tooltip");
-    expect(populatedTooltip).toHaveTextContent("本局已施放法术（3）");
+    expect(populatedTooltip).toHaveTextContent("本局已施放 3 个法术");
+    expect(populatedTooltip).not.toHaveTextContent("生成/关联法术（0）");
     expect(within(populatedTooltip).getAllByText(/^(?:寒冰箭|死神之躯)$/).map((item) => item.textContent)).toEqual([
       "寒冰箭",
       "寒冰箭",

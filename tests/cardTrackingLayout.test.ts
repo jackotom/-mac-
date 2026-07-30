@@ -87,7 +87,7 @@ describe("card tracking layout", () => {
         hand: zone("hand", {
           status: "partial",
           totalCount: 3,
-          countLabel: "≥0"
+          countLabel: "3"
         })
       }
     }));

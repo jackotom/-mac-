@@ -228,6 +228,7 @@ export interface OverlaySecretCandidate {
   id: string;
   name: string;
   status: "possible" | "excluded";
+  details?: CardDetails;
 }
 
 export interface OverlaySecretSlot {

@@ -145,6 +145,16 @@
   list-style: none;
 }
 
+.opponent-secret-candidate-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
 .opponent-secret-candidates strong {
   min-width: 0;
   overflow: hidden;

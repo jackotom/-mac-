@@ -5,7 +5,7 @@ import type {
   PublicCardTracking,
   PublicCardZoneGroup
 } from "../src/shared/types";
-import { createEmptyCardTracking } from "./fixtures/publicTrackerState";
+import { createEmptyCardTracking, createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 function tracking(): PublicCardTracking {
   return structuredClone(createEmptyCardTracking("game-1"));
@@ -409,7 +409,7 @@ describe("card tracking renderer mapping", () => {
     });
   });
 
-  it("formats unknown, partial, secret, and truncated counts without using candidate totals", () => {
+  it("shows exact zone totals when known and lower bounds only when totals are absent", () => {
     const value = tracking();
     setZone(value, "opponent", "deck", {
       status: "unknown",
@@ -426,6 +426,16 @@ describe("card tracking renderer mapping", () => {
       status: "partial",
       knownCount: 0,
       totalCount: 1,
+      cards: []
+    });
+    setZone(value, "opponent", "play", {
+      status: "unknown",
+      knownCount: 1,
+      cards: [{ cardKey: "id:known-play", name: "已知场上牌", count: 1 }]
+    });
+    setZone(value, "opponent", "graveyard", {
+      status: "unknown",
+      knownCount: 0,
       cards: []
     });
     setTrackingField(value, "opponentSecretSlots", [{
@@ -447,13 +457,45 @@ describe("card tracking renderer mapping", () => {
       }]
     });
 
-    const view = toCardTrackingView(value, "opponent", { showSecretCandidates: false });
+    const parsed = createPublicTrackerState({ cardTracking: value });
+    const view = toCardTrackingView(parsed.cardTracking, "opponent", { showSecretCandidates: false });
 
     expect(view.current.deck.countLabel).toBe("?");
-    expect(view.current.hand.countLabel).toBe("≥1");
+    expect(view.current.hand.countLabel).toBe("3");
     expect(view.current.secret.countLabel).toBe("当前 1");
+    expect(view.current.play.countLabel).toBe("≥1");
+    expect(view.current.graveyard.countLabel).toBe("?");
     expect(view.used.countLabel).toBe("最近 1 / 共 31");
     expect(view.secretSlots).toHaveLength(1);
     expect(view.secretSlots[0]?.candidates).toEqual([]);
+  });
+
+  it("keeps secret candidate details for hover previews without exposing hidden candidates", () => {
+    const value = tracking();
+    const details = {
+      dbfId: 585,
+      cardId: "EX1_287",
+      name: "法术反制",
+      manaCost: 3,
+      cardType: "法术",
+      text: "当你的对手施放一个法术时，反制该法术。",
+      isSpell: true,
+      relatedCards: []
+    };
+    setTrackingField(value, "opponentSecretSlots", [{
+      entityId: "secret-1",
+      candidates: [{
+        cardId: "EX1_287",
+        name: "法术反制",
+        status: "possible",
+        details
+      }]
+    }]);
+
+    const visible = toCardTrackingView(value, "opponent", { showSecretCandidates: true });
+    const hidden = toCardTrackingView(value, "opponent", { showSecretCandidates: false });
+
+    expect(visible.secretSlots[0]?.candidates[0]?.details).toEqual(details);
+    expect(hidden.secretSlots[0]?.candidates).toEqual([]);
   });
 });

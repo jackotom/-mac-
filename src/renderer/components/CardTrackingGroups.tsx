@@ -315,8 +315,13 @@ function CurrentItems({
             <ul className="opponent-secret-candidates" aria-label={`${slot.label} 候选奥秘`}>
               {slot.candidates.map((candidate) => (
                 <li key={candidate.id} className={`secret-candidate-${candidate.status}`}>
-                  <strong>{candidate.name}</strong>
-                  <span>{candidate.status === "excluded" ? "已排除" : "可能"}</span>
+                  <CardHoverPreview
+                    details={candidate.details}
+                    className="opponent-secret-candidate-preview"
+                  >
+                    <strong>{candidate.name}</strong>
+                    <span>{candidate.status === "excluded" ? "已排除" : "可能"}</span>
+                  </CardHoverPreview>
                 </li>
               ))}
             </ul>

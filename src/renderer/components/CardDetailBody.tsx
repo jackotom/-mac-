@@ -26,20 +26,14 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
   const hasStructuredPlayedSpellContext =
     spellContext.playedSpellsThisGameCount !== undefined ||
     spellContext.playedSpellsThisGameIncomplete !== undefined;
+  const hasPlayedSpellContext =
+    hasStructuredPlayedSpellContext ||
+    playedSpells !== undefined;
   const cardPoolSections = details.cardPoolSections ?? [];
   const cardOutcomeSections = details.cardOutcomeSections ?? [];
-  const gameContextSections = hasStructuredPlayedSpellContext
+  const gameContextSections = hasPlayedSpellContext
     ? (details.gameContextSections ?? []).filter((section) => section.key !== "played-spells")
-    : details.gameContextSections ?? (
-        playedSpells === undefined
-          ? []
-          : [{
-              key: "played-spells",
-              title: "本局已施放法术",
-              emptyText: "本局还没有施放过法术",
-              cards: playedSpells
-            }]
-      );
+    : details.gameContextSections ?? [];
 
   return (
     <div className={`card-detail-body${className ? ` ${className}` : ""}`}>
@@ -70,13 +64,25 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
         {details.spellSchool ? <div className="card-detail-meta">法术派系：{details.spellSchool}</div> : null}
         {details.text ? <p className="card-detail-text">{details.text}</p> : null}
       </div>
-      <CardListSection
-        cards={details.relatedCards}
-        className="card-detail-related"
-        emptyText={details.isSpell ? "暂无生成或关联法术资料" : "暂无关联牌资料"}
-        title={details.isSpell ? "生成/关联法术" : "关联牌"}
-        showText
-      />
+      {hasPlayedSpellContext ? (
+        <PlayedSpellsSection
+          cards={playedSpells ?? []}
+          incomplete={spellContext.playedSpellsThisGameIncomplete === true}
+          totalCount={
+            spellContext.playedSpellsThisGameCount ??
+            (spellContext.playedSpellsThisGameIncomplete === true ? undefined : playedSpells?.length)
+          }
+        />
+      ) : null}
+      {!hasPlayedSpellContext || details.relatedCards.length > 0 ? (
+        <CardListSection
+          cards={details.relatedCards}
+          className="card-detail-related"
+          emptyText={details.isSpell ? "暂无生成或关联法术资料" : "暂无关联牌资料"}
+          title={details.isSpell ? "生成/关联法术" : "关联牌"}
+          showText
+        />
+      ) : null}
       {mode === "interactive" ? cardPoolSections.map((section) => (
         <CardPoolSection
           cards={section.cards}
@@ -93,13 +99,6 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
           title={section.title}
         />
       ))}
-      {hasStructuredPlayedSpellContext ? (
-        <PlayedSpellsSection
-          cards={playedSpells ?? []}
-          incomplete={spellContext.playedSpellsThisGameIncomplete === true}
-          totalCount={spellContext.playedSpellsThisGameCount}
-        />
-      ) : null}
       {gameContextSections.map((section) => (
         <CardListSection
           cards={section.cards}
