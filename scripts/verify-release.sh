@@ -12,6 +12,7 @@ redraft_source_dir="$root_dir/fixtures/logs/arena-redraft-session"
 redraft_partial_fixture="outputs/release-verification/fixtures/arena-redraft-partial"
 redraft_exact_fixture="outputs/release-verification/fixtures/arena-redraft-exact"
 arena_playing_fixture="outputs/release-verification/fixtures/arena-playing"
+arena_candidate_fixture_prefix="outputs/release-verification/fixtures/arena-redraft-candidates"
 active_qa_pid=""
 
 cleanup_active_qa_process() {
@@ -76,6 +77,60 @@ prepare_arena_redraft_fixtures() {
   touch "$playing_dir/Arena.log" "$playing_dir/Decks.log" "$playing_dir/Power.log"
 }
 
+prepare_arena_candidate_fixtures() {
+  local candidate_count target_dir
+  for candidate_count in 35 34 33; do
+    target_dir="$root_dir/${arena_candidate_fixture_prefix}-${candidate_count}"
+    rm -rf "$target_dir" "$evidence_dir/user-data/arena-redraft-${candidate_count}-replay"
+    mkdir -p "$target_dir"
+    cp "$redraft_source_dir/cards.qa-cache.json" "$target_dir/cards.qa-cache.json"
+    node - "$target_dir" "$candidate_count" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const targetDir = process.argv[2];
+const candidateCount = Number(process.argv[3]);
+const pendingCount = candidateCount - 30;
+const cardId = (index) => `TEST_ARENA_${String(index).padStart(2, "0")}`;
+const cachePath = path.join(targetDir, "cards.qa-cache.json");
+const cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+for (let index = 31; index <= 35; index += 1) {
+  cache.cards.push({
+    dbfId: 1000 + index,
+    name: `验收新牌${index}`,
+    cardId: cardId(index)
+  });
+}
+fs.writeFileSync(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
+
+const initial = [
+  "D 11:59:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9000000001, Hero Card = HERO_03",
+  ...Array.from(
+    { length: 30 },
+    (_value, index) => `D 11:59:00.${String(index + 1).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card ${cardId(index + 1)}`
+  ),
+  "D 11:59:01.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+];
+const transition = [
+  "D 12:00:00.000 Arena.SetDraftMode - REDRAFTING",
+  "D 12:00:00.100 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9000000002",
+  "D 12:00:00.200 DraftManager.OnChoicesAndContents - Draft Deck ID: 9000000001, Hero Card = HERO_03",
+  ...Array.from(
+    { length: 24 },
+    (_value, index) => `D 12:00:00.${String(index + 201).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card ${cardId(index + 1)}`
+  ),
+  ...Array.from(
+    { length: pendingCount },
+    (_value, index) => `D 12:00:0${index + 1}.000 Client chooses: 验收新牌${index + 31} (${cardId(index + 31)})`
+  ),
+  "D 12:00:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+];
+fs.writeFileSync(path.join(targetDir, "Arena.log"), `${initial.join("\n")}\n`);
+fs.writeFileSync(path.join(targetDir, "Arena.append.log"), `${transition.join("\n")}\n`);
+NODE
+  done
+}
+
 run_capture() {
   local name="$1"
   local fixture="$2"
@@ -124,6 +179,29 @@ run_capture() {
       "$app_executable" &
   fi
   active_qa_pid=$!
+  local transition_path="$root_dir/$fixture/Arena.append.log"
+  if [[ -f "$transition_path" ]]; then
+    local startup_log="$qa_user_data/logs/hearthstone-tracker.log"
+    local app_started=0
+    for _ in {1..100}; do
+      if [[ -f "$startup_log" ]] && grep -Fq '"message":"应用启动"' "$startup_log"; then
+        app_started=1
+        break
+      fi
+      sleep 0.05
+    done
+    if [[ "$app_started" -ne 1 ]]; then
+      echo "QA 场景未完成隔离应用启动：$name" >&2
+      cleanup_active_qa_process
+      return 38
+    fi
+    sleep 1.2
+    if ! kill -0 "$active_qa_pid" 2>/dev/null; then
+      echo "QA 场景在日志切换前提前退出：$name" >&2
+      return 38
+    fi
+    cat "$transition_path" >> "$qa_log_path"
+  fi
   local qa_status=0
   wait "$active_qa_pid" || qa_status=$?
   active_qa_pid=""
@@ -140,6 +218,7 @@ run_capture() {
     if (!report.hasApi || !report.location || !report.bodyText) process.exit(1);
     const scenario = process.argv[2];
     const fixture = process.argv[3];
+    const candidateMatch = scenario.match(/^arena-redraft-(35|34|33)-replay$/);
     if (/\.card-detail-(?:copy|heading|image)\s*\{/.test(String(report.bodyText))) process.exit(37);
     if (report.trackerSettings?.general?.startMinimized !== false) process.exit(25);
     if (report.trackerSettings?.overlay?.position !== "right") process.exit(26);
@@ -175,6 +254,25 @@ run_capture() {
         if (fakeNames.some((name) => body.includes(name))) process.exit(10);
         if (arena.deck?.some((card) => card.unresolved || fakeNames.includes(card.name))) process.exit(11);
       }
+      if (candidateMatch) {
+        const expectedCandidateCount = Number(candidateMatch[1]);
+        const arena = report.trackerState.arena;
+        const body = String(report.bodyText);
+        const confirmedTotal = (arena?.deck ?? []).reduce((sum, card) => sum + card.count, 0);
+        const candidateTotal = (arena?.redraftPool ?? []).reduce((sum, card) => sum + card.count, 0);
+        const trackerTotal = (report.trackerState.deck ?? []).reduce((sum, card) => sum + card.count, 0);
+        const visibleCandidateRows = body.match(/(?:测试牌|验收新牌)\d+/g)?.length ?? 0;
+        if (
+          arena?.status !== "complete" ||
+          arena?.awaitingExactDeck !== true ||
+          confirmedTotal !== 30 ||
+          trackerTotal !== 30 ||
+          candidateTotal !== expectedCandidateCount ||
+          arena?.pendingRedraftChoices?.length !== expectedCandidateCount - 30 ||
+          visibleCandidateRows !== expectedCandidateCount
+        ) process.exit(38);
+        if (!body.includes("等待确认替换")) process.exit(39);
+      }
       if (scenario === "arena-redraft-exact-replay") {
         const arena = report.trackerState.arena;
         const arenaCards = arena?.deck ?? [];
@@ -203,6 +301,7 @@ run_capture() {
       }
     }
     const routeByScenario = { "deck-overlay": "overlay=1", "constructed-duplicate-replay": "overlay=1", "arena-redraft-partial-replay": "overlay=1", "arena-redraft-exact-replay": "overlay=1", "arena-playing-replay": "overlay=1", "opponent-overlay": "opponent-overlay=1", "arena-choice-overlay": "arena-choice-overlay=1", "ladder-deck-overlay": "ladder-deck-overlay=1", "board-attack-overlay": "board-attack-overlay=1", "arena-hero-ranking-overlay": "arena-hero-ranking-overlay=1", "three-window-layout": "arena-hero-ranking-overlay=1" };
+    if (candidateMatch) routeByScenario[scenario] = "overlay=1";
     if (routeByScenario[scenario] && !report.location.includes(routeByScenario[scenario])) process.exit(7);
     if (routeByScenario[scenario] && report.qaMainWindowVisible !== false) process.exit(36);
     if (scenario === "three-window-layout") {
@@ -259,11 +358,15 @@ fi
 
 echo "[5/7] 代表性日志回放与窗口截图"
 prepare_arena_redraft_fixtures
+prepare_arena_candidate_fixtures
 run_capture normal-replay fixtures/logs/session-2026-07-10
 run_capture auto-match-replay fixtures/logs/auto-match-session
 run_capture constructed-duplicate-replay fixtures/logs/constructed-duplicate-create QA_OPEN_OVERLAY
 run_capture arena-replay fixtures/logs/arena-session
 run_capture arena-redraft-partial-replay "$redraft_partial_fixture" QA_OPEN_OVERLAY
+run_capture arena-redraft-35-replay "${arena_candidate_fixture_prefix}-35" QA_OPEN_OVERLAY
+run_capture arena-redraft-34-replay "${arena_candidate_fixture_prefix}-34" QA_OPEN_OVERLAY
+run_capture arena-redraft-33-replay "${arena_candidate_fixture_prefix}-33" QA_OPEN_OVERLAY
 run_capture arena-redraft-exact-replay "$redraft_exact_fixture" QA_OPEN_OVERLAY
 run_capture arena-playing-replay "$arena_playing_fixture" QA_OPEN_OVERLAY
 run_capture deck-overlay fixtures/logs/session-2026-07-10 QA_OPEN_OVERLAY
@@ -274,17 +377,30 @@ run_capture board-attack-overlay fixtures/logs/session-2026-07-10 QA_OPEN_BOARD_
 run_capture arena-hero-ranking-overlay fixtures/logs/arena-session QA_OPEN_ARENA_HERO_RANKING_OVERLAY
 run_capture three-window-layout fixtures/logs/arena-session QA_OPEN_THREE_WINDOW_LAYOUT
 require_file "$screenshots_dir/arena-redraft-partial-replay.png"
+require_file "$screenshots_dir/arena-redraft-35-replay.png"
+require_file "$screenshots_dir/arena-redraft-34-replay.png"
+require_file "$screenshots_dir/arena-redraft-33-replay.png"
 require_file "$screenshots_dir/arena-redraft-exact-replay.png"
 require_file "$screenshots_dir/arena-playing-replay.png"
 require_file "$screenshots_dir/arena-hero-ranking-overlay.png"
 require_file "$screenshots_dir/three-window-layout.png"
 require_file "$inspections_dir/arena-redraft-partial-replay.json"
+require_file "$inspections_dir/arena-redraft-35-replay.json"
+require_file "$inspections_dir/arena-redraft-34-replay.json"
+require_file "$inspections_dir/arena-redraft-33-replay.json"
 require_file "$inspections_dir/arena-redraft-exact-replay.json"
 require_file "$inspections_dir/arena-playing-replay.json"
 require_file "$inspections_dir/arena-hero-ranking-overlay.json"
 require_file "$inspections_dir/three-window-layout.json"
 
 echo "[6/7] 组件、签名、权限说明与架构"
+expected_app_version="$(node -p 'require("./package.json").version')"
+actual_short_version="$(plutil -extract CFBundleShortVersionString raw "$app_path/Contents/Info.plist")"
+actual_build_version="$(plutil -extract CFBundleVersion raw "$app_path/Contents/Info.plist")"
+if [[ "$actual_short_version" != "$expected_app_version" || "$actual_build_version" != "$expected_app_version" ]]; then
+  echo "安装包版本错误：期望 $expected_app_version，实际 $actual_short_version / $actual_build_version" >&2
+  exit 1
+fi
 for helper in arena-ocr frontmost-app; do
   helper_path="$app_path/Contents/Resources/$helper"
   if [[ ! -x "$helper_path" ]]; then

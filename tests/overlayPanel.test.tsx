@@ -1,11 +1,14 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OverlayPanel } from "../src/renderer/components/OverlayPanel";
+import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
 import type {
   OverlayCardTrackingView,
   OverlayPanelViewModel,
   OverlaySecretSlot
 } from "../src/renderer/types";
+import type { DeckCard, PublicTrackerState } from "../src/shared/types";
+import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 function zone(
   key: keyof OverlayCardTrackingView["current"],
@@ -355,6 +358,59 @@ describe("standard tracker overlay", () => {
       originalDeck[1]
     ])} />);
     expect(list.scrollTop).toBe(0);
+  });
+
+  it("keeps the Arena redraft column visible while the candidate pool grows from 33 to 35 cards", () => {
+    const confirmedDeck: DeckCard[] = Array.from({ length: 30 }, (_value, index) => ({
+      name: `保留牌 ${index + 1}`,
+      cardId: `KEEP_${index + 1}`,
+      count: 1,
+      pickRate: 50 + index / 10,
+      deckImpact: index / 100
+    }));
+    const overlayFor = (candidateCount: number): OverlayPanelViewModel => {
+      const pendingCards: DeckCard[] = Array.from(
+        { length: candidateCount - confirmedDeck.length },
+        (_value, index) => ({
+        name: `新选牌 ${index + 1}`,
+        cardId: `NEW_${index + 1}`,
+        count: 1,
+        pickRate: 70 + index,
+        deckImpact: 1 + index / 10
+        })
+      );
+      const state: PublicTrackerState = createPublicTrackerState({
+        status: "watching",
+        trackerMode: "arena",
+        deck: [],
+        events: [],
+        summary: { totalCards: 30, remainingCards: 30, drawnCards: 0, opponentPlayedCount: 0 },
+        arena: {
+          status: "complete",
+          currentChoices: [],
+          picks: [],
+          deck: confirmedDeck,
+          redraftPool: [...confirmedDeck, ...pendingCards],
+          awaitingExactDeck: true,
+          pendingRedraftChoices: pendingCards,
+          draftCount: 30,
+          unresolvedCount: 0
+        }
+      });
+      return toOverlayPanelViewModel(state, { maxDeckRows: 40 });
+    };
+    const preview = render(<OverlayPanel view={overlayFor(33)} />);
+
+    for (const candidateCount of [33, 34, 35]) {
+      const overlayView = overlayFor(candidateCount);
+      preview.rerender(<OverlayPanel view={overlayView} />);
+
+      const arena = screen.getByLabelText("竞技场卡组影响");
+      expect(overlayView.arena?.deckCount).toBe(candidateCount);
+      expect(within(arena).getAllByRole("listitem")).toHaveLength(candidateCount);
+      expect(within(arena).getByLabelText("竞技场阶段")).toHaveTextContent("等待确认替换");
+      expect(arena).toHaveTextContent(`新选牌 ${candidateCount - 30}`);
+    }
   });
 
   it("highlights lifecycle synergy on pointer hover and keyboard focus", () => {

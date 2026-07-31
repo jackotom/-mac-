@@ -1,6 +1,6 @@
 {
   "name": "hearthstone-mac-tracker",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "type": "module",
   "main": "dist-electron/main/main.js",
