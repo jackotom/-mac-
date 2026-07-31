@@ -464,6 +464,9 @@ function isArenaState(value: unknown): boolean {
       !Array.isArray(value.picks) || !value.picks.every(isArenaPick) ||
       !Array.isArray(value.deck) || !value.deck.every(isDeckCard) ||
       (value.redraftPool !== undefined && (!Array.isArray(value.redraftPool) || !value.redraftPool.every(isDeckCard))) ||
+      (value.pendingRedraftChoices !== undefined &&
+        (!Array.isArray(value.pendingRedraftChoices) || !value.pendingRedraftChoices.every(isArenaCardChoice))) ||
+      (value.awaitingExactDeck !== undefined && typeof value.awaitingExactDeck !== "boolean") ||
       !isOptionalString(value.deckId) || !isOptionalString(value.redraftGenerationId) ||
       !isOptionalString(value.scoreSource) || !isOptionalString(value.lastUpdated) || !isOptionalString(value.error) ||
       !isOptionalNonNegativeNumber(value.ratingsVersion) || !isOptionalArenaHero(value.hero)) {

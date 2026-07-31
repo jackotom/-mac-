@@ -161,8 +161,14 @@ D 12:00:00.000 DraftManager.OnChoicesAndContents - Draft deck contains card TEST
 D 12:00:01.000 Arena.SetDraftMode - REDRAFTING
 `);
 
-    expect(engine.getState()).toMatchObject({ status: "redrafting", draftCount: 2, unresolvedCount: 28 });
-    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(2);
+    expect(engine.getState()).toMatchObject({
+      status: "redrafting",
+      draftCount: 2,
+      unresolvedCount: 30,
+      deck: [],
+      awaitingExactDeck: true
+    });
+    expect(engine.getState().redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(2);
     expect(engine.applyScreenChoices(["Sample Singleton", "Sample Pair", "Sample Multi"])).toBe(true);
     expect(engine.getState().currentChoices).toHaveLength(3);
   });
@@ -237,14 +243,16 @@ D 17:40:02.0000000 SetDraftMode - ACTIVE_DRAFT_DECK
     expect(engine.getState()).toMatchObject({
       status: "complete",
       draftCount: 29,
-      unresolvedCount: 1,
-      picks: expect.arrayContaining([
-        expect.objectContaining({ chosen: expect.objectContaining({ cardId: "TEST_002" }) }),
-        expect.objectContaining({ chosen: expect.objectContaining({ cardId: "TEST_003" }) })
+      unresolvedCount: 30,
+      deck: [],
+      awaitingExactDeck: true,
+      pendingRedraftChoices: expect.arrayContaining([
+        expect.objectContaining({ cardId: "TEST_002" }),
+        expect.objectContaining({ cardId: "TEST_003" })
       ])
     });
-    expect(engine.getState().picks).toHaveLength(29);
-    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(29);
+    expect(engine.getState().picks).toHaveLength(0);
+    expect(engine.getState().pendingRedraftChoices).toHaveLength(5);
   });
 });
 
@@ -273,9 +281,11 @@ describe("ArenaDraftEngine", () => {
     expect(engine.getState()).toMatchObject({
       status: "complete",
       draftCount: 29,
-      unresolvedCount: 1
+      unresolvedCount: 30,
+      awaitingExactDeck: true
     });
-    expect(engine.getState().picks).toHaveLength(29);
+    expect(engine.getState().picks).toHaveLength(0);
+    expect(engine.getState().pendingRedraftChoices).toHaveLength(5);
   });
 
   it("keeps all redraft candidates above thirty until an exact deck resolves the ambiguity", () => {
@@ -289,8 +299,13 @@ describe("ArenaDraftEngine", () => {
       engine.applyArenaLine(`D 17:15:${String(index + 2).padStart(2, "0")}.000 Client chooses: [${cardId}]`);
     }
 
-    expect(engine.getState()).toMatchObject({ status: "redrafting", picks: expect.any(Array) });
-    expect(engine.getState().picks).toHaveLength(31);
+    expect(engine.getState()).toMatchObject({
+      status: "redrafting",
+      picks: [],
+      awaitingExactDeck: true
+    });
+    expect(engine.getState().pendingRedraftChoices).toHaveLength(5);
+    expect(engine.getState().redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(31);
 
     engine.applyArenaLine("D 17:16:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK");
 
@@ -298,9 +313,64 @@ describe("ArenaDraftEngine", () => {
       status: "complete",
       draftCount: 30,
       unresolvedCount: 30,
-      deck: []
+      deck: [],
+      awaitingExactDeck: true
     });
-    expect(engine.getState().picks).toHaveLength(31);
+    expect(engine.getState().picks).toHaveLength(0);
+  });
+
+  it("preserves the last exact deck and keeps redraft choices pending until the next exact deck arrives", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    const previousExactDeck = [
+      { name: "Sample Singleton", cardId: "TEST_001", count: 28 },
+      { name: "Sample Pair", cardId: "TEST_002", count: 2 }
+    ];
+    const nextExactDeck = [
+      { name: "Sample Singleton", cardId: "TEST_001", count: 25 },
+      { name: "Sample Pair", cardId: "TEST_002", count: 2 },
+      { name: "Sample Multi", cardId: "TEST_003", count: 3 }
+    ];
+
+    expect(engine.applyExactDeck(previousExactDeck, "arena-main")).toBe(true);
+    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
+    engine.applyArenaLine("D 17:15:01.000 DraftManager.OnChoicesAndContents - Draft Deck ID: arena-main, Hero Card = HERO_05");
+    for (let index = 0; index < 25; index += 1) {
+      engine.applyArenaLine(`D 17:15:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`);
+    }
+    for (const [index, cardId] of ["TEST_002", "TEST_003", "TEST_003", "TEST_002", "TEST_003"].entries()) {
+      engine.applyArenaLine(`D 17:15:${String(index + 2).padStart(2, "0")}.000 Client chooses: [${cardId}]`);
+    }
+
+    expect(engine.getState()).toMatchObject({
+      status: "redrafting",
+      awaitingExactDeck: true,
+      deck: expect.arrayContaining(previousExactDeck.map((card) => expect.objectContaining(card))),
+      pendingRedraftChoices: [
+        expect.objectContaining({ cardId: "TEST_002" }),
+        expect.objectContaining({ cardId: "TEST_003" }),
+        expect.objectContaining({ cardId: "TEST_003" }),
+        expect.objectContaining({ cardId: "TEST_002" }),
+        expect.objectContaining({ cardId: "TEST_003" })
+      ]
+    });
+    expect(engine.getState().picks).toHaveLength(30);
+
+    engine.applyArenaLine("D 17:16:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK");
+
+    expect(engine.getState()).toMatchObject({
+      status: "complete",
+      awaitingExactDeck: true,
+      deck: expect.arrayContaining(previousExactDeck.map((card) => expect.objectContaining(card)))
+    });
+
+    expect(engine.applyExactDeck(nextExactDeck, "arena-main")).toBe(true);
+    expect(engine.getState()).toMatchObject({
+      status: "complete",
+      awaitingExactDeck: false,
+      deck: expect.arrayContaining(nextExactDeck.map((card) => expect.objectContaining(card))),
+      pendingRedraftChoices: []
+    });
+    expect(engine.getState().picks).toHaveLength(30);
   });
 
   it("counts only the final legendary preview as a four-card team before normal picks", () => {
