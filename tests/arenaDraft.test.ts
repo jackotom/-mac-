@@ -712,7 +712,71 @@ D 12:00:00.001 DraftManager.OnChosen(): hero=HERO_05
     ]);
   });
 
-  it("rejects an OCR title when two long card names are equally close", () => {
+  it("matches the legendary-team titles from the Hunter screenshot and attaches statistics", () => {
+    const legendaryTeamCardDb = createCardDatabase([
+      { dbfId: 97363, name: "荆棘谷之心", cardId: "ETC_208", collectible: true, rarity: "LEGENDARY" },
+      { dbfId: 105260, name: "量产品9号", cardId: "MIS_914", collectible: true, rarity: "LEGENDARY" },
+      { dbfId: 126425, name: "R4T-C4TCH3R捕鼠机", cardId: "JAIL_882", collectible: true, rarity: "LEGENDARY" }
+    ]);
+    const legendaryTeamRatings: ArenaRatingTable = {
+      source: "test ratings",
+      version: 1,
+      fetchedAt: "2026-07-30T00:00:00.000Z",
+      ratings: {
+        Hunter: {
+          ETC_208: 43,
+          MIS_914: 52,
+          JAIL_882: 86
+        }
+      },
+      firestone: {
+        source: "Firestone",
+        version: "18:50",
+        lastUpdated: "2026-07-30T00:00:00.000Z",
+        ratings: {
+          ETC_208: { pickRate: 20.87, includedWinrate: 52.25 },
+          MIS_914: { pickRate: 8.33, includedWinrate: 50.17 },
+          JAIL_882: { pickRate: 61.3, includedWinrate: 52.86 }
+        }
+      }
+    };
+    const engine = new ArenaDraftEngine({
+      cardDatabase: legendaryTeamCardDb,
+      ratings: legendaryTeamRatings
+    });
+    engine.applyArenaText([
+      "D 18:49:59.000 Arena.SetDraftMode - DRAFTING",
+      "D 18:50:00.000 DraftManager.OnChosen(): hero=HERO_05"
+    ].join("\n"));
+
+    expect(engine.applyScreenChoices([
+      "荆棘谷之心",
+      "量产品9号",
+      "RAT-CAICHSR捕園"
+    ])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({
+        cardId: "ETC_208",
+        name: "荆棘谷之心",
+        score: 43,
+        rating: expect.objectContaining({ pickRate: 20.87, firestone: expect.objectContaining({ includedWinrate: 52.25 }) })
+      }),
+      expect.objectContaining({
+        cardId: "MIS_914",
+        name: "量产品9号",
+        score: 52,
+        rating: expect.objectContaining({ pickRate: 8.33, firestone: expect.objectContaining({ includedWinrate: 50.17 }) })
+      }),
+      expect.objectContaining({
+        cardId: "JAIL_882",
+        name: "R4T-C4TCH3R捕鼠机",
+        score: 86,
+        rating: expect.objectContaining({ pickRate: 61.3, firestone: expect.objectContaining({ includedWinrate: 52.86 }) })
+      })
+    ]);
+  });
+
+  it("keeps two reliable choices visible when the third OCR title is ambiguous", () => {
     const ambiguousCardDb = createCardDatabase([
       { dbfId: 6101, name: "超长传说名字甲乙丙丁甲", cardId: "AMBIGUOUS_A", collectible: true },
       { dbfId: 6102, name: "超长传说名字甲乙丙丁乙", cardId: "AMBIGUOUS_B", collectible: true },
@@ -726,8 +790,85 @@ D 12:00:00.001 DraftManager.OnChosen(): hero=HERO_05
       "超长传说名字甲乙丙丁丙",
       "末世的姆诺兹多",
       "瓦丝琪女男爵"
-    ])).toBe(false);
-    expect(engine.getState().currentChoices).toEqual([]);
+    ])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({ cardId: "END_037", screenSlot: 1 }),
+      expect.objectContaining({ cardId: "REV_925", screenSlot: 2 })
+    ]);
+  });
+
+  it("upgrades a stable two-card screen result to all three slots without shifting lanes", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: realOcrCardDb });
+    engine.applyArenaLine("D 12:42:39.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(engine.applyScreenChoices(["鱼人吸血鬼", "", "P1CK-P0K3T扒窃机"])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({ cardId: "TEST_MURLOC", screenSlot: 0 }),
+      expect.objectContaining({ cardId: "JAIL_456", screenSlot: 2 })
+    ]);
+
+    expect(engine.applyScreenChoices(["鱼人吸血鬼", "寒冰护体", "P1CK-P0K3T扒窃机"])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({ cardId: "TEST_MURLOC", screenSlot: 0 }),
+      expect.objectContaining({ cardId: "TEST_BARRIER", screenSlot: 1 }),
+      expect.objectContaining({ cardId: "JAIL_456", screenSlot: 2 })
+    ]);
+  });
+
+  it("does not replace a complete three-card result with a later partial OCR frame", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: realOcrCardDb });
+    engine.applyArenaLine("D 12:42:39.000 Arena.SetDraftMode - DRAFTING");
+    expect(engine.applyScreenChoices(["鱼人吸血鬼", "寒冰护体", "P1CK-P0K3T扒窃机"])).toBe(true);
+
+    expect(engine.applyScreenChoices(["鱼人吸血鬼", "", "P1CK-P0K3T扒窃机"])).toBe(false);
+    expect(engine.getState().currentChoices).toHaveLength(3);
+  });
+
+  it("corrects a unique one-character OCR error in a three-character legendary name", () => {
+    const shortLegendaryCardDb = createCardDatabase([
+      { dbfId: 103169, name: "希希集", cardId: "TOY_913", collectible: true, cardType: "随从" },
+      { dbfId: 126211, name: "伊莉达·寻罪", cardId: "JAIL_719", collectible: true, cardType: "随从" },
+      { dbfId: 121063, name: "克罗妮卡", cardId: "END_006", collectible: true, cardType: "随从" }
+    ]);
+    const engine = new ArenaDraftEngine({ cardDatabase: shortLegendaryCardDb });
+    engine.applyArenaLine("D 10:40:00.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(engine.applyScreenChoices(["希希巢", "伊莉达，寻罪", "克罗妮卡"])).toBe(true);
+    expect(engine.getState().currentChoices.map((choice) => choice.cardId)).toEqual([
+      "TOY_913",
+      "JAIL_719",
+      "END_006"
+    ]);
+  });
+
+  it("prefers the playable card over a same-name hero skin when ratings are unavailable", () => {
+    const duplicatedNameCardDb = createCardDatabase([
+      { dbfId: 9001, name: "伊莉达·寻罪", cardId: "HERO_10br", collectible: true, cardType: "英雄" },
+      { dbfId: 126211, name: "伊莉达·寻罪", cardId: "JAIL_719", collectible: true, cardType: "随从" },
+      { dbfId: 103169, name: "希希集", cardId: "TOY_913", collectible: true, cardType: "随从" },
+      { dbfId: 121063, name: "克罗妮卡", cardId: "END_006", collectible: true, cardType: "随从" }
+    ]);
+    const engine = new ArenaDraftEngine({ cardDatabase: duplicatedNameCardDb });
+    engine.applyArenaLine("D 10:40:00.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(engine.applyScreenChoices(["希希集", "伊莉达，寻罪", "克罗妮卡"])).toBe(true);
+    expect(engine.getState().currentChoices[1]?.cardId).toBe("JAIL_719");
+  });
+
+  it("does not treat an internal non-collectible rules keyword as an arena card", () => {
+    const cardDatabase = createCardDatabase([
+      { dbfId: 70145, name: "流放", cardId: "DH_Lunar_TBBucket_2", cardType: "法术" },
+      { dbfId: 103169, name: "希希集", cardId: "TOY_913", collectible: true, cardType: "随从" },
+      { dbfId: 126211, name: "伊莉达·寻罪", cardId: "JAIL_719", collectible: true, cardType: "随从" }
+    ]);
+    const engine = new ArenaDraftEngine({ cardDatabase });
+    engine.applyArenaLine("D 10:40:00.000 Arena.SetDraftMode - DRAFTING");
+
+    expect(engine.applyScreenChoices(["希希集", "流放", "伊莉达，寻罪"])).toBe(true);
+    expect(engine.getState().currentChoices).toEqual([
+      expect.objectContaining({ cardId: "TOY_913", screenSlot: 0 }),
+      expect.objectContaining({ cardId: "JAIL_719", screenSlot: 2 })
+    ]);
   });
 
   it("ignores orphan Arena picks and non-local or non-draft Power choices", () => {

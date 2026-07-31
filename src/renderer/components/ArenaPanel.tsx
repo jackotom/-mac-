@@ -10,7 +10,7 @@ interface ArenaPanelProps {
 
 export function ArenaPanel({ state }: ArenaPanelProps) {
   const latestChoices = state.currentChoices;
-  const recommendedChoiceIndex = findRecommendedChoiceIndex(latestChoices);
+  const recommendedChoiceIndex = latestChoices.length === 3 ? findRecommendedChoiceIndex(latestChoices) : -1;
   const latestPick = state.picks[state.picks.length - 1];
   const statusLabel = state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成";
   const confirmedCount = 30 - state.unresolvedCount;
@@ -47,7 +47,7 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
         <section className="arena-choices" aria-label="当前候选牌">
           <div className="subheading">
             <h3>当前三选一</h3>
-            <span>自动评分</span>
+            <span>{latestChoices.length === 3 ? "自动评分" : `已识别 ${latestChoices.length}/3`}</span>
           </div>
           <ul>
             {latestChoices.map((choice, index) => (

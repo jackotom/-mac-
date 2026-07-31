@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cardArtworkSources,
   createCardDatabase,
   getCardInfo,
   inferCardSynergies,
@@ -455,6 +456,54 @@ describe("card database details", () => {
     ]);
 
     expect(getCardInfo(database, 2826)).toMatchObject({ imageUrl: "https://cards.example.test/alleria.png", cropImageUrl: undefined });
+  });
+
+  it("derives safe artwork fallbacks for legacy collectible cards without official images", () => {
+    const database = createCardDatabase([
+      {
+        dbfId: 69622,
+        cardId: "CORE_EX1_144",
+        name: "暗影步",
+        collectible: true,
+        cardType: "法术"
+      }
+    ]);
+
+    expect(cardArtworkSources(getCardInfo(database, 69622)!)).toEqual([
+      "https://art.hearthstonejson.com/v1/tiles/CORE_EX1_144.jpg",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/CORE_EX1_144.png"
+    ]);
+  });
+
+  it("does not turn an invalid card id into an artwork URL", () => {
+    const database = createCardDatabase([
+      {
+        dbfId: 99001,
+        cardId: "../../not-a-card",
+        name: "异常卡牌编号",
+        collectible: true,
+        cardType: "法术"
+      }
+    ]);
+
+    expect(cardArtworkSources(getCardInfo(database, 99001)!)).toEqual([]);
+  });
+
+  it("preserves mixed-case card ids required by the artwork service", () => {
+    const database = createCardDatabase([
+      {
+        dbfId: 99002,
+        cardId: "VAN_tt_010",
+        name: "法术偏转",
+        collectible: true,
+        cardType: "法术"
+      }
+    ]);
+
+    expect(cardArtworkSources(getCardInfo(database, 99002)!)).toEqual([
+      "https://art.hearthstonejson.com/v1/tiles/VAN_tt_010.jpg",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/VAN_tt_010.png"
+    ]);
   });
 
   it("normalizes card classes from official and legacy metadata", () => {

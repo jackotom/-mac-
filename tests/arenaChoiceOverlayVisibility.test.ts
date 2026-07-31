@@ -24,8 +24,9 @@ describe("arena choice overlay visibility", () => {
     expect(shouldShowArenaChoiceOverlay(draftingArena, "炉石记牌器")).toBe(false);
   });
 
-  it("requires an active three-card draft choice", () => {
-    expect(shouldShowArenaChoiceOverlay({ ...draftingArena, currentChoices: draftingArena.currentChoices.slice(0, 2) }, "Hearthstone")).toBe(false);
+  it("shows two reliable choices while the third card is still being recognized", () => {
+    expect(shouldShowArenaChoiceOverlay({ ...draftingArena, currentChoices: draftingArena.currentChoices.slice(0, 2) }, "Hearthstone")).toBe(true);
+    expect(shouldShowArenaChoiceOverlay({ ...draftingArena, currentChoices: draftingArena.currentChoices.slice(0, 1) }, "Hearthstone")).toBe(false);
     expect(shouldShowArenaChoiceOverlay({ ...draftingArena, status: "playing" }, "Hearthstone")).toBe(false);
   });
 

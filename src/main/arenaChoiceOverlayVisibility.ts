@@ -5,7 +5,7 @@ export function shouldShowArenaChoiceOverlay(arena: ArenaState | undefined, fron
   return Boolean(
     arena &&
     (arena.status === "drafting" || arena.status === "redrafting") &&
-    arena.currentChoices.length >= 3 &&
+    arena.currentChoices.length >= 2 &&
     isHearthstoneFrontmost(frontmostAppName)
   );
 }

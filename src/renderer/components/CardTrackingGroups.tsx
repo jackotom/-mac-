@@ -4,7 +4,8 @@ import {
   useRef,
   useState
 } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ImageOff } from "lucide-react";
+import { cardArtworkSources } from "../../shared/cardDatabase";
 import type { PublicCardZone } from "../../shared/types";
 import {
   resolveFriendlyDefault,
@@ -19,6 +20,7 @@ import {
 import type {
   OverlayCardHistoryView,
   OverlayCardItem,
+  OverlaySecretCandidate,
   OverlayCardTrackingView,
   OverlayCardZoneView
 } from "../types";
@@ -313,18 +315,107 @@ function CurrentItems({
           <strong className="opponent-secret-slot-label">奥秘 {index + 1}</strong>
           {slot.candidates.length > 0 ? (
             <ul className="opponent-secret-candidates" aria-label={`${slot.label} 候选奥秘`}>
-              {slot.candidates.map((candidate) => (
-                <li key={candidate.id} className={`secret-candidate-${candidate.status}`}>
-                  <strong>{candidate.name}</strong>
-                  <span>{candidate.status === "excluded" ? "已排除" : "可能"}</span>
-                </li>
-              ))}
+              {slot.candidates.map((candidate) => {
+                const status = secretCandidateStatus(candidate);
+                return (
+                  <li key={candidate.id} className={`secret-candidate-${candidate.status}`}>
+                    <CardHoverPreview
+                      details={candidate.details}
+                      className="opponent-secret-candidate-preview"
+                    >
+                      <SecretCandidateArtwork candidate={candidate} />
+                      <strong>{candidate.name}</strong>
+                      <span title={status.title} aria-label={status.accessibleLabel}>{status.label}</span>
+                    </CardHoverPreview>
+                  </li>
+                );
+              })}
             </ul>
           ) : <span className="overlay-secret-hidden">候选未显示</span>}
         </section>
       ))}
       {!hasContent ? <p className="overlay-card-group-empty">{emptyLabel ?? "暂无记录"}</p> : null}
     </>
+  );
+}
+
+type SecretExclusionReason = NonNullable<OverlaySecretCandidate["exclusionReason"]>;
+
+const secretExclusionLabels: Readonly<Record<SecretExclusionReason, {
+  readonly label: string;
+  readonly description: string;
+}>> = {
+  "spell-played-without-trigger": {
+    label: "法术未触发",
+    description: "已排除：我方施放法术后未触发"
+  },
+  "minion-played-without-trigger": {
+    label: "随从未触发",
+    description: "已排除：我方打出随从后未触发"
+  },
+  "hero-attacked-without-trigger": {
+    label: "攻击英雄未触发",
+    description: "已排除：我方攻击对方英雄后未触发"
+  }
+};
+
+function secretCandidateStatus(candidate: OverlaySecretCandidate): {
+  readonly label: string;
+  readonly title?: string;
+  readonly accessibleLabel?: string;
+} {
+  if (candidate.status !== "excluded") {
+    return { label: "可能" };
+  }
+
+  const reason = candidate.exclusionReason;
+  const explanation = typeof reason === "string"
+    ? secretExclusionLabels[reason as SecretExclusionReason]
+    : undefined;
+  if (!explanation) {
+    return { label: "已排除", title: "已排除", accessibleLabel: "已排除" };
+  }
+
+  return {
+    label: explanation.label,
+    title: explanation.description,
+    accessibleLabel: explanation.description
+  };
+}
+
+function SecretCandidateArtwork({
+  candidate
+}: {
+  readonly candidate: OverlaySecretCandidate;
+}) {
+  const sources = cardArtworkSources({
+    cardId: candidate.details?.cardId ?? candidate.id,
+    cropImageUrl: candidate.details?.cropImageUrl,
+    imageUrl: candidate.details?.imageUrl
+  }, "image-first");
+  const sourcesKey = sources.join("\n");
+  const [sourceState, setSourceState] = useState({ key: sourcesKey, index: 0 });
+  const sourceIndex = sourceState.key === sourcesKey ? sourceState.index : 0;
+  const source = sources[sourceIndex];
+
+  return source ? (
+    <img
+      className="opponent-secret-candidate-thumb"
+      src={source}
+      alt={`${candidate.name}卡图`}
+      loading="lazy"
+      onError={() => setSourceState((current) => ({
+        key: sourcesKey,
+        index: (current.key === sourcesKey ? current.index : 0) + 1
+      }))}
+    />
+  ) : (
+    <span
+      aria-label={`${candidate.name}无卡图`}
+      className="opponent-secret-candidate-thumb is-empty"
+    >
+      <ImageOff aria-hidden="true" size={13} />
+    </span>
   );
 }
 

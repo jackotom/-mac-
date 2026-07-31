@@ -228,6 +228,11 @@ export interface OverlaySecretCandidate {
   id: string;
   name: string;
   status: "possible" | "excluded";
+  exclusionReason?:
+    | "spell-played-without-trigger"
+    | "minion-played-without-trigger"
+    | "hero-attacked-without-trigger";
+  details?: CardDetails;
 }
 
 export interface OverlaySecretSlot {

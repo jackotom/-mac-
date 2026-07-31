@@ -9,7 +9,8 @@ const database = createCardDatabase([
   ,{ id: 4, cardId: "DMF_236", name: "古神在上", collectible: true, type: "SPELL", playerClass: "PALADIN", mechanics: ["SECRET"] }
   ,{ id: 5, cardId: "EX1_294", name: "镜像实体", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] }
   ,{ id: 6, cardId: "LOOT_101", name: "爆炸符文", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] }
-  ,{ id: 7, cardId: "REV_828", name: "异议", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] }
+  ,{ id: 7, cardId: "REV_828", name: "绑架", collectible: true, type: "SPELL", playerClass: "ROGUE", mechanics: ["SECRET"] }
+  ,{ id: 8, cardId: "MAW_006", name: "异议", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] }
 ]);
 
 describe("SecretTracker", () => {
@@ -69,10 +70,79 @@ describe("SecretTracker", () => {
   it("excludes only supported minion-trigger secrets after a friendly minion", () => {
     const tracker = new SecretTracker(database);
     tracker.enterSecret("10");
-    tracker.beginAction("friendly-minion");
+    tracker.beginAction({ kind: "friendly-minion", opponentBoardHasSpace: true });
     tracker.endAction();
     const excluded = tracker.getSlots()[0].candidates.filter((candidate) => candidate.status === "excluded").map((candidate) => candidate.cardId);
-    expect(excluded).toEqual(expect.arrayContaining(["EX1_294", "LOOT_101", "REV_828"]));
+    expect(excluded).toEqual(expect.arrayContaining(["EX1_294", "LOOT_101", "MAW_006"]));
     expect(excluded).not.toContain("UNKNOWN_SECRET");
+  });
+
+  it("deduplicates CORE and VAN variants and applies rules to real card ids", () => {
+    const realDatabase = createCardDatabase([
+      { id: 101, cardId: "EX1_287", name: "法术反制", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 102, cardId: "CORE_EX1_287", name: "法术反制", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 103, cardId: "VAN_EX1_287", name: "法术反制", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 104, cardId: "CORE_MAW_006", name: "异议", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] }
+    ]);
+    const tracker = new SecretTracker(realDatabase);
+    tracker.setOpponentClass("法师");
+    tracker.enterSecret("10");
+
+    expect(tracker.getSlots()[0].candidates.filter((candidate) => candidate.name === "法术反制")).toHaveLength(1);
+
+    tracker.beginAction("friendly-spell");
+    tracker.endAction();
+    expect(tracker.getSlots()[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "CORE_EX1_287",
+      status: "excluded",
+      exclusionReason: "spell-played-without-trigger"
+    }));
+
+    tracker.beginAction("friendly-minion");
+    tracker.endAction();
+    expect(tracker.getSlots()[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "CORE_MAW_006",
+      status: "excluded",
+      exclusionReason: "minion-played-without-trigger"
+    }));
+  });
+
+  it("excludes hero-attack secrets only after an attack on the opponent hero", () => {
+    const attackDatabase = createCardDatabase([
+      { id: 201, cardId: "VAN_EX1_289", name: "寒冰护体", collectible: true, type: "SPELL", playerClass: "MAGE", mechanics: ["SECRET"] },
+      { id: 202, cardId: "VAN_EX1_610", name: "爆炸陷阱", collectible: true, type: "SPELL", playerClass: "HUNTER", mechanics: ["SECRET"] }
+    ]);
+    const tracker = new SecretTracker(attackDatabase);
+    tracker.enterSecret("10");
+    tracker.beginAction("friendly-attack-opponent-hero");
+    tracker.endAction();
+
+    expect(tracker.getSlots()[0].candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        cardId: "VAN_EX1_289",
+        status: "excluded",
+        exclusionReason: "hero-attacked-without-trigger"
+      }),
+      expect.objectContaining({
+        cardId: "VAN_EX1_610",
+        status: "excluded",
+        exclusionReason: "hero-attacked-without-trigger"
+      })
+    ]));
+  });
+
+  it("does not exclude other candidates when any existing secret triggers during the action", () => {
+    const tracker = new SecretTracker(database);
+    tracker.setOpponentClass("法师");
+    tracker.enterSecret("10");
+    tracker.enterSecret("11");
+    tracker.beginAction("friendly-spell");
+    tracker.leaveSecret("10");
+    tracker.endAction();
+
+    expect(tracker.getSlots()[0].candidates).toContainEqual(expect.objectContaining({
+      cardId: "EX1_287",
+      status: "possible"
+    }));
   });
 });

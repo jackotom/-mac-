@@ -7,7 +7,10 @@ interface ArenaChoiceOverlayPanelProps {
 
 export function ArenaChoiceOverlayPanel({ arena }: ArenaChoiceOverlayPanelProps) {
   const choices = arena?.status === "drafting" || arena?.status === "redrafting" ? arena.currentChoices.slice(0, 3) : [];
-  const isVisible = choices.length === 3;
+  const isVisible = choices.length >= 2;
+  const slots = Array.from({ length: 3 }, (_, screenSlot) =>
+    choices.find((choice, index) => (choice.screenSlot ?? index) === screenSlot)
+  );
 
   return (
     <section
@@ -17,12 +20,16 @@ export function ArenaChoiceOverlayPanel({ arena }: ArenaChoiceOverlayPanelProps)
       data-visible={isVisible ? "true" : "false"}
     >
       {isVisible
-        ? choices.map((choice, index) => (
-            <article className="arena-choice-overlay-card" key={`${choice.cardId ?? choice.name}-${choice.entityId ?? index}`}>
-              {hasScorelessFirestoneRates(choice) ? (
-                <ScorelessFirestoneMetrics choice={choice} />
+        ? slots.map((choice, index) => (
+            <article className="arena-choice-overlay-card" key={choice ? `${choice.cardId ?? choice.name}-${choice.entityId ?? index}` : `pending-${index}`}>
+              {choice ? (
+                hasScorelessFirestoneRates(choice) ? (
+                  <ScorelessFirestoneMetrics choice={choice} />
+                ) : (
+                  <ArenaChoiceMetrics choice={choice} className="arena-choice-overlay-metrics" />
+                )
               ) : (
-                <ArenaChoiceMetrics choice={choice} className="arena-choice-overlay-metrics" />
+                <div className="arena-choice-overlay-pending" role="status">识别中</div>
               )}
             </article>
           ))

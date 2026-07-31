@@ -52,6 +52,15 @@ describe("opponent secret list styles", () => {
       /\.opponent-secret-candidates li\s*\{[\s\S]*?flex:\s*1 1 100%;[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/
     );
     expect(styles).toMatch(
+      /\.opponent-secret-candidate-preview\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1;[\s\S]*?display:\s*grid;[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*20px minmax\(0,\s*1fr\) auto;/
+    );
+    expect(styles).toMatch(
+      /\.opponent-secret-candidate-thumb\s*\{[\s\S]*?width:\s*20px;[\s\S]*?height:\s*26px;[\s\S]*?object-fit:\s*cover;/
+    );
+    expect(styles).toMatch(
+      /\.secret-candidate-excluded \.opponent-secret-candidate-thumb\s*\{[\s\S]*?opacity:\s*0\.46;[\s\S]*?filter:\s*grayscale\(1\) saturate\(0\);/
+    );
+    expect(styles).toMatch(
       /\.opponent-secret-candidates strong\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
     );
     expect(styles).toMatch(

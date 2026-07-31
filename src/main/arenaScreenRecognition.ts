@@ -157,11 +157,32 @@ function screenCapturePermissionDeniedResult(): ArenaScreenRecognitionResult {
 }
 
 export function selectArenaChoiceTexts(texts: readonly ArenaScreenText[]) {
-  return texts
-    .filter((text) => text.x >= 0.12 && text.x <= 0.66 && text.y >= 0.565 && text.y <= 0.635)
-    .sort((left, right) => left.x - right.x)
-    .map((text) => text.text.trim())
-    .filter(Boolean);
+  const titleCandidates = texts.filter((text) =>
+    text.x >= 0.12 &&
+    text.x <= 0.66 &&
+    text.y >= 0.58 &&
+    text.y <= 0.635 &&
+    Boolean(text.text.trim())
+  );
+  const lanes = [
+    { minX: 0.12, maxX: 0.295, centerX: 0.215 },
+    { minX: 0.295, maxX: 0.45, centerX: 0.375 },
+    { minX: 0.45, maxX: 0.66, centerX: 0.535 }
+  ] as const;
+
+  return lanes.map((lane) => {
+    const best = titleCandidates
+      .filter((text) => text.x >= lane.minX && text.x < lane.maxX)
+      .sort((left, right) =>
+        arenaTitleCandidateDistance(left, lane.centerX) - arenaTitleCandidateDistance(right, lane.centerX)
+      )[0];
+    return best?.text.trim() ?? "";
+  });
+}
+
+function arenaTitleCandidateDistance(text: ArenaScreenText, laneCenterX: number) {
+  const textCenterX = text.x + text.width / 2;
+  return Math.abs(text.y - 0.61) * 4 + Math.abs(textCenterX - laneCenterX);
 }
 
 export function parseArenaOcrPayload(raw: string): ArenaScreenRecognitionResult {

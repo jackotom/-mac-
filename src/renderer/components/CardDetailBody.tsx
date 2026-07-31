@@ -1,5 +1,10 @@
 import { useState, type ReactNode } from "react";
-import type { CardDetails, CardOutcomeNode, RelatedCardInfo } from "../../shared/cardDatabase";
+import {
+  cardArtworkSources,
+  type CardDetails,
+  type CardOutcomeNode,
+  type RelatedCardInfo
+} from "../../shared/cardDatabase";
 import type { PublicCardContextDetails } from "../../shared/types";
 
 const CARD_POOL_BATCH_SIZE = 12;
@@ -26,41 +31,18 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
   const hasStructuredPlayedSpellContext =
     spellContext.playedSpellsThisGameCount !== undefined ||
     spellContext.playedSpellsThisGameIncomplete !== undefined;
+  const hasPlayedSpellContext =
+    hasStructuredPlayedSpellContext ||
+    playedSpells !== undefined;
   const cardPoolSections = details.cardPoolSections ?? [];
   const cardOutcomeSections = details.cardOutcomeSections ?? [];
-  const gameContextSections = hasStructuredPlayedSpellContext
+  const gameContextSections = hasPlayedSpellContext
     ? (details.gameContextSections ?? []).filter((section) => section.key !== "played-spells")
-    : details.gameContextSections ?? (
-        playedSpells === undefined
-          ? []
-          : [{
-              key: "played-spells",
-              title: "本局已施放法术",
-              emptyText: "本局还没有施放过法术",
-              cards: playedSpells
-            }]
-      );
+    : details.gameContextSections ?? [];
 
   return (
     <div className={`card-detail-body${className ? ` ${className}` : ""}`}>
-      {details.imageUrl || details.cropImageUrl ? (
-        <img
-          className="card-detail-image"
-          src={details.imageUrl ?? details.cropImageUrl}
-          alt={`${details.name} 卡牌图`}
-          loading="eager"
-          onError={(event) => {
-            if (details.cropImageUrl && event.currentTarget.src !== details.cropImageUrl) {
-              event.currentTarget.src = details.cropImageUrl;
-              return;
-            }
-
-            event.currentTarget.style.display = "none";
-          }}
-        />
-      ) : (
-        <div className="card-detail-image card-detail-image-empty">无图片</div>
-      )}
+      <CardDetailArtwork details={details} />
       <div className="card-detail-copy">
         <div className="card-detail-heading">
           <strong title={details.name}>{details.name}</strong>
@@ -70,13 +52,25 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
         {details.spellSchool ? <div className="card-detail-meta">法术派系：{details.spellSchool}</div> : null}
         {details.text ? <p className="card-detail-text">{details.text}</p> : null}
       </div>
-      <CardListSection
-        cards={details.relatedCards}
-        className="card-detail-related"
-        emptyText={details.isSpell ? "暂无生成或关联法术资料" : "暂无关联牌资料"}
-        title={details.isSpell ? "生成/关联法术" : "关联牌"}
-        showText
-      />
+      {hasPlayedSpellContext ? (
+        <PlayedSpellsSection
+          cards={playedSpells ?? []}
+          incomplete={spellContext.playedSpellsThisGameIncomplete === true}
+          totalCount={
+            spellContext.playedSpellsThisGameCount ??
+            (spellContext.playedSpellsThisGameIncomplete === true ? undefined : playedSpells?.length)
+          }
+        />
+      ) : null}
+      {!hasPlayedSpellContext || details.relatedCards.length > 0 ? (
+        <CardListSection
+          cards={details.relatedCards}
+          className="card-detail-related"
+          emptyText={details.isSpell ? "暂无生成或关联法术资料" : "暂无关联牌资料"}
+          title={details.isSpell ? "生成/关联法术" : "关联牌"}
+          showText
+        />
+      ) : null}
       {mode === "interactive" ? cardPoolSections.map((section) => (
         <CardPoolSection
           cards={section.cards}
@@ -93,13 +87,6 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
           title={section.title}
         />
       ))}
-      {hasStructuredPlayedSpellContext ? (
-        <PlayedSpellsSection
-          cards={playedSpells ?? []}
-          incomplete={spellContext.playedSpellsThisGameIncomplete === true}
-          totalCount={spellContext.playedSpellsThisGameCount}
-        />
-      ) : null}
       {gameContextSections.map((section) => (
         <CardListSection
           cards={section.cards}
@@ -110,6 +97,29 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
         />
       ))}
     </div>
+  );
+}
+
+function CardDetailArtwork({ details }: { readonly details: CardDetails }) {
+  const sources = cardArtworkSources(details, "image-first");
+  const sourcesKey = sources.join("\n");
+  const [sourceState, setSourceState] = useState({ key: sourcesKey, index: 0 });
+  const sourceIndex = sourceState.key === sourcesKey ? sourceState.index : 0;
+  const source = sources[sourceIndex];
+
+  return source ? (
+    <img
+      className="card-detail-image"
+      src={source}
+      alt={`${details.name} 卡牌图`}
+      loading="eager"
+      onError={() => setSourceState((current) => ({
+        key: sourcesKey,
+        index: (current.key === sourcesKey ? current.index : 0) + 1
+      }))}
+    />
+  ) : (
+    <div className="card-detail-image card-detail-image-empty">无图片</div>
   );
 }
 

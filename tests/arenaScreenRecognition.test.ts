@@ -112,6 +112,29 @@ describe("arena screen recognition", () => {
     expect(selectArenaChoiceTexts(result.texts)).toEqual(["小蜘蛛", "痴醉歌迷", "致命配方"]);
   });
 
+  it("keeps card rules text out of the three legendary-team title lanes", () => {
+    const result = parseArenaOcrPayload(JSON.stringify({
+      status: "ok",
+      observations: [
+        { text: "希希集", confidence: 1, x: 0.214, y: 0.616, width: 0.044, height: 0.028 },
+        { text: "流放", confidence: 0.3, x: 0.234, y: 0.567, width: 0.031, height: 0.019 },
+        { text: "伊莉达，寻罪", confidence: 0.3, x: 0.356, y: 0.609, width: 0.085, height: 0.04 },
+        { text: "吸血。战吼：将你的牌", confidence: 0.5, x: 0.35, y: 0.565, width: 0.1, height: 0.021 },
+        { text: "克罗妮卡", confidence: 0.5, x: 0.532, y: 0.611, width: 0.057, height: 0.035 },
+        { text: "战吼：使你的英雄在本", confidence: 1, x: 0.512, y: 0.565, width: 0.1, height: 0.021 }
+      ]
+    }));
+
+    expect(selectArenaChoiceTexts(result.texts)).toEqual(["希希集", "伊莉达，寻罪", "克罗妮卡"]);
+  });
+
+  it("preserves an empty middle lane so the right card cannot shift left", () => {
+    expect(selectArenaChoiceTexts([
+      { text: "左侧传说", confidence: 1, x: 0.214, y: 0.61, width: 0.06, height: 0.03 },
+      { text: "右侧传说", confidence: 1, x: 0.532, y: 0.61, width: 0.06, height: 0.03 }
+    ])).toEqual(["左侧传说", "", "右侧传说"]);
+  });
+
   it("fails safely for malformed recognizer output", () => {
     expect(parseArenaOcrPayload("not json")).toMatchObject({ status: "failed", texts: [] });
   });

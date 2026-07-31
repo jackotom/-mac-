@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CardDetailBody } from "../src/renderer/components/CardDetailBody";
 import type { CardDetails } from "../src/shared/cardDatabase";
@@ -83,12 +83,34 @@ describe("CardDetailBody related cards", () => {
     expect(screen.getByLabelText("炎爆术无卡图")).toHaveTextContent("无图");
   });
 
+  it("uses the card id as a fallback for the main card image", () => {
+    render(<CardDetailBody details={baseDetails} mode="interactive" />);
+
+    const artwork = screen.getByRole("img", { name: "匣中古神 卡牌图" });
+    expect(artwork).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/render/latest/zhCN/256x/VAC_520.png"
+    );
+
+    fireEvent.error(artwork);
+    expect(artwork).toHaveAttribute(
+      "src",
+      "https://art.hearthstonejson.com/v1/tiles/VAC_520.jpg"
+    );
+
+    fireEvent.error(artwork);
+    expect(screen.getByText("无图片")).toBeInTheDocument();
+  });
+
   it("keeps the theoretical pool separate from the five spells actually cast this game", () => {
     render(
       <CardDetailBody
         mode="interactive"
         details={{
           ...baseDetails,
+          relatedCards: [
+            { dbfId: 3, cardId: "RELATED_1", name: "关联法术", manaCost: 4, cardType: "法术" }
+          ],
           cardPoolSections: [{
             key: "random-spells",
             title: "随机法术池",
@@ -110,11 +132,14 @@ describe("CardDetailBody related cards", () => {
     );
 
     const pool = screen.getByRole("region", { name: "随机法术池，共 2 张" });
-    const actual = screen.getByRole("region", { name: "本局已施放法术，共 5 张" });
+    const actual = screen.getByRole("region", { name: "本局已施放 5 个法术" });
+    const related = screen.getByRole("region", { name: "生成/关联法术，共 1 张" });
     expect(pool).toHaveTextContent("候选法术一");
     expect(pool).not.toHaveTextContent("实际法术一");
     expect(within(actual).getAllByText("实际法术一")).toHaveLength(2);
     expect(within(actual).getAllByRole("listitem")).toHaveLength(5);
+    expect(actual.compareDocumentPosition(related) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actual.compareDocumentPosition(pool) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows the trusted spell total, incomplete progress, and only recognized names grouped by cost", () => {
@@ -219,11 +244,11 @@ describe("CardDetailBody related cards", () => {
     );
 
     expect(screen.getByRole("region", { name: "随机法术池，共 1 张" })).toHaveTextContent("候选法术");
-    expect(screen.getByRole("region", { name: "本局已施放法术，共 0 张" }))
+    expect(screen.getByRole("region", { name: "本局已施放 0 个法术" }))
       .toHaveTextContent("本局还没有施放过法术");
   });
 
-  it("shows all ten actual casts in order when the effect is doubled", () => {
+  it("shows all ten actual casts and preserves duplicates when the effect is doubled", () => {
     const doubledSpells = Array.from({ length: 10 }, (_, index) => ({
       dbfId: 100 + (index % 5),
       cardId: `CAST_${index % 5}`,
@@ -242,11 +267,12 @@ describe("CardDetailBody related cards", () => {
       />
     );
 
-    const actual = screen.getByRole("region", { name: "本局已施放法术，共 10 张" });
+    const actual = screen.getByRole("region", { name: "本局已施放 10 个法术" });
     expect(within(actual).getAllByRole("listitem")).toHaveLength(10);
     expect(within(actual).getAllByText("实际法术1")).toHaveLength(2);
-    expect([...actual.querySelectorAll("strong")].map((item) => item.textContent))
-      .toEqual(doubledSpells.map((card) => card.name));
+    for (let index = 1; index <= 5; index += 1) {
+      expect(within(actual).getAllByText(`实际法术${index}`)).toHaveLength(2);
+    }
   });
 
   it("keeps detail lists in the preview shell's single scroll area", () => {

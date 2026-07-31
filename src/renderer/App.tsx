@@ -128,14 +128,19 @@ function createQaOpponentCardTracking(): PublicCardTracking {
         entityId: "qa-secret-1",
         candidates: [
           { cardId: "EX1_287", name: "法术反制", status: "possible" },
-          { cardId: "EX1_289", name: "寒冰屏障", status: "excluded" }
+          {
+            cardId: "EX1_289",
+            name: "寒冰护体",
+            status: "excluded",
+            exclusionReason: "hero-attacked-without-trigger"
+          }
         ]
       },
       {
         entityId: "qa-secret-2",
         candidates: [
           { cardId: "EX1_294", name: "镜像实体", status: "possible" },
-          { cardId: "EX1_295", name: "扰咒术", status: "excluded" }
+          { cardId: "VAN_tt_010", name: "扰咒术", status: "excluded" }
         ]
       }
     ]
@@ -1283,7 +1288,7 @@ function DesktopSidebar({
         <span className="sidebar-brand-mark" aria-hidden="true"><Layers3 size={27} /></span>
         <span>
           <strong>炉石助手</strong>
-          <small>v0.3.0</small>
+          <small>v0.3.6</small>
         </span>
       </section>
       <nav className="sidebar-nav" aria-label="工作区">

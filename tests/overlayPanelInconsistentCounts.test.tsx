@@ -29,7 +29,7 @@ describe("OverlayPanel lifecycle counts", () => {
 
     render(<OverlayPanel view={toOverlayPanelViewModel(state)} />);
 
-    expect(screen.getByRole("region", { name: "牌库 ≥1" })).toHaveTextContent("牌库 (≥1)");
+    expect(screen.getByRole("region", { name: "牌库 18" })).toHaveTextContent("牌库 (18)");
     expect(screen.getByRole("region", { name: "手牌 1" })).toHaveTextContent("已知手牌");
     expect(screen.queryByText("999")).not.toBeInTheDocument();
   });

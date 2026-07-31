@@ -72,6 +72,7 @@ describe("match history route", () => {
     installTrackerApi(getMatchHistory);
 
     render(<App />);
+    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("元素法")).toBeInTheDocument();
     expect(getMatchHistory).toHaveBeenCalledTimes(2);
 
@@ -119,14 +120,18 @@ describe("match history route", () => {
 
   it("shows the real history loading and failure state on the home dashboard", async () => {
     let rejectHistory: (error: Error) => void = () => undefined;
-    installTrackerApi(() => new Promise((_, reject) => {
+    const getMatchHistory = vi.fn(() => new Promise((_, reject) => {
       rejectHistory = reject;
     }));
+    installTrackerApi(getMatchHistory);
 
     render(<App />);
     expect(await screen.findByText("正在读取最近完成的对局…")).toBeInTheDocument();
+    await waitFor(() => expect(getMatchHistory).toHaveBeenCalledTimes(2));
 
-    rejectHistory(new Error("连接断开"));
+    await act(async () => {
+      rejectHistory(new Error("连接断开"));
+    });
 
     expect(await screen.findByText("连接断开")).toBeInTheDocument();
   });

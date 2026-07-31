@@ -94,4 +94,23 @@ describe("ArenaChoiceOverlayPanel", () => {
 
     expect(screen.getByLabelText("竞技场选牌数据条")).toHaveAttribute("data-visible", "false");
   });
+
+  it("keeps recognized cards in their lanes and marks the missing lane as recognizing", () => {
+    render(
+      <ArenaChoiceOverlayPanel
+        arena={{
+          ...draftingArena,
+          currentChoices: [
+            { name: "候选一", count: 1, screenSlot: 0, score: 94 },
+            { name: "候选三", count: 1, screenSlot: 2, score: 108 }
+          ]
+        }}
+      />
+    );
+
+    const overlay = screen.getByLabelText("竞技场选牌数据条");
+    expect(overlay).toHaveAttribute("data-visible", "true");
+    expect(within(overlay).getByText("识别中")).toBeInTheDocument();
+    expect(within(overlay).getAllByRole("article")).toHaveLength(3);
+  });
 });
