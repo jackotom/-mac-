@@ -163,7 +163,13 @@ run_capture() {
         const arena = report.trackerState.arena;
         const body = String(report.bodyText);
         const fakeNames = ["日志缺失的竞技场牌", "未解析竞技场牌"];
-        if (arena?.status !== "complete" || arena?.draftCount !== 29 || arena?.unresolvedCount !== 1) process.exit(8);
+        if (
+          arena?.status !== "complete" ||
+          arena?.draftCount !== 29 ||
+          arena?.unresolvedCount !== 30 ||
+          arena?.awaitingExactDeck !== true ||
+          arena?.pendingRedraftChoices?.length !== 5
+        ) process.exit(8);
         if (!["选取率", "卡牌", "影响"].every((label) => body.includes(label))) process.exit(9);
         if (body.includes("影响全局") || body.includes("牌库中") || body.includes("待识别")) process.exit(20);
         if (fakeNames.some((name) => body.includes(name))) process.exit(10);

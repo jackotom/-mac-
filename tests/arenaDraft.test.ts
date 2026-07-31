@@ -332,11 +332,11 @@ describe("ArenaDraftEngine", () => {
     ];
 
     expect(engine.applyExactDeck(previousExactDeck, "arena-main")).toBe(true);
-    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
-    engine.applyArenaLine("D 17:15:01.000 DraftManager.OnChoicesAndContents - Draft Deck ID: arena-main, Hero Card = HERO_05");
+    engine.applyArenaLine("D 17:14:59.000 DraftManager.OnChoicesAndContents - Draft Deck ID: arena-main, Hero Card = HERO_05");
     for (let index = 0; index < 25; index += 1) {
-      engine.applyArenaLine(`D 17:15:01.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`);
+      engine.applyArenaLine(`D 17:14:59.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`);
     }
+    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
     for (const [index, cardId] of ["TEST_002", "TEST_003", "TEST_003", "TEST_002", "TEST_003"].entries()) {
       engine.applyArenaLine(`D 17:15:${String(index + 2).padStart(2, "0")}.000 Client chooses: [${cardId}]`);
     }
@@ -353,6 +353,7 @@ describe("ArenaDraftEngine", () => {
         expect.objectContaining({ cardId: "TEST_003" })
       ]
     });
+    expect(engine.getState().redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(35);
     expect(engine.getState().picks).toHaveLength(30);
 
     engine.applyArenaLine("D 17:16:00.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK");
@@ -362,13 +363,15 @@ describe("ArenaDraftEngine", () => {
       awaitingExactDeck: true,
       deck: expect.arrayContaining(previousExactDeck.map((card) => expect.objectContaining(card)))
     });
+    expect(engine.getState().redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(35);
 
     expect(engine.applyExactDeck(nextExactDeck, "arena-main")).toBe(true);
     expect(engine.getState()).toMatchObject({
       status: "complete",
       awaitingExactDeck: false,
       deck: expect.arrayContaining(nextExactDeck.map((card) => expect.objectContaining(card))),
-      pendingRedraftChoices: []
+      pendingRedraftChoices: [],
+      redraftPool: undefined
     });
     expect(engine.getState().picks).toHaveLength(30);
   });

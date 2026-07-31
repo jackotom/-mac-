@@ -11,11 +11,17 @@ interface ArenaPanelProps {
 export function ArenaPanel({ state }: ArenaPanelProps) {
   const latestChoices = state.currentChoices;
   const recommendedChoiceIndex = latestChoices.length === 3 ? findRecommendedChoiceIndex(latestChoices) : -1;
-  const latestPick = state.picks[state.picks.length - 1];
-  const statusLabel = state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成";
+  const latestPick = state.pendingRedraftChoices?.at(-1)
+    ? { chosen: state.pendingRedraftChoices.at(-1)! }
+    : state.picks[state.picks.length - 1];
+  const statusLabel = state.awaitingExactDeck
+    ? state.status === "redrafting" ? "重选中" : "等待确认替换"
+    : state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "牌库已生成";
   const confirmedCount = 30 - state.unresolvedCount;
   const hasUnresolvedCards = state.unresolvedCount > 0;
   const visibleDeck = state.deck.filter((card) => !card.unresolved);
+  const pendingRedraftDeck = aggregateChoices(state.pendingRedraftChoices ?? []);
+  const pendingRedraftCount = pendingRedraftDeck.reduce((total, card) => total + card.count, 0);
   const sourceLabel = state.error ?? state.scoreSource ?? "评分数据待更新";
 
   return (
@@ -107,6 +113,26 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
         </ul>
       </section>
 
+      {pendingRedraftCount > 0 ? (
+        <section className="arena-deck arena-pending-deck" aria-label="本轮新选牌">
+          <div className="subheading">
+            <h3>待确认新牌</h3>
+            <span>{pendingRedraftCount} 张</span>
+          </div>
+          <ul>
+            {pendingRedraftDeck.map((card) => (
+              <li key={card.cardId ?? card.name}>
+                {card.details?.cropImageUrl || card.details?.imageUrl ? (
+                  <img className="card-thumb" src={card.details.cropImageUrl ?? card.details.imageUrl} alt="" loading="lazy" />
+                ) : null}
+                <span title={card.name}>{card.name}</span>
+                <strong>x{card.count}</strong>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {latestPick ? (
         <div className="arena-last-pick">
           <Check aria-hidden="true" size={15} />
@@ -116,6 +142,16 @@ export function ArenaPanel({ state }: ArenaPanelProps) {
       ) : null}
     </aside>
   );
+}
+
+function aggregateChoices(choices: readonly ArenaCardChoice[]): ArenaCardChoice[] {
+  const cards = new Map<string, ArenaCardChoice>();
+  for (const choice of choices) {
+    const identity = choice.cardId ?? choice.name;
+    const current = cards.get(identity);
+    cards.set(identity, current ? { ...current, count: current.count + choice.count } : { ...choice });
+  }
+  return [...cards.values()];
 }
 
 function findRecommendedChoiceIndex(choices: readonly ArenaCardChoice[]): number {

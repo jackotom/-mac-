@@ -180,4 +180,31 @@ describe("ArenaPanel", () => {
     expect(within(deck).getByText("30 张")).toBeInTheDocument();
     expect(within(deck).getByText("精确竞技场牌库")).toBeInTheDocument();
   });
+
+  it("shows newly selected redraft cards separately until the exact deck arrives", () => {
+    render(<ArenaPanel state={{
+      ...state,
+      status: "complete",
+      draftCount: 30,
+      unresolvedCount: 0,
+      currentChoices: [],
+      awaitingExactDeck: true,
+      deck: [{ name: "上一版正式牌库", count: 30 }],
+      pendingRedraftChoices: [
+        { name: "吵吵歌迷", cardId: "ETC_109", count: 1 },
+        { name: "吵吵歌迷", cardId: "ETC_109", count: 1 },
+        { name: "拆迁修理工", cardId: "CORE_REV_023", count: 1 }
+      ]
+    }} />);
+
+    expect(screen.getByRole("heading", { name: "等待确认替换" })).toBeInTheDocument();
+    const officialDeck = screen.getByRole("region", { name: "当前竞技场牌库" });
+    expect(within(officialDeck).getByText("上一版正式牌库")).toBeInTheDocument();
+    const pendingDeck = screen.getByRole("region", { name: "本轮新选牌" });
+    expect(within(pendingDeck).getByText("待确认新牌")).toBeInTheDocument();
+    expect(within(pendingDeck).getByText("3 张")).toBeInTheDocument();
+    expect(within(pendingDeck).getByText("吵吵歌迷")).toBeInTheDocument();
+    expect(within(pendingDeck).getByText("x2")).toBeInTheDocument();
+    expect(screen.getByText("最近选择：拆迁修理工")).toBeInTheDocument();
+  });
 });

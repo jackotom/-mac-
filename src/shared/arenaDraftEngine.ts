@@ -331,7 +331,13 @@ export class ArenaDraftEngine {
       ? hasConfirmedDeck ? this.confirmedDeck.map(cloneDeckCard) : []
       : hasAmbiguousCandidates ? [] : candidateDeck;
     const pendingChoicesAfterSnapshot = this.pendingRedraftChoices.slice(this.redraftSnapshotIncludedChoiceCount);
-    const redraftCandidates = aggregateDeck([
+    const pendingRedraftDeck = aggregateDeck(this.pendingRedraftChoices.map((chosen, index) => ({
+      slot: index + 1,
+      chosen,
+      offered: [],
+      at: this.lastUpdated ?? new Date(0).toISOString()
+    })));
+    const snapshotRedraftCandidates = aggregateDeck([
       ...this.redraftContentsPicks,
       ...pendingChoicesAfterSnapshot.map((chosen, index) => ({
         slot: this.redraftContentsPicks.length + index + 1,
@@ -340,6 +346,9 @@ export class ArenaDraftEngine {
         at: this.lastUpdated ?? new Date(0).toISOString()
       }))
     ]);
+    const redraftCandidates = hasConfirmedDeck
+      ? mergeDeckCards([...this.confirmedDeck, ...pendingRedraftDeck])
+      : snapshotRedraftCandidates;
     const confirmedCardCount = deck.reduce((total, card) => total + card.count, 0);
     const draftCount = this.awaitingExactDeck
       ? hasConfirmedDeck ? 30 : Math.min(30, this.redraftContentsPicks.length + pendingChoicesAfterSnapshot.length)
@@ -356,7 +365,7 @@ export class ArenaDraftEngine {
         offered: pick.offered.map((choice) => ({ ...choice }))
       })),
       deck,
-      redraftPool: this.status === "redrafting" && !hasConfirmedDeck && redraftCandidates.length > 0
+      redraftPool: this.awaitingExactDeck && redraftCandidates.length > 0
         ? redraftCandidates
         : this.status === "redrafting" && hasAmbiguousCandidates ? candidateDeck : undefined,
       awaitingExactDeck: this.awaitingExactDeck,
@@ -752,6 +761,20 @@ function cloneDeckCard(card: DeckCard): DeckCard {
     ...card,
     details: card.details ? structuredClone(card.details) : undefined
   };
+}
+
+function mergeDeckCards(cards: readonly DeckCard[]): DeckCard[] {
+  const merged = new Map<string, DeckCard>();
+  for (const card of cards) {
+    const identity = card.cardId ?? card.name;
+    const current = merged.get(identity);
+    if (current) {
+      merged.set(identity, { ...current, count: current.count + card.count });
+    } else {
+      merged.set(identity, cloneDeckCard(card));
+    }
+  }
+  return [...merged.values()];
 }
 
 function isArenaChoosingStatus(status: ArenaState["status"]) {

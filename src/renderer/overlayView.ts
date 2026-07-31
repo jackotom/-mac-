@@ -146,9 +146,12 @@ function toDeckIdentity(state: PublicTrackerState): OverlayDeckIdentity {
 function toArenaView(state: ArenaState, maxDeckRows: number) {
   const confirmedCount = state.status === "inactive" ? 0 : 30 - state.unresolvedCount;
   const showDeckStats = state.status !== "playing";
-  const visibleDeck = state.status === "redrafting" && state.redraftPool?.length
+  const visibleDeck = state.awaitingExactDeck && state.redraftPool?.length
     ? state.redraftPool
+    : state.status === "redrafting" && state.redraftPool?.length
+      ? state.redraftPool
     : state.deck;
+  const visibleDeckCount = visibleDeck.reduce((total, card) => total + card.count, 0);
   const isChoosing = (state.status === "drafting" || state.status === "redrafting") && state.currentChoices.length >= 3;
   const choices = isChoosing
     ? [...state.currentChoices]
@@ -156,13 +159,17 @@ function toArenaView(state: ArenaState, maxDeckRows: number) {
         .sort((left, right) => (right.score ?? -1) - (left.score ?? -1))
         .map(toArenaChoice)
     : [];
-  const latestPick = state.picks[state.picks.length - 1]?.chosen;
+  const latestPick = state.pendingRedraftChoices?.at(-1) ?? state.picks[state.picks.length - 1]?.chosen;
 
   return {
     isChoosing,
     showDeckStats,
-    statusLabel: state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "等待开局",
-    progress: state.unresolvedCount > 0 ? `已确认 ${confirmedCount}/30` : "30/30",
+    statusLabel: state.awaitingExactDeck
+      ? state.status === "redrafting" ? "重选中" : "等待确认替换"
+      : state.status === "drafting" ? "选牌中" : state.status === "redrafting" ? "重选中" : state.status === "playing" ? "对局中" : "等待开局",
+    progress: state.awaitingExactDeck && state.redraftPool?.length
+      ? `${visibleDeckCount}张候选 · 最终30`
+      : state.unresolvedCount > 0 ? `已确认 ${confirmedCount}/30` : "30/30",
     confirmedCount,
     unresolvedCount: state.unresolvedCount,
     hero: state.hero?.name ?? "等待职业",
@@ -182,7 +189,7 @@ function toArenaView(state: ArenaState, maxDeckRows: number) {
         unresolved: card.unresolved
       }))
       .slice(0, maxDeckRows),
-    deckCount: visibleDeck.reduce((total, card) => total + card.count, 0),
+    deckCount: visibleDeckCount,
     lastPick: latestPick ? toArenaChoice(latestPick) : undefined
   } satisfies NonNullable<OverlayPanelViewModel["arena"]>;
 }
