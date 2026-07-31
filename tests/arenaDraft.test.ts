@@ -376,6 +376,82 @@ describe("ArenaDraftEngine", () => {
     expect(engine.getState().picks).toHaveLength(30);
   });
 
+  it("replays the real 35-card Underground Arena boundary without trusting repeated Arena snapshots", () => {
+    const engine = new ArenaDraftEngine({ preferArenaLogPicks: true });
+    const retainedCardIds = [
+      "END_006", "BT_354", "EDR_842", "DMF_226", "JAIL_891", "REV_834",
+      "ETC_420", "CORE_EX1_096", "REV_943", "END_008", "TIME_441", "ETC_540",
+      "CORE_BT_035", "CORE_BT_321", "ETC_394", "END_005", "TOY_642", "TIME_444",
+      "TOY_028", "CORE_BT_480", "CORE_BT_416", "TOY_643", "JAIL_730", "ETC_411",
+      "CORE_EX1_005", "JAM_018", "JAIL_732"
+    ];
+    const previousExactDeck = retainedCardIds.map((cardId) => ({
+      name: cardId,
+      cardId,
+      count: ["CORE_EX1_096", "ETC_411", "JAM_018"].includes(cardId) ? 2 : 1
+    }));
+    const redraftChoices = [
+      "CORE_BT_321",
+      "CORE_YOP_001",
+      "TOY_642",
+      "REV_957",
+      "END_007"
+    ];
+
+    expect(previousExactDeck.reduce((total, card) => total + card.count, 0)).toBe(30);
+    expect(engine.applyExactDeck(previousExactDeck, "9476239109")).toBe(true);
+    engine.applyArenaLine("D 16:01:39.7205580 SetDraftMode - REDRAFTING");
+    engine.applyArenaLine("D 16:01:44.0122450 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 9476239110");
+    engine.applyArenaLine("D 16:01:44.2384040 DraftManager.OnChoicesAndContents - Draft Deck ID: 9476239109, Hero Card = HERO_10");
+    for (const cardId of retainedCardIds) {
+      engine.applyArenaLine(`D 16:01:44.2384040 DraftManager.OnChoicesAndContents - Draft deck contains card ${cardId}`);
+    }
+    for (const [index, cardId] of redraftChoices.entries()) {
+      const line = `D 16:02:0${index}.0000000 Client chooses: ${cardId} (${cardId})`;
+      engine.applyArenaLine(line);
+      if (index === redraftChoices.length - 1) {
+        engine.applyArenaLine(line);
+      }
+    }
+
+    expect(engine.getState()).toMatchObject({
+      status: "redrafting",
+      awaitingExactDeck: true,
+      pendingRedraftChoices: redraftChoices.map((cardId) => expect.objectContaining({ cardId }))
+    });
+    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(30);
+    expect(engine.getState().redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(35);
+
+    engine.applyArenaLine("D 16:02:08.2926720 SetDraftMode - ACTIVE_DRAFT_DECK");
+    engine.applyArenaLine("D 16:10:52.7995410 DraftManager.OnChoicesAndContents - Draft Deck ID: 9476239109, Hero Card = HERO_10");
+    for (const cardId of [...retainedCardIds.slice(0, 25), ...redraftChoices]) {
+      engine.applyArenaLine(`D 16:10:52.7995410 DraftManager.OnChoicesAndContents - Draft deck contains card ${cardId}`);
+    }
+    engine.applyArenaLine("D 16:10:52.7995410 SetDraftMode - ACTIVE_DRAFT_DECK");
+
+    expect(engine.getState()).toMatchObject({
+      status: "complete",
+      awaitingExactDeck: true,
+      pendingRedraftChoices: redraftChoices.map((cardId) => expect.objectContaining({ cardId }))
+    });
+    expect(engine.getState().deck.reduce((total, card) => total + card.count, 0)).toBe(30);
+    expect(engine.getState().redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(35);
+
+    const nextExactDeck = [
+      ...previousExactDeck.slice(3),
+      ...redraftChoices.slice(0, 3).map((cardId) => ({ name: cardId, cardId, count: 1 }))
+    ];
+    expect(nextExactDeck.reduce((total, card) => total + card.count, 0)).toBe(30);
+    expect(engine.applyExactDeck(nextExactDeck, "9476239109")).toBe(true);
+    expect(engine.getState()).toMatchObject({
+      awaitingExactDeck: false,
+      pendingRedraftChoices: [],
+      redraftPool: undefined
+    });
+    expect(engine.getState().deck.some((card) => card.cardId === "REV_957")).toBe(false);
+    expect(engine.getState().deck.some((card) => card.cardId === "END_007")).toBe(false);
+  });
+
   it("counts only the final legendary preview as a four-card team before normal picks", () => {
     const engine = new ArenaDraftEngine({ cardDatabase: teamDraftCardDb, preferArenaLogPicks: true });
     engine.applyArenaLine("D 12:00:00.000 SetDraftMode - DRAFTING");

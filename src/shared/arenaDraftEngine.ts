@@ -49,6 +49,7 @@ export class ArenaDraftEngine {
   private redraftContentsPicks: ArenaPick[] = [];
   private pendingRedraftChoices: ArenaCardChoice[] = [];
   private redraftSnapshotIncludedChoiceCount = 0;
+  private seenRedraftPickEvents = new Set<string>();
   private awaitingExactDeck = false;
   private pendingDraftContents: ArenaLogEvent[] = [];
   private pendingTeamCore: CardReference | undefined;
@@ -121,6 +122,7 @@ export class ArenaDraftEngine {
     this.redraftContentsPicks = [];
     this.pendingRedraftChoices = [];
     this.redraftSnapshotIncludedChoiceCount = 0;
+    this.seenRedraftPickEvents.clear();
     this.awaitingExactDeck = false;
     this.pendingDraftContents = [];
     this.pendingTeamCore = undefined;
@@ -309,6 +311,7 @@ export class ArenaDraftEngine {
     this.redraftContentsPicks = [];
     this.pendingRedraftChoices = [];
     this.redraftSnapshotIncludedChoiceCount = 0;
+    this.seenRedraftPickEvents.clear();
     this.awaitingExactDeck = false;
     this.pendingTeamCore = undefined;
     this.draftDeckId = deckId ?? this.draftDeckId;
@@ -425,6 +428,7 @@ export class ArenaDraftEngine {
           this.redraftContentsPicks = [];
           this.pendingRedraftChoices = [];
           this.redraftSnapshotIncludedChoiceCount = 0;
+          this.seenRedraftPickEvents.clear();
           this.awaitingExactDeck = true;
         }
         this.status = "redrafting";
@@ -451,6 +455,7 @@ export class ArenaDraftEngine {
         this.redraftContentsPicks = [];
         this.pendingRedraftChoices = [];
         this.redraftSnapshotIncludedChoiceCount = 0;
+        this.seenRedraftPickEvents.clear();
         this.awaitingExactDeck = false;
         this.pendingTeamCore = undefined;
         this.teamBonusCount = 0;
@@ -476,6 +481,14 @@ export class ArenaDraftEngine {
       cardId: event.cardId,
       cardName: event.cardName
     };
+
+    if (event.type === "card-picked" && this.awaitingExactDeck) {
+      const eventKey = event.raw.trim();
+      if (this.seenRedraftPickEvents.has(eventKey)) {
+        return;
+      }
+      this.seenRedraftPickEvents.add(eventKey);
+    }
 
     if (event.type === "deck-card") {
       this.acceptingTeamPreview = false;
@@ -722,6 +735,7 @@ export class ArenaDraftEngine {
     this.redraftContentsPicks = [];
     this.pendingRedraftChoices = [];
     this.redraftSnapshotIncludedChoiceCount = 0;
+    this.seenRedraftPickEvents.clear();
     this.awaitingExactDeck = false;
     this.pendingTeamCore = undefined;
     this.teamBonusCount = 0;
