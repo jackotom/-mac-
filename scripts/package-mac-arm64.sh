@@ -54,6 +54,7 @@ ditto "$root_dir/dist-electron" "$runtime_source/dist-electron"
 rm -rf "$runtime_source/node_modules/.vite"
 rm -f "$runtime_source/node_modules/.package-lock.json" "$runtime_source/package-lock.json"
 electron_version="$(node -p 'require("./node_modules/electron/package.json").version')"
+app_version="$(node -p 'require("./package.json").version')"
 
 electron_zip_args=()
 if [[ -n "${ELECTRON_ZIP_DIR:-}" ]]; then
@@ -64,6 +65,8 @@ npx --offline @electron/packager "$runtime_source" "炉石记牌器" \
   --platform=darwin \
   --arch=arm64 \
   --electron-version="$electron_version" \
+  --app-version="$app_version" \
+  --build-version="$app_version" \
   --out="$stage_dir" \
   --overwrite \
   --asar \

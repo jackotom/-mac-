@@ -12,8 +12,15 @@ describe("release verification entrypoint", () => {
   it("keeps the visible app version aligned with package metadata", () => {
     const packageJson = JSON.parse(read("package.json")) as { version: string };
     const appSource = read("src/renderer/App.tsx");
+    const packageScript = read("scripts/package-mac-arm64.sh");
+    const releaseScript = read("scripts/verify-release.sh");
 
     expect(appSource).toContain(`<small>v${packageJson.version}</small>`);
+    expect(packageScript).toContain('app_version="$(node -p');
+    expect(packageScript).toContain('--app-version="$app_version"');
+    expect(packageScript).toContain('--build-version="$app_version"');
+    expect(releaseScript).toContain("CFBundleShortVersionString");
+    expect(releaseScript).toContain("CFBundleVersion");
   });
 
   it("exposes one command for the complete release gate", () => {

@@ -2394,7 +2394,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
-  it("keeps the previous exact Arena deck while 31 redraft candidates await confirmation", async () => {
+  it("keeps the formal 30-card deck while all 35 redraft candidates await confirmation", async () => {
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
     const sessionDir = await createSessionDir();
@@ -2438,6 +2438,7 @@ describe("TrackerService log selection", () => {
       });
       expect(service.getState().arena?.picks).toHaveLength(30);
       expect(service.getState().arena?.pendingRedraftChoices).toHaveLength(5);
+      expect(service.getState().arena?.redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(35);
       expect(service.getState().deckName).toBe("竞技场牌库");
       expect(service.getState().summary.totalCards).toBe(30);
       expect(service.getState().deck).toEqual([
