@@ -28,11 +28,14 @@ interface CardReference {
   readonly entityId?: string;
 }
 
+const ARENA_SCREEN_CARD_TYPES = new Set(["随从", "法术", "武器", "地标"]);
+
 export class ArenaDraftEngine {
   private readonly choiceParser = new ArenaChoiceParser();
   private cardNameByCardId = new Map<string, string>();
   private cardInfoByCardId = new Map<string, CardInfo>();
   private cardInfoByName = new Map<string, CardInfo[]>();
+  private cardInfoByOcrName = new Map<string, CardInfo[]>();
   private cardDatabase: CardDatabase | undefined;
   private ratings: ArenaRatingTable | undefined;
   private status: ArenaState["status"] = "inactive";
@@ -70,6 +73,7 @@ export class ArenaDraftEngine {
     this.cardNameByCardId = cardDatabase ? new Map(createCardIdNameLookup(cardDatabase)) : new Map();
     this.cardInfoByCardId = new Map();
     this.cardInfoByName = new Map();
+    this.cardInfoByOcrName = new Map();
     for (const card of cardDatabase ? listCardInfos(cardDatabase) : []) {
       if (card.cardId ?? card.id) {
         this.cardInfoByCardId.set(normalizeCardId(card.cardId ?? card.id!), card);
@@ -78,6 +82,10 @@ export class ArenaDraftEngine {
       const matches = this.cardInfoByName.get(name) ?? [];
       matches.push(card);
       this.cardInfoByName.set(name, matches);
+      const ocrName = normalizeOcrCardName(card.name);
+      const ocrMatches = this.cardInfoByOcrName.get(ocrName) ?? [];
+      ocrMatches.push(card);
+      this.cardInfoByOcrName.set(ocrName, ocrMatches);
     }
     this.rebuildScores();
   }
@@ -149,25 +157,31 @@ export class ArenaDraftEngine {
   }
 
   applyScreenChoices(names: readonly string[]) {
-    if (!isArenaChoosingStatus(this.status)) {
+    if (!isArenaChoosingStatus(this.status) || names.length !== 3) {
       return false;
     }
 
-    const choices = uniqueScreenChoices(names)
-      .map((name) => this.findCardInfoByRecognizedName(name))
-      .filter((card): card is CardInfo => card !== undefined)
-      .map((card) => this.scoreChoice({
+    const nonEmptyNames = names.filter((name) => normalizeCardName(name));
+    if (new Set(nonEmptyNames.map(normalizeCardName)).size !== nonEmptyNames.length) {
+      return false;
+    }
+
+    const choices = names.flatMap((name, screenSlot) => {
+      const card = name ? this.findCardInfoByRecognizedName(name) : undefined;
+      return card ? [this.scoreChoice({
         name: card.name,
         count: 1,
+        screenSlot,
         cardId: card.cardId ?? card.id
-      }));
+      })] : [];
+    });
 
-    if (choices.length !== 3) {
+    if (choices.length < 2 || (this.currentChoices.length === 3 && choices.length < 3)) {
       return false;
     }
 
-    const nextSignature = choices.map((choice) => choice.cardId ?? choice.name).join("|");
-    const currentSignature = this.currentChoices.map((choice) => choice.cardId ?? choice.name).join("|");
+    const nextSignature = choices.map((choice) => `${choice.screenSlot}:${choice.cardId ?? choice.name}`).join("|");
+    const currentSignature = this.currentChoices.map((choice) => `${choice.screenSlot}:${choice.cardId ?? choice.name}`).join("|");
     if (nextSignature === currentSignature) {
       return false;
     }
@@ -179,10 +193,11 @@ export class ArenaDraftEngine {
 
   private findCardInfoByRecognizedName(name: string): CardInfo | undefined {
     const normalized = normalizeCardName(name);
-    const exact = this.findCardInfoByName(normalized);
+    const exact = this.findArenaScreenCardInfo(this.cardInfoByName.get(normalized));
     const fuzzyName = normalizeOcrCardName(name);
-    if (exact || fuzzyName.length < 4) {
-      return exact;
+    const normalizedExact = this.findArenaScreenCardInfo(this.cardInfoByOcrName.get(fuzzyName));
+    if (exact || normalizedExact || fuzzyName.length < 3) {
+      return exact ?? normalizedExact;
     }
 
     const maxDistance = fuzzyName.length <= 5
@@ -195,7 +210,7 @@ export class ArenaDraftEngine {
       if (distance === undefined) {
         continue;
       }
-      const card = this.findCardInfoByName(cardName);
+      const card = this.findArenaScreenCardInfo(this.cardInfoByName.get(cardName));
       if (!card) {
         continue;
       }
@@ -208,6 +223,32 @@ export class ArenaDraftEngine {
     }
 
     return best && bestDistanceMatches === 1 ? best.card : undefined;
+  }
+
+  private findArenaScreenCardInfo(matches: readonly CardInfo[] | undefined): CardInfo | undefined {
+    const candidates = matches?.filter((card) => this.isArenaScreenCardCandidate(card));
+    return candidates?.find((card) =>
+      getArenaCardRating(this.ratings, card.cardId ?? card.id, this.hero?.className) !== undefined
+    )
+      ?? candidates?.find((card) => card.collectible === true)
+      ?? candidates?.[0];
+  }
+
+  private isArenaScreenCardCandidate(card: CardInfo): boolean {
+    const cardId = (card.cardId ?? card.id ?? "").toUpperCase();
+    if (cardId.startsWith("HERO_")) {
+      return false;
+    }
+    if (card.cardType && !ARENA_SCREEN_CARD_TYPES.has(card.cardType)) {
+      return false;
+    }
+    if (getArenaCardRating(this.ratings, card.cardId ?? card.id, this.hero?.className) !== undefined) {
+      return true;
+    }
+    if (card.collectible === true) {
+      return true;
+    }
+    return card.collectible === undefined && card.cardType === undefined;
   }
 
   private findCardInfoByName(name: string): CardInfo | undefined {
@@ -657,7 +698,9 @@ function normalizeOcrCardName(name: string) {
   }
 
   const digitNormalized = compact.replace(/[ilo]/g, (character) => character === "o" ? "0" : "1");
-  return looksLikeStylizedCode ? digitNormalized.replace(/s/g, "3") : digitNormalized;
+  return looksLikeStylizedCode
+    ? digitNormalized.replace(/a/g, "4").replace(/s/g, "3")
+    : digitNormalized;
 }
 
 function boundedLevenshteinDistance(left: string, right: string, maxDistance: number): number | undefined {
@@ -689,16 +732,4 @@ function boundedLevenshteinDistance(left: string, right: string, maxDistance: nu
 
   const distance = previous[rightChars.length]!;
   return distance <= maxDistance ? distance : undefined;
-}
-
-function uniqueScreenChoices(names: readonly string[]) {
-  const seen = new Set<string>();
-  return names.flatMap((name) => {
-    const normalized = normalizeCardName(name);
-    if (!normalized || seen.has(normalized)) {
-      return [];
-    }
-    seen.add(normalized);
-    return [name];
-  });
 }

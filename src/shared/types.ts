@@ -219,6 +219,7 @@ export type ArenaStatus = "inactive" | "drafting" | "redrafting" | "complete" | 
 export interface ArenaCardChoice {
   readonly name: string;
   readonly count: number;
+  readonly screenSlot?: number;
   readonly cardId?: string;
   readonly entityId?: string;
   readonly score?: number;

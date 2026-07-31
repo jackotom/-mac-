@@ -31,6 +31,19 @@ body:has(.arena-choice-overlay-shell),
   pointer-events: none;
 }
 
+.arena-choice-overlay-pending {
+  display: grid;
+  min-height: 48px;
+  width: min(100%, 236px);
+  place-items: center;
+  border: 1px dashed rgba(221, 236, 244, 0.3);
+  border-radius: 6px;
+  color: #b3cbd4;
+  background: rgba(8, 16, 22, 0.62);
+  font-size: 12px;
+  font-weight: 760;
+}
+
 .arena-choice-overlay-shell .arena-choice-overlay-metrics {
   display: grid;
   width: min(100%, 236px);
