@@ -614,6 +614,41 @@ describe("overlay view", () => {
     expect(view.arena?.deck[0]).toHaveProperty("deckImpact");
   });
 
+  it("keeps pending redraft cards visible after the game reports the draft as complete", () => {
+    const state: PublicTrackerState = {
+      ...createPublicTrackerState(),
+      status: "watching",
+      deck: [],
+      opponentPlayed: [],
+      events: [],
+      summary: { totalCards: 30, remainingCards: 30, drawnCards: 0, opponentPlayedCount: 0 },
+      arena: {
+        status: "complete",
+        currentChoices: [],
+        picks: [],
+        deck: [{ name: "旧牌库", count: 30 }],
+        redraftPool: [
+          { name: "旧牌库", count: 30 },
+          { name: "吵吵歌迷", cardId: "ETC_109", count: 1 }
+        ],
+        pendingRedraftChoices: [{ name: "吵吵歌迷", cardId: "ETC_109", count: 1 }],
+        awaitingExactDeck: true,
+        draftCount: 30,
+        unresolvedCount: 0
+      }
+    };
+
+    const view = toOverlayPanelViewModel(state, { maxDeckRows: 40 });
+
+    expect(view.arena?.statusLabel).toBe("等待确认替换");
+    expect(view.arena?.progress).toBe("31张候选 · 最终30");
+    expect(view.arena?.deckCount).toBe(31);
+    expect(view.arena?.deck).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "吵吵歌迷" })
+    ]));
+    expect(view.arena?.lastPick).toMatchObject({ name: "吵吵歌迷" });
+  });
+
   it("sorts the Arena deck by mana cost and then Chinese card name", () => {
     const details = (dbfId: number, name: string, manaCost: number) => ({
       dbfId,

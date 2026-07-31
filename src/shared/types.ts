@@ -251,6 +251,8 @@ export interface ArenaState {
   readonly picks: readonly ArenaPick[];
   readonly deck: readonly DeckCard[];
   readonly redraftPool?: readonly DeckCard[];
+  readonly awaitingExactDeck?: boolean;
+  readonly pendingRedraftChoices?: readonly ArenaCardChoice[];
   readonly draftCount: number;
   readonly unresolvedCount: number;
   readonly scoreSource?: string;

@@ -571,9 +571,9 @@ export class TrackerService {
         this.applyPowerText(text, undefined, modifiedAtMs);
       }
       this.ensureArenaRatingsForCurrentArena(monitoringGeneration);
-      await this.refreshArenaScreenChoices(monitoringGeneration);
       this.syncArenaDeckToTracker();
       this.pushState();
+      void this.refreshArenaScreenChoices(monitoringGeneration);
     } catch (error) {
       if (!this.isCurrentMonitoringGeneration(monitoringGeneration)) {
         return;
@@ -1337,7 +1337,7 @@ export class TrackerService {
     }
     if (
       arenaState.status === "redrafting" &&
-      (arenaState.deck.length === 0 || Boolean(arenaState.redraftPool?.length))
+      arenaState.deck.length === 0
     ) {
       this.lastArenaDeckSignature = undefined;
       this.engine.clearArenaDeck();

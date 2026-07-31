@@ -162,6 +162,34 @@ describe("frontend stability helpers", () => {
     expect(() => parsePublicTrackerState(state)).toThrow(/竞技场状态数据无效/);
   });
 
+  it("accepts a pending Arena redraft state and rejects malformed pending choices", () => {
+    const state = createPublicTrackerState({
+      status: "watching",
+      arena: {
+        status: "complete",
+        draftCount: 30,
+        unresolvedCount: 0,
+        currentChoices: [],
+        picks: [],
+        deck: [{ name: "上一次确认牌库", count: 30 }],
+        awaitingExactDeck: true,
+        pendingRedraftChoices: [{ name: "本次新选牌", count: 1, cardId: "TEST_001" }]
+      }
+    });
+
+    expect(parsePublicTrackerState(state).arena).toMatchObject({
+      awaitingExactDeck: true,
+      pendingRedraftChoices: [{ name: "本次新选牌", count: 1 }]
+    });
+    expect(() => parsePublicTrackerState({
+      ...state,
+      arena: {
+        ...state.arena!,
+        pendingRedraftChoices: [{ name: "错误数量", count: 0 }]
+      }
+    })).toThrow(/竞技场状态数据无效/);
+  });
+
   it.each([
     [24, 6],
     [29, 1],

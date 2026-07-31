@@ -139,6 +139,14 @@ The main process syncs collection decks on app startup and starts tracking autom
 
 ## Arena draft flow
 
+Underground Arena redraft uses two layers of deck state:
+
+- `deck` keeps the most recently confirmed exact 30-card deck.
+- `pendingRedraftChoices` keeps newly selected cards, while `redraftPool` combines the confirmed deck and those pending candidates for display.
+- `ACTIVE_DRAFT_DECK` only closes the selection screen; it does not confirm the final deck, so `awaitingExactDeck` remains true.
+- Only a newer matching 30-card snapshot from `Decks.log` replaces the confirmed deck and clears pending candidates.
+- On cold start without a previous exact deck, the tracker does not guess omitted duplicate copies and waits for an exact snapshot.
+
 The independent Arena hero ranking window uses the same public Firestone class-overview source as card deck-impact statistics. It appears on the left while Hearthstone is frontmost and the watched Arena state is active, respects both the global overlay switch and its own saved setting, and closes when Arena becomes inactive. A manual close suppresses it until that Arena session ends.
 
 When `Arena.log` exists beside `Power.log`, `TrackerService` reads both files from the same session. `Arena.log` is the source of final picks; `Power.log` supplies the live candidate cards and is also used as a fallback when the Arena log has not been enabled yet. If the current Hearthstone session only writes `Arena.log` while the player is drafting or has just completed the draft, the service still follows that newest Arena session so screen recognition, the choice overlay, and the completed arena deck can start instead of staying attached to an older `Power.log`. The parser keeps the current `OnChoicesAndContents` block around the latest `SetDraftMode`, so restart/reopen restores the Arena hero and drafted deck instead of resetting to zero.

@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Hand, Layers3, Settings, X } from "lucide-react";
 import type { OverlayCardItem, OverlayPanelProps, OverlayStatusTone } from "../types";
 import { CardHoverPreview } from "./CardHoverPreview";
@@ -394,13 +394,23 @@ function ArenaOverlay({ view }: { view: NonNullable<OverlayPanelProps["view"]["a
 }
 
 function ArenaDeckStatsList({ items }: { items: readonly OverlayCardItem[] }) {
+  const listRef = useRef<HTMLUListElement>(null);
   const visibleItems = items.filter((item) => !isUnresolvedCard(item));
+  const visibleQuantity = visibleItems.reduce((total, item) => total + (item.count ?? 1), 0);
+  const scrollResetKey = `${visibleItems[0]?.id ?? "empty"}:${visibleItems.length}:${visibleQuantity}`;
+
+  useLayoutEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = 0;
+    }
+  }, [scrollResetKey]);
+
   if (visibleItems.length === 0) {
     return <p className="overlay-empty">当前牌库尚无已选牌</p>;
   }
 
   return (
-    <ul className="overlay-arena-stats-list">
+    <ul ref={listRef} className="overlay-arena-stats-list">
       {visibleItems.map((item) => (
         <li key={item.id}>
           <CardHoverPreview details={item.details} className="overlay-arena-stats-row">

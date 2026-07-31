@@ -315,6 +315,48 @@ describe("standard tracker overlay", () => {
     expect(within(arena).getByLabelText("数量 2")).toHaveTextContent("2");
   });
 
+  it("returns the Arena deck list to the top when its first card or quantity changes", () => {
+    const arenaView = (deck: NonNullable<OverlayPanelViewModel["arena"]>["deck"]) => view({
+      arena: {
+        isChoosing: false,
+        showDeckStats: true,
+        statusLabel: "重选中",
+        progress: "30/30",
+        confirmedCount: 30,
+        unresolvedCount: 0,
+        hero: "猎人",
+        choices: [],
+        deck,
+        deckCount: deck.reduce((total, card) => total + (card.count ?? 1), 0)
+      }
+    });
+    const originalDeck = [
+      { id: "arena-1", name: "原首牌", count: 1, cost: 2 },
+      { id: "arena-2", name: "原次牌", count: 1, cost: 3 }
+    ];
+    const preview = render(<OverlayPanel view={arenaView(originalDeck)} />);
+    const list = preview.container.querySelector(".overlay-arena-stats-list");
+
+    expect(list).toBeInstanceOf(HTMLUListElement);
+    if (!(list instanceof HTMLUListElement)) {
+      throw new Error("找不到竞技场牌库列表");
+    }
+
+    list.scrollTop = 48;
+    preview.rerender(<OverlayPanel view={arenaView([
+      { id: "arena-new", name: "新选牌", count: 1, cost: 1 },
+      originalDeck[1]
+    ])} />);
+    expect(list.scrollTop).toBe(0);
+
+    list.scrollTop = 48;
+    preview.rerender(<OverlayPanel view={arenaView([
+      { id: "arena-new", name: "新选牌", count: 2, cost: 1 },
+      originalDeck[1]
+    ])} />);
+    expect(list.scrollTop).toBe(0);
+  });
+
   it("highlights lifecycle synergy on pointer hover and keyboard focus", () => {
     const base = tracking();
     const sourceDetails = {

@@ -45,6 +45,11 @@ export class ArenaDraftEngine {
   private hero: ArenaHero | undefined;
   private currentChoices: ArenaCardChoice[] = [];
   private picks: ArenaPick[] = [];
+  private confirmedDeck: DeckCard[] = [];
+  private redraftContentsPicks: ArenaPick[] = [];
+  private pendingRedraftChoices: ArenaCardChoice[] = [];
+  private redraftSnapshotIncludedChoiceCount = 0;
+  private awaitingExactDeck = false;
   private pendingDraftContents: ArenaLogEvent[] = [];
   private pendingTeamCore: CardReference | undefined;
   private teamBonusCount = 0;
@@ -112,6 +117,11 @@ export class ArenaDraftEngine {
     this.hero = undefined;
     this.currentChoices = [];
     this.picks = [];
+    this.confirmedDeck = [];
+    this.redraftContentsPicks = [];
+    this.pendingRedraftChoices = [];
+    this.redraftSnapshotIncludedChoiceCount = 0;
+    this.awaitingExactDeck = false;
     this.pendingDraftContents = [];
     this.pendingTeamCore = undefined;
     this.teamBonusCount = 0;
@@ -295,6 +305,11 @@ export class ArenaDraftEngine {
         at: new Date().toISOString()
       };
     })).map((pick, index) => ({ ...pick, slot: index + 1 }));
+    this.confirmedDeck = cards.map(cloneDeckCard);
+    this.redraftContentsPicks = [];
+    this.pendingRedraftChoices = [];
+    this.redraftSnapshotIncludedChoiceCount = 0;
+    this.awaitingExactDeck = false;
     this.pendingTeamCore = undefined;
     this.draftDeckId = deckId ?? this.draftDeckId;
     this.teamBonusCount = 0;
@@ -310,9 +325,34 @@ export class ArenaDraftEngine {
     const candidateDeck = aggregateDeck(this.picks);
     const candidateCount = candidateDeck.reduce((total, card) => total + card.count, 0);
     const hasAmbiguousCandidates = candidateCount > 30;
-    const deck = hasAmbiguousCandidates ? [] : candidateDeck;
+    const confirmedDeckCount = this.confirmedDeck.reduce((total, card) => total + card.count, 0);
+    const hasConfirmedDeck = confirmedDeckCount === 30;
+    const deck = this.awaitingExactDeck
+      ? hasConfirmedDeck ? this.confirmedDeck.map(cloneDeckCard) : []
+      : hasAmbiguousCandidates ? [] : candidateDeck;
+    const pendingChoicesAfterSnapshot = this.pendingRedraftChoices.slice(this.redraftSnapshotIncludedChoiceCount);
+    const pendingRedraftDeck = aggregateDeck(this.pendingRedraftChoices.map((chosen, index) => ({
+      slot: index + 1,
+      chosen,
+      offered: [],
+      at: this.lastUpdated ?? new Date(0).toISOString()
+    })));
+    const snapshotRedraftCandidates = aggregateDeck([
+      ...this.redraftContentsPicks,
+      ...pendingChoicesAfterSnapshot.map((chosen, index) => ({
+        slot: this.redraftContentsPicks.length + index + 1,
+        chosen,
+        offered: [],
+        at: this.lastUpdated ?? new Date(0).toISOString()
+      }))
+    ]);
+    const redraftCandidates = hasConfirmedDeck
+      ? mergeDeckCards([...this.confirmedDeck, ...pendingRedraftDeck])
+      : snapshotRedraftCandidates;
     const confirmedCardCount = deck.reduce((total, card) => total + card.count, 0);
-    const draftCount = Math.min(30, this.picks.length + this.teamBonusCount);
+    const draftCount = this.awaitingExactDeck
+      ? hasConfirmedDeck ? 30 : Math.min(30, this.redraftContentsPicks.length + pendingChoicesAfterSnapshot.length)
+      : Math.min(30, this.picks.length + this.teamBonusCount);
     return {
       status: this.status,
       deckId: this.draftDeckId,
@@ -325,7 +365,11 @@ export class ArenaDraftEngine {
         offered: pick.offered.map((choice) => ({ ...choice }))
       })),
       deck,
-      redraftPool: this.status === "redrafting" && hasAmbiguousCandidates ? candidateDeck : undefined,
+      redraftPool: this.awaitingExactDeck && redraftCandidates.length > 0
+        ? redraftCandidates
+        : this.status === "redrafting" && hasAmbiguousCandidates ? candidateDeck : undefined,
+      awaitingExactDeck: this.awaitingExactDeck,
+      pendingRedraftChoices: this.pendingRedraftChoices.map((choice) => ({ ...choice })),
       draftCount,
       unresolvedCount: this.status === "inactive" ? 0 : Math.max(0, 30 - confirmedCardCount),
       scoreSource: getArenaScoreSourceLabel(this.ratings),
@@ -370,8 +414,21 @@ export class ArenaDraftEngine {
         this.status = "drafting";
         this.restoreDraftContents(pendingDraftContents);
       } else if (event.mode === "redrafting") {
-        this.restorePendingDraftContents();
+        if (!this.awaitingExactDeck) {
+          const currentDeck = aggregateDeck(this.picks);
+          if (
+            this.confirmedDeck.reduce((total, card) => total + card.count, 0) !== 30 &&
+            currentDeck.reduce((total, card) => total + card.count, 0) === 30
+          ) {
+            this.confirmedDeck = currentDeck.map(cloneDeckCard);
+          }
+          this.redraftContentsPicks = [];
+          this.pendingRedraftChoices = [];
+          this.redraftSnapshotIncludedChoiceCount = 0;
+          this.awaitingExactDeck = true;
+        }
         this.status = "redrafting";
+        this.restorePendingDraftContents();
         this.currentChoices = [];
       } else if (event.mode === "complete") {
         this.restorePendingDraftContents();
@@ -390,6 +447,11 @@ export class ArenaDraftEngine {
         this.hero = undefined;
         this.currentChoices = [];
         this.picks = [];
+        this.confirmedDeck = [];
+        this.redraftContentsPicks = [];
+        this.pendingRedraftChoices = [];
+        this.redraftSnapshotIncludedChoiceCount = 0;
+        this.awaitingExactDeck = false;
         this.pendingTeamCore = undefined;
         this.teamBonusCount = 0;
         this.acceptingTeamPreview = false;
@@ -489,12 +551,21 @@ export class ArenaDraftEngine {
       return;
     }
 
-    this.picks.push({
+    const pick = {
       slot: this.picks.length + 1,
       chosen,
       offered: offered.map((choice) => this.scoreChoice(choice)),
       at: new Date().toISOString()
-    });
+    };
+    if (this.awaitingExactDeck) {
+      this.pendingRedraftChoices.push(chosen);
+      this.lastPick = { cardId: chosen.cardId, name: chosen.name, source };
+      this.currentChoices = [];
+      this.touch();
+      return;
+    }
+
+    this.picks.push(pick);
     this.lastPick = { cardId: chosen.cardId, name: chosen.name, source };
     this.currentChoices = [];
     if (this.status === "drafting" && this.picks.length + this.teamBonusCount >= 30) {
@@ -557,6 +628,36 @@ export class ArenaDraftEngine {
       return;
     }
 
+    if (this.awaitingExactDeck) {
+      this.draftDeckId = nextDeckId;
+      this.redraftGenerationId = nextRedraftGenerationId;
+      this.redraftContentsPicks = [];
+      this.redraftSnapshotIncludedChoiceCount = this.pendingRedraftChoices.length;
+      for (const event of pendingDraftContents) {
+        if (event.type === "hero-selected") {
+          this.hero = this.toHero(event);
+          this.rebuildScores();
+          continue;
+        }
+        if (event.type !== "deck-card") {
+          continue;
+        }
+        const chosen = this.scoreChoice({
+          name: event.cardName ?? event.cardId ?? "未知卡牌",
+          count: 1,
+          cardId: event.cardId
+        });
+        this.redraftContentsPicks.push({
+          slot: this.redraftContentsPicks.length + 1,
+          chosen,
+          offered: [],
+          at: new Date().toISOString()
+        });
+      }
+      this.touch();
+      return;
+    }
+
     this.resetDraft();
     this.draftDeckId = nextDeckId;
     this.redraftGenerationId = nextRedraftGenerationId;
@@ -599,6 +700,12 @@ export class ArenaDraftEngine {
       chosen: this.scoreChoice(pick.chosen),
       offered: pick.offered.map((choice) => this.scoreChoice(choice))
     }));
+    this.redraftContentsPicks = this.redraftContentsPicks.map((pick) => ({
+      ...pick,
+      chosen: this.scoreChoice(pick.chosen),
+      offered: pick.offered.map((choice) => this.scoreChoice(choice))
+    }));
+    this.pendingRedraftChoices = this.pendingRedraftChoices.map((choice) => this.scoreChoice(choice));
     if (this.hero?.cardId) {
       this.hero = this.toHero(this.hero);
     }
@@ -611,6 +718,11 @@ export class ArenaDraftEngine {
     this.hero = undefined;
     this.currentChoices = [];
     this.picks = [];
+    this.confirmedDeck = [];
+    this.redraftContentsPicks = [];
+    this.pendingRedraftChoices = [];
+    this.redraftSnapshotIncludedChoiceCount = 0;
+    this.awaitingExactDeck = false;
     this.pendingTeamCore = undefined;
     this.teamBonusCount = 0;
     this.acceptingTeamPreview = true;
@@ -642,6 +754,27 @@ function aggregateDeck(picks: readonly ArenaPick[]): DeckCard[] {
     }
   }
   return [...cards.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function cloneDeckCard(card: DeckCard): DeckCard {
+  return {
+    ...card,
+    details: card.details ? structuredClone(card.details) : undefined
+  };
+}
+
+function mergeDeckCards(cards: readonly DeckCard[]): DeckCard[] {
+  const merged = new Map<string, DeckCard>();
+  for (const card of cards) {
+    const identity = card.cardId ?? card.name;
+    const current = merged.get(identity);
+    if (current) {
+      merged.set(identity, { ...current, count: current.count + card.count });
+    } else {
+      merged.set(identity, cloneDeckCard(card));
+    }
+  }
+  return [...merged.values()];
 }
 
 function isArenaChoosingStatus(status: ArenaState["status"]) {

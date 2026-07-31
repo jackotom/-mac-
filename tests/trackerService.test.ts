@@ -1257,7 +1257,7 @@ describe("TrackerService log selection", () => {
       timeout: 3_000,
       interval: 50
     });
-    expect(service.getState().status).toBe("watching");
+    expect(service.getState().status, service.getState().error).toBe("watching");
     expect(service.getState().gameActive).toBe(true);
     await service.dispose();
   });
@@ -1511,6 +1511,100 @@ describe("TrackerService log selection", () => {
     expect(disposed).toBe(true);
   });
 
+  it("publishes appended Arena picks while screen recognition is still pending", async () => {
+    vi.stubEnv("QA_LOCK_LOG_PATH", "1");
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({
+      CardDataService: class CardDataService {
+        async loadCardDatabase() {
+          return {
+            database: {
+              "1001": { dbfId: 1001, name: "Sample Singleton", cardId: "TEST_001" },
+              "1002": { dbfId: 1002, name: "Sample Pair", cardId: "TEST_002" },
+              "1003": { dbfId: 1003, name: "Sample Multi", cardId: "TEST_003" }
+            },
+            warnings: []
+          };
+        }
+      }
+    }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    await writeFile(arenaLog, [
+      "D 16:53:24.000 Arena.SetDraftMode - REDRAFTING",
+      "D 16:53:24.500 DraftManager.OnRedraftBegin - Got new redraft deck with ID: 2",
+      "D 16:53:25.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 2, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 24 },
+        (_value, index) => `D 16:53:25.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_RETAINED`
+      )
+    ].join("\n") + "\n", "utf8");
+
+    let finishRecognition: ((result: { status: "ok"; texts: [] }) => void) | undefined;
+    const pendingRecognition = new Promise<{ status: "ok"; texts: [] }>((resolve) => {
+      finishRecognition = resolve;
+    });
+    const recognizer = {
+      recognize: vi.fn()
+        .mockResolvedValueOnce({
+          status: "ok" as const,
+          texts: [
+            { text: "Sample Multi", confidence: 1, x: 0.2, y: 0.6, width: 0.05, height: 0.02 },
+            { text: "Sample Singleton", confidence: 1, x: 0.39, y: 0.6, width: 0.05, height: 0.02 },
+            { text: "Sample Pair", confidence: 1, x: 0.58, y: 0.6, width: 0.05, height: 0.02 }
+          ]
+        })
+        .mockImplementation(() => pendingRecognition)
+    };
+    const service = new TrackerService(undefined, recognizer);
+    await service.start({ logPath: arenaLog });
+    expect(service.getState().arena?.currentChoices).toHaveLength(3);
+
+    const publishedStates: Array<ReturnType<typeof service.getState>> = [];
+    service.attachWindow({
+      on: vi.fn(),
+      isDestroyed: () => false,
+      webContents: {
+        send: vi.fn((channel: string, state: ReturnType<typeof service.getState>) => {
+          if (channel === "tracker:update") {
+            publishedStates.push(state);
+          }
+        })
+      }
+    } as never);
+
+    try {
+      await appendFile(arenaLog, "D 16:54:01.000 Client chooses: [TEST_REPLACEMENT_1]\n", "utf8");
+      await vi.waitFor(() => expect(recognizer.recognize).toHaveBeenCalledTimes(2), {
+        timeout: 1_500,
+        interval: 25
+      });
+
+      await appendFile(arenaLog, "D 16:54:02.000 Client chooses: [TEST_REPLACEMENT_2]\n", "utf8");
+      await vi.waitFor(() => {
+        expect(publishedStates.some((state) => {
+          const arenaCards = [
+            ...(state.arena?.picks.map((pick) => pick.chosen) ?? []),
+            ...(state.arena?.deck ?? []),
+            ...(state.arena?.redraftPool ?? []),
+            ...(state.arena?.pendingRedraftChoices ?? [])
+          ];
+          return (
+            arenaCards.some((card) => card.cardId === "TEST_REPLACEMENT_1")
+            && arenaCards.some((card) => card.cardId === "TEST_REPLACEMENT_2")
+          );
+        })).toBe(true);
+      }, {
+        timeout: 1_500,
+        interval: 25
+      });
+    } finally {
+      finishRecognition?.({ status: "ok", texts: [] });
+      await service.dispose();
+    }
+  });
+
   it("keeps every redraft pick when completion arrives in the same appended chunk", async () => {
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
@@ -1543,14 +1637,16 @@ describe("TrackerService log selection", () => {
       expect(service.getState().arena).toMatchObject({
         status: "complete",
         draftCount: 29,
-        unresolvedCount: 1
+        unresolvedCount: 30,
+        awaitingExactDeck: true
       });
     }, { timeout: 2_000, interval: 50 });
-    expect(service.getState().arena?.picks).toHaveLength(29);
-    expect(service.getState().arena?.deck.reduce((total, card) => total + card.count, 0)).toBe(29);
+    expect(service.getState().arena?.picks).toHaveLength(0);
+    expect(service.getState().arena?.pendingRedraftChoices).toHaveLength(5);
+    expect(service.getState().arena?.deck).toEqual([]);
     expect(service.getState().summary).toMatchObject({ totalCards: 30, remainingCards: 30 });
     expect(service.getState().deck).toEqual(expect.arrayContaining([
-      expect.objectContaining({ unresolved: true, count: 1 })
+      expect.objectContaining({ unresolved: true, count: 30 })
     ]));
     await service.dispose();
   });
@@ -1597,7 +1693,12 @@ describe("TrackerService log selection", () => {
     });
 
     const initial = await service.start({ logPath: arenaLog });
-    expect(initial.arena).toMatchObject({ status: "complete", draftCount: 29, unresolvedCount: 1 });
+    expect(initial.arena).toMatchObject({
+      status: "complete",
+      draftCount: 29,
+      unresolvedCount: 30,
+      awaitingExactDeck: true
+    });
 
     exactAvailable = true;
     await writeFile(decksLog, "I 17:00:00.000 Starting Arena Game With Deck\n", "utf8");
@@ -1822,7 +1923,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
-  it("does not carry a pre-redraft Decks event into a newer redraft generation", async () => {
+  it("preserves the last exact deck until the newer redraft gets its own exact snapshot", async () => {
     vi.stubEnv("QA_LOCK_LOG_PATH", "1");
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
@@ -1887,11 +1988,19 @@ describe("TrackerService log selection", () => {
       expect(service.getState().arena).toMatchObject({
         status: "complete",
         redraftGenerationId: "9466340633",
-        draftCount: 29,
-        unresolvedCount: 1
+        draftCount: 30,
+        unresolvedCount: 0,
+        awaitingExactDeck: true
       });
     }, { timeout: 2_000, interval: 50 });
-    expect(service.getState().arena?.deck.some((card) => card.cardId === "TEST_003")).toBe(false);
+    expect(service.getState().arena?.deck).toEqual([
+      expect.objectContaining({ cardId: "TEST_003", count: 30 })
+    ]);
+    expect(service.getState().arena?.pendingRedraftChoices).toHaveLength(5);
+    expect(service.getState().deckName).toBe("竞技场牌库");
+    expect(service.getState().deck).toEqual([
+      expect.objectContaining({ cardId: "TEST_003", count: 30 })
+    ]);
     await service.dispose();
   });
 
@@ -2010,7 +2119,8 @@ describe("TrackerService log selection", () => {
       deckId: "9466340632",
       redraftGenerationId: "9466340633",
       draftCount: 29,
-      unresolvedCount: 1
+      unresolvedCount: 30,
+      awaitingExactDeck: true
     });
     expect(initial.deck.some((card) => card.cardId === "TEST_EXACT")).toBe(false);
 
@@ -2024,7 +2134,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
-  it("serializes Decks.log and Arena.log updates so an older exact deck cannot win a redraft race", async () => {
+  it("keeps the last exact deck as the previous formal deck without finalizing a newer redraft", async () => {
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
     const sessionDir = await createSessionDir();
@@ -2095,11 +2205,14 @@ describe("TrackerService log selection", () => {
       expect(service.getState().arena).toMatchObject({
         status: "redrafting",
         redraftGenerationId: "9466340633",
-        draftCount: 25,
-        unresolvedCount: 5
+        draftCount: 30,
+        unresolvedCount: 0,
+        awaitingExactDeck: true
       });
     }, { timeout: 2_000, interval: 50 });
-    expect(service.getState().deck.some((card) => card.cardId === "TEST_OLD_EXACT")).toBe(false);
+    expect(service.getState().deck).toEqual([
+      expect.objectContaining({ cardId: "TEST_OLD_EXACT", count: 30 })
+    ]);
     await service.dispose();
   });
 
@@ -2137,7 +2250,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
-  it("syncs each Underground Arena replacement into the tracker before redraft completion", async () => {
+  it("records each Underground Arena replacement separately until the exact deck arrives", async () => {
     vi.stubEnv("QA_LOCK_LOG_PATH", "1");
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
@@ -2169,14 +2282,14 @@ describe("TrackerService log selection", () => {
         expect(state.arena).toMatchObject({
           status: "redrafting",
           draftCount: 24 + index,
-          unresolvedCount: 6 - index
+          unresolvedCount: 30,
+          awaitingExactDeck: true
         });
-        expect(state.deckName).toBe("竞技场牌库");
-        expect(state.summary.totalCards).toBe(30);
-        expect(state.deck).toEqual(expect.arrayContaining([
-          expect.objectContaining({ cardId: `TEST_REPLACEMENT_${index}`, count: 1 }),
-          expect.objectContaining({ name: "未解析竞技场牌", count: 6 - index, unresolved: true })
-        ]));
+        expect(state.arena?.pendingRedraftChoices).toHaveLength(index);
+        expect(state.arena?.pendingRedraftChoices?.at(-1)).toMatchObject({
+          cardId: `TEST_REPLACEMENT_${index}`
+        });
+        expect(state.deckName).toBeUndefined();
       }, { timeout: 2_000, interval: 25 });
     }
 
@@ -2194,9 +2307,13 @@ describe("TrackerService log selection", () => {
     ].join("\n") + "\n", "utf8");
     await vi.waitFor(() => {
       const state = service.getState();
-      expect(state.arena).toMatchObject({ status: "redrafting", draftCount: 28, unresolvedCount: 2 });
-      expect(state.summary.totalCards).toBe(30);
-      expect(state.deck.filter((card) => card.cardId?.startsWith("TEST_REPLACEMENT_"))).toHaveLength(4);
+      expect(state.arena).toMatchObject({
+        status: "redrafting",
+        draftCount: 28,
+        unresolvedCount: 30,
+        awaitingExactDeck: true
+      });
+      expect(state.arena?.pendingRedraftChoices).toHaveLength(4);
     }, { timeout: 2_000, interval: 25 });
 
     await appendFile(
@@ -2206,23 +2323,30 @@ describe("TrackerService log selection", () => {
     );
     await vi.waitFor(() => {
       const state = service.getState();
-      expect(state.arena).toMatchObject({ status: "redrafting", draftCount: 29, unresolvedCount: 1 });
-      expect(state.summary.totalCards).toBe(30);
-      expect(state.deck).toEqual(expect.arrayContaining([
-        expect.objectContaining({ cardId: "TEST_REPLACEMENT_5", count: 1 }),
-        expect.objectContaining({ name: "未解析竞技场牌", count: 1, unresolved: true })
-      ]));
+      expect(state.arena).toMatchObject({
+        status: "redrafting",
+        draftCount: 29,
+        unresolvedCount: 30,
+        awaitingExactDeck: true
+      });
+      expect(state.arena?.pendingRedraftChoices?.at(-1)).toMatchObject({
+        cardId: "TEST_REPLACEMENT_5"
+      });
     }, { timeout: 2_000, interval: 25 });
 
     await appendFile(arenaLog, "D 19:11:57.365 Arena.SetDraftMode - ACTIVE_DRAFT_DECK\n", "utf8");
     await vi.waitFor(() => {
       const state = service.getState();
-      expect(state.arena).toMatchObject({ status: "complete", draftCount: 29, unresolvedCount: 1 });
+      expect(state.arena).toMatchObject({
+        status: "complete",
+        draftCount: 29,
+        unresolvedCount: 30,
+        awaitingExactDeck: true
+      });
       expect(state.summary.totalCards).toBe(30);
-      expect(state.deck).toEqual(expect.arrayContaining([
-        expect.objectContaining({ cardId: "TEST_REPLACEMENT_5", count: 1 }),
-        expect.objectContaining({ name: "未解析竞技场牌", count: 1, unresolved: true })
-      ]));
+      expect(state.deck).toEqual([
+        expect.objectContaining({ name: "未解析竞技场牌", count: 30, unresolved: true })
+      ]);
     }, { timeout: 2_000, interval: 25 });
 
     await service.dispose();
@@ -2270,7 +2394,7 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
-  it("replaces the previous exact Arena deck with an explicit pending state for 31 redraft candidates", async () => {
+  it("keeps the previous exact Arena deck while 31 redraft candidates await confirmation", async () => {
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
     const sessionDir = await createSessionDir();
@@ -2309,13 +2433,15 @@ describe("TrackerService log selection", () => {
       expect(service.getState().arena).toMatchObject({
         status: "complete",
         draftCount: 30,
-        unresolvedCount: 30
+        unresolvedCount: 0,
+        awaitingExactDeck: true
       });
-      expect(service.getState().arena?.picks).toHaveLength(31);
+      expect(service.getState().arena?.picks).toHaveLength(30);
+      expect(service.getState().arena?.pendingRedraftChoices).toHaveLength(5);
       expect(service.getState().deckName).toBe("竞技场牌库");
       expect(service.getState().summary.totalCards).toBe(30);
       expect(service.getState().deck).toEqual([
-        expect.objectContaining({ unresolved: true, count: 30 })
+        expect.objectContaining({ cardId: "TEST_001", count: 30 })
       ]);
     }, { timeout: 2_000, interval: 50 });
     await service.dispose();
@@ -2915,7 +3041,7 @@ describe("TrackerService log selection", () => {
         summary: { totalCards: 30, remainingCards: 29, drawnCards: 1 }
       });
       expect(service.getState().deck).toEqual([
-        expect.objectContaining({ cardId: "TEST_001", count: 30, remaining: 29, drawn: 1 })
+        expect.objectContaining({ unresolved: true, count: 30, remaining: 29, drawn: 1 })
       ]);
     }, { timeout: 2_000, interval: 25 });
     await service.dispose();
