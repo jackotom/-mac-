@@ -143,11 +143,12 @@ Underground Arena redraft uses two layers of deck state:
 
 - `deck` keeps the most recently confirmed exact 30-card deck.
 - `pendingRedraftChoices` keeps newly selected cards, while `redraftPool` combines the confirmed deck and those pending candidates for display.
+- The confirmed 30-card deck is rebuilt through the same card-detail and rating pipeline as live picks. If the card database or rating cache arrives later, the confirmed cards are hydrated again before the first redraft choice and remain complete throughout the 30–35 candidate pool.
 - `ACTIVE_DRAFT_DECK` only closes the selection screen; it does not confirm the final deck, so `awaitingExactDeck` remains true.
 - Only a newer matching 30-card snapshot from `Decks.log` replaces the confirmed deck and clears pending candidates.
 - On cold start without a previous exact deck, the tracker does not guess omitted duplicate copies and waits for an exact snapshot.
 - Identical redraft pick lines are deduplicated by their complete raw log text. Picks for the same card at different timestamps remain distinct.
-- Release QA replays 33, 34, and 35 candidate states through the packaged application and rejects any missing visible row.
+- Release QA replays every 30–35 candidate state through the packaged application and rejects missing rows or missing cost, pick-rate, and impact data.
 
 The independent Arena hero ranking window uses the same public Firestone class-overview source as card deck-impact statistics. It appears on the left while Hearthstone is frontmost and the watched Arena state is active, respects both the global overlay switch and its own saved setting, and closes when Arena becomes inactive. A manual close suppresses it until that Arena session ends.
 
