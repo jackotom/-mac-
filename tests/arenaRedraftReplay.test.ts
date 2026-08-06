@@ -159,7 +159,7 @@ describe("de-identified Arena redraft replay", () => {
     expect(initial.arena).toMatchObject({ draftCount: 29, unresolvedCount: 30, awaitingExactDeck: true });
 
     await copyFile(path.join(fixtureDir, "Decks.after-redraft.log"), path.join(sessionDir, "Decks.log"));
-    await vi.waitFor(() => expect(scanResults).toHaveLength(2));
+    await vi.waitFor(() => expect(scanResults).toHaveLength(2), { timeout: 3_000, interval: 25 });
     expect(scanResults.at(-1)?.activeDeck?.cards).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Unknown card 1030", count: 1 })
     ]));

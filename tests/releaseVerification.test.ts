@@ -79,6 +79,18 @@ describe("release verification entrypoint", () => {
     expect(script).toContain('/\\.card-detail-(?:copy|heading|image)\\s*\\{/');
   });
 
+  it("keeps isolated QA runs out of Dock before ready and cleans up failed starts", () => {
+    const mainSource = read("src/main/main.ts");
+    const activationPolicy = mainSource.indexOf('app.setActivationPolicy("accessory")');
+    const readyHandler = mainSource.indexOf("app.whenReady()");
+
+    expect(activationPolicy).toBeGreaterThan(-1);
+    expect(readyHandler).toBeGreaterThan(-1);
+    expect(activationPolicy).toBeLessThan(readyHandler);
+    expect(mainSource).not.toContain("app.exit(1)");
+    expect(mainSource.match(/process\.exitCode = 1;/g)).toHaveLength(2);
+  });
+
   it("keeps release evidence while packaging and supports the system Bash 3 empty array", () => {
     const packageScript = read("scripts/package-mac-arm64.sh");
     const releaseScript = read("scripts/verify-release.sh");
@@ -98,6 +110,16 @@ describe("release verification entrypoint", () => {
     expect(script).toContain("trackerCards");
     expect(script).toContain("knownExactCard");
     expect(script).toContain("JSON.stringify");
+  });
+
+  it("replays every Arena redraft step from 30 through 35 candidates", () => {
+    const script = read("scripts/verify-release.sh");
+
+    expect(script).toContain("for candidate_count in 30 31 32 33 34 35; do");
+    expect(script).toContain("/^arena-redraft-(35|34|33|32|31|30)-replay$/");
+    expect(script).toContain("candidatesWithCompleteData !== expectedCandidateCount");
+    expect(script).toContain('body.includes("?")');
+    expect(script).toContain('body.includes("—")');
   });
 
   it("captures the packaged Arena hero ranking and validates the three-window layout", () => {

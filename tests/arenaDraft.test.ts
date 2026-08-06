@@ -319,6 +319,98 @@ describe("ArenaDraftEngine", () => {
     expect(engine.getState().picks).toHaveLength(0);
   });
 
+  it("hydrates the confirmed deck before the first redraft choice when data arrives late", () => {
+    const engine = new ArenaDraftEngine({ preferArenaLogPicks: true });
+    engine.applyArenaLine("D 17:14:00.000 Arena.SetDraftMode - DRAFTING");
+    engine.applyArenaLine("D 17:14:01.000 DraftManager.OnChosen(): hero=HERO_05");
+    expect(engine.applyExactDeck([
+      { name: "Fallback card name", cardId: "TEST_001", count: 30 }
+    ], "arena-main")).toBe(true);
+
+    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
+    engine.setCardDatabase(cardDb);
+    engine.setRatings(ratings);
+
+    expect(engine.getState().redraftPool).toEqual([
+      expect.objectContaining({
+        name: "Sample Singleton",
+        cardId: "TEST_001",
+        count: 30,
+        details: expect.objectContaining({ dbfId: 1001 }),
+        pickRate: 42,
+        deckImpact: 6.3
+      })
+    ]);
+  });
+
+  it("keeps ratings on the confirmed thirty cards while three redraft choices are pending", () => {
+    const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
+    engine.applyArenaLine("D 17:14:00.000 Arena.SetDraftMode - DRAFTING");
+    engine.applyArenaLine("D 17:14:01.000 DraftManager.OnChosen(): hero=HERO_05");
+    expect(engine.applyExactDeck([
+      { name: "Sample Singleton", cardId: "TEST_001", count: 30 }
+    ])).toBe(true);
+
+    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
+    for (let index = 0; index < 3; index += 1) {
+      engine.applyArenaLine(`D 17:15:0${index + 1}.000 Client chooses: [TEST_002]`);
+    }
+
+    const state = engine.getState();
+    expect(state).toMatchObject({
+      status: "redrafting",
+      awaitingExactDeck: true,
+      deck: [expect.objectContaining({ cardId: "TEST_001", count: 30 })]
+    });
+    expect(state.redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(33);
+    expect(state.redraftPool).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        cardId: "TEST_001",
+        count: 30,
+        pickRate: 42,
+        deckImpact: 6.3
+      })
+    ]));
+  });
+
+  it("hydrates confirmed redraft cards when the card database and ratings arrive later", () => {
+    const engine = new ArenaDraftEngine({ preferArenaLogPicks: true });
+    engine.applyArenaLine("D 17:14:00.000 Arena.SetDraftMode - DRAFTING");
+    engine.applyArenaLine("D 17:14:01.000 DraftManager.OnChosen(): hero=HERO_05");
+    expect(engine.applyExactDeck([
+      { name: "Fallback card name", cardId: "TEST_001", count: 30 }
+    ])).toBe(true);
+
+    engine.applyArenaLine("D 17:15:00.000 Arena.SetDraftMode - REDRAFTING");
+    for (let index = 0; index < 3; index += 1) {
+      engine.applyArenaLine(`D 17:15:0${index + 1}.000 Client chooses: [TEST_002]`);
+    }
+    engine.setCardDatabase(cardDb);
+    expect(engine.getState().redraftPool).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Sample Singleton",
+        cardId: "TEST_001",
+        count: 30,
+        details: expect.objectContaining({ dbfId: 1001 })
+      })
+    ]));
+
+    engine.setRatings(ratings);
+
+    const state = engine.getState();
+    expect(state.redraftPool?.reduce((total, card) => total + card.count, 0)).toBe(33);
+    expect(state.redraftPool).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Sample Singleton",
+        cardId: "TEST_001",
+        count: 30,
+        details: expect.objectContaining({ dbfId: 1001 }),
+        pickRate: 42,
+        deckImpact: 6.3
+      })
+    ]));
+  });
+
   it("preserves the last exact deck and keeps redraft choices pending until the next exact deck arrives", () => {
     const engine = new ArenaDraftEngine({ cardDatabase: cardDb, ratings, preferArenaLogPicks: true });
     const previousExactDeck = [

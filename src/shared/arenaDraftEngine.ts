@@ -307,7 +307,7 @@ export class ArenaDraftEngine {
         at: new Date().toISOString()
       };
     })).map((pick, index) => ({ ...pick, slot: index + 1 }));
-    this.confirmedDeck = cards.map(cloneDeckCard);
+    this.confirmedDeck = aggregateDeck(this.picks);
     this.redraftContentsPicks = [];
     this.pendingRedraftChoices = [];
     this.redraftSnapshotIncludedChoiceCount = 0;
@@ -719,8 +719,20 @@ export class ArenaDraftEngine {
       offered: pick.offered.map((choice) => this.scoreChoice(choice))
     }));
     this.pendingRedraftChoices = this.pendingRedraftChoices.map((choice) => this.scoreChoice(choice));
+    this.rebuildConfirmedDeckScores();
     if (this.hero?.cardId) {
       this.hero = this.toHero(this.hero);
+    }
+  }
+
+  private rebuildConfirmedDeckScores() {
+    if (this.confirmedDeck.reduce((total, card) => total + card.count, 0) !== 30) {
+      return;
+    }
+
+    const scoredDeck = aggregateDeck(this.picks);
+    if (scoredDeck.reduce((total, card) => total + card.count, 0) === 30) {
+      this.confirmedDeck = scoredDeck;
     }
   }
 

@@ -79,7 +79,7 @@ prepare_arena_redraft_fixtures() {
 
 prepare_arena_candidate_fixtures() {
   local candidate_count target_dir
-  for candidate_count in 35 34 33; do
+  for candidate_count in 35 34 33 32 31 30; do
     target_dir="$root_dir/${arena_candidate_fixture_prefix}-${candidate_count}"
     rm -rf "$target_dir" "$evidence_dir/user-data/arena-redraft-${candidate_count}-replay"
     mkdir -p "$target_dir"
@@ -94,14 +94,69 @@ const pendingCount = candidateCount - 30;
 const cardId = (index) => `TEST_ARENA_${String(index).padStart(2, "0")}`;
 const cachePath = path.join(targetDir, "cards.qa-cache.json");
 const cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+for (const card of cache.cards) {
+  const match = /^TEST_ARENA_(\d+)$/.exec(card.cardId ?? "");
+  if (match) {
+    card.cost = Number(match[1]) % 8;
+  }
+}
 for (let index = 31; index <= 35; index += 1) {
   cache.cards.push({
     dbfId: 1000 + index,
     name: `验收新牌${index}`,
-    cardId: cardId(index)
+    cardId: cardId(index),
+    cost: index % 8
   });
 }
 fs.writeFileSync(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
+
+const fetchedAt = "2026-07-31T12:00:00.000Z";
+const cardIds = Array.from({ length: 35 }, (_value, index) => cardId(index + 1));
+fs.writeFileSync(path.join(targetDir, "arena-ratings.qa-cache.json"), `${JSON.stringify({
+  source: "QA Arena ratings",
+  version: 1,
+  fetchedAt,
+  ratings: {
+    Rogue: Object.fromEntries(cardIds.map((id, index) => [id, 80 + index]))
+  },
+  hearthArenaWeb: {
+    source: "HearthArena Web",
+    version: "qa-candidate-web-v1",
+    locales: {
+      "zh-cn": {
+        locale: "zh-cn",
+        url: "https://qa.invalid/heartharena",
+        version: "qa-candidate-web-v1",
+        fetchedAt,
+        ratingCount: cardIds.length,
+        ratings: {
+          Rogue: Object.fromEntries(cardIds.map((id, index) => [id, 80 + index]))
+        }
+      }
+    }
+  },
+  firestone: {
+    source: "Firestone",
+    version: "qa-candidate-ratings-v1",
+    lastUpdated: fetchedAt,
+    ratings: Object.fromEntries(cardIds.map((id, index) => [id, {
+      pickRate: 30 + index,
+      pickRateSampleSize: 10_000
+    }]))
+  }
+}, null, 2)}\n`);
+fs.writeFileSync(path.join(targetDir, "arena-ratings-firestone-rogue.qa-cache.json"), `${JSON.stringify({
+  source: "Firestone",
+  playerClass: "rogue",
+  version: "qa-candidate-impact-v1",
+  lastUpdated: fetchedAt,
+  overallWins: 5_000,
+  overallGames: 10_000,
+  ratings: Object.fromEntries(cardIds.map((id, index) => [id, {
+    includedWins: 55 + (index % 20),
+    sampleSize: 100
+  }]))
+}, null, 2)}\n`);
 
 const initial = [
   "D 11:59:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9000000001, Hero Card = HERO_03",
@@ -122,8 +177,7 @@ const transition = [
   ...Array.from(
     { length: pendingCount },
     (_value, index) => `D 12:00:0${index + 1}.000 Client chooses: 验收新牌${index + 31} (${cardId(index + 31)})`
-  ),
-  "D 12:00:06.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+  )
 ];
 fs.writeFileSync(path.join(targetDir, "Arena.log"), `${initial.join("\n")}\n`);
 fs.writeFileSync(path.join(targetDir, "Arena.append.log"), `${transition.join("\n")}\n`);
@@ -148,6 +202,12 @@ run_capture() {
   mkdir -p "$qa_user_data"
   if [[ -f "$root_dir/$fixture/cards.qa-cache.json" ]]; then
     cp "$root_dir/$fixture/cards.qa-cache.json" "$qa_user_data/hearthstone-cards.zhCN.blizzard.json"
+  fi
+  if [[ -f "$root_dir/$fixture/arena-ratings.qa-cache.json" ]]; then
+    cp "$root_dir/$fixture/arena-ratings.qa-cache.json" "$qa_user_data/hearthstone-arena-ratings.json"
+  fi
+  if [[ -f "$root_dir/$fixture/arena-ratings-firestone-rogue.qa-cache.json" ]]; then
+    cp "$root_dir/$fixture/arena-ratings-firestone-rogue.qa-cache.json" "$qa_user_data/hearthstone-arena-ratings-firestone-rogue.json"
   fi
 
   if [[ -n "$qa_flag" ]]; then
@@ -216,9 +276,10 @@ run_capture() {
     const fs = require("node:fs");
     const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     if (!report.hasApi || !report.location || !report.bodyText) process.exit(1);
+    if (report.qaDockVisible !== false) process.exit(40);
     const scenario = process.argv[2];
     const fixture = process.argv[3];
-    const candidateMatch = scenario.match(/^arena-redraft-(35|34|33)-replay$/);
+    const candidateMatch = scenario.match(/^arena-redraft-(35|34|33|32|31|30)-replay$/);
     if (/\.card-detail-(?:copy|heading|image)\s*\{/.test(String(report.bodyText))) process.exit(37);
     if (report.trackerSettings?.general?.startMinimized !== false) process.exit(25);
     if (report.trackerSettings?.overlay?.position !== "right") process.exit(26);
@@ -262,16 +323,25 @@ run_capture() {
         const candidateTotal = (arena?.redraftPool ?? []).reduce((sum, card) => sum + card.count, 0);
         const trackerTotal = (report.trackerState.deck ?? []).reduce((sum, card) => sum + card.count, 0);
         const visibleCandidateRows = body.match(/(?:测试牌|验收新牌)\d+/g)?.length ?? 0;
+        const candidatesWithCompleteData = (arena?.redraftPool ?? []).filter(
+          (card) =>
+            Number.isFinite(card.details?.manaCost) &&
+            Number.isFinite(card.pickRate) &&
+            Number.isFinite(card.deckImpact)
+        ).reduce((sum, card) => sum + card.count, 0);
         if (
-          arena?.status !== "complete" ||
+          arena?.status !== "redrafting" ||
           arena?.awaitingExactDeck !== true ||
           confirmedTotal !== 30 ||
           trackerTotal !== 30 ||
           candidateTotal !== expectedCandidateCount ||
           arena?.pendingRedraftChoices?.length !== expectedCandidateCount - 30 ||
-          visibleCandidateRows !== expectedCandidateCount
+          visibleCandidateRows !== expectedCandidateCount ||
+          candidatesWithCompleteData !== expectedCandidateCount ||
+          body.includes("?") ||
+          body.includes("—")
         ) process.exit(38);
-        if (!body.includes("等待确认替换")) process.exit(39);
+        if (!body.includes("重选中")) process.exit(39);
       }
       if (scenario === "arena-redraft-exact-replay") {
         const arena = report.trackerState.arena;
@@ -333,6 +403,26 @@ run_capture() {
   printf '%s\t%s\t%s\n' "$name" "$((finished - started))" "${screenshot#$root_dir/}" >> "$metrics_file"
 }
 
+verify_arena_redraft_candidate_windows() {
+  local candidate_count
+  prepare_arena_candidate_fixtures
+  for candidate_count in 30 31 32 33 34 35; do
+    run_capture \
+      "arena-redraft-${candidate_count}-replay" \
+      "${arena_candidate_fixture_prefix}-${candidate_count}" \
+      QA_OPEN_OVERLAY
+    require_file "$screenshots_dir/arena-redraft-${candidate_count}-replay.png"
+    require_file "$inspections_dir/arena-redraft-${candidate_count}-replay.json"
+  done
+}
+
+if [[ "${VERIFY_ARENA_REDRAFT_ONLY:-0}" == "1" ]]; then
+  echo "[1/1] 地下竞技场重选窗口回放"
+  verify_arena_redraft_candidate_windows
+  echo "地下竞技场重选窗口验证通过。证据保存在：$evidence_dir"
+  exit 0
+fi
+
 echo "[1/7] 完整测试"
 npm test
 npm test -- \
@@ -358,15 +448,12 @@ fi
 
 echo "[5/7] 代表性日志回放与窗口截图"
 prepare_arena_redraft_fixtures
-prepare_arena_candidate_fixtures
 run_capture normal-replay fixtures/logs/session-2026-07-10
 run_capture auto-match-replay fixtures/logs/auto-match-session
 run_capture constructed-duplicate-replay fixtures/logs/constructed-duplicate-create QA_OPEN_OVERLAY
 run_capture arena-replay fixtures/logs/arena-session
 run_capture arena-redraft-partial-replay "$redraft_partial_fixture" QA_OPEN_OVERLAY
-run_capture arena-redraft-35-replay "${arena_candidate_fixture_prefix}-35" QA_OPEN_OVERLAY
-run_capture arena-redraft-34-replay "${arena_candidate_fixture_prefix}-34" QA_OPEN_OVERLAY
-run_capture arena-redraft-33-replay "${arena_candidate_fixture_prefix}-33" QA_OPEN_OVERLAY
+verify_arena_redraft_candidate_windows
 run_capture arena-redraft-exact-replay "$redraft_exact_fixture" QA_OPEN_OVERLAY
 run_capture arena-playing-replay "$arena_playing_fixture" QA_OPEN_OVERLAY
 run_capture deck-overlay fixtures/logs/session-2026-07-10 QA_OPEN_OVERLAY
@@ -377,17 +464,11 @@ run_capture board-attack-overlay fixtures/logs/session-2026-07-10 QA_OPEN_BOARD_
 run_capture arena-hero-ranking-overlay fixtures/logs/arena-session QA_OPEN_ARENA_HERO_RANKING_OVERLAY
 run_capture three-window-layout fixtures/logs/arena-session QA_OPEN_THREE_WINDOW_LAYOUT
 require_file "$screenshots_dir/arena-redraft-partial-replay.png"
-require_file "$screenshots_dir/arena-redraft-35-replay.png"
-require_file "$screenshots_dir/arena-redraft-34-replay.png"
-require_file "$screenshots_dir/arena-redraft-33-replay.png"
 require_file "$screenshots_dir/arena-redraft-exact-replay.png"
 require_file "$screenshots_dir/arena-playing-replay.png"
 require_file "$screenshots_dir/arena-hero-ranking-overlay.png"
 require_file "$screenshots_dir/three-window-layout.png"
 require_file "$inspections_dir/arena-redraft-partial-replay.json"
-require_file "$inspections_dir/arena-redraft-35-replay.json"
-require_file "$inspections_dir/arena-redraft-34-replay.json"
-require_file "$inspections_dir/arena-redraft-33-replay.json"
 require_file "$inspections_dir/arena-redraft-exact-replay.json"
 require_file "$inspections_dir/arena-playing-replay.json"
 require_file "$inspections_dir/arena-hero-ranking-overlay.json"

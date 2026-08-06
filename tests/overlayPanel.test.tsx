@@ -2,12 +2,13 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OverlayPanel } from "../src/renderer/components/OverlayPanel";
 import { toOverlayPanelViewModel } from "../src/renderer/overlayView";
+import { parsePublicTrackerState } from "../src/renderer/runtimeValidation";
 import type {
   OverlayCardTrackingView,
   OverlayPanelViewModel,
   OverlaySecretSlot
 } from "../src/renderer/types";
-import type { DeckCard, PublicTrackerState } from "../src/shared/types";
+import type { ArenaCardChoice, DeckCard, PublicTrackerState } from "../src/shared/types";
 import { createPublicTrackerState } from "./fixtures/publicTrackerState";
 
 function zone(
@@ -360,23 +361,43 @@ describe("standard tracker overlay", () => {
     expect(list.scrollTop).toBe(0);
   });
 
-  it("keeps the Arena redraft column visible while the candidate pool grows from 33 to 35 cards", () => {
+  it("keeps complete Arena card data from the first redraft frame through 35 candidates and a removal", () => {
     const confirmedDeck: DeckCard[] = Array.from({ length: 30 }, (_value, index) => ({
       name: `保留牌 ${index + 1}`,
       cardId: `KEEP_${index + 1}`,
       count: 1,
       pickRate: 50 + index / 10,
-      deckImpact: index / 100
+      deckImpact: index / 100,
+      details: {
+        dbfId: 1_000 + index,
+        cardId: `KEEP_${index + 1}`,
+        name: `保留牌 ${index + 1}`,
+        manaCost: index % 8,
+        isSpell: false,
+        relatedCards: []
+      }
     }));
     const overlayFor = (candidateCount: number): OverlayPanelViewModel => {
-      const pendingCards: DeckCard[] = Array.from(
+      const pendingCards: ArenaCardChoice[] = Array.from(
         { length: candidateCount - confirmedDeck.length },
         (_value, index) => ({
-        name: `新选牌 ${index + 1}`,
-        cardId: `NEW_${index + 1}`,
-        count: 1,
-        pickRate: 70 + index,
-        deckImpact: 1 + index / 10
+          name: `新选牌 ${index + 1}`,
+          cardId: `NEW_${index + 1}`,
+          count: 1,
+          pickRate: 70 + index,
+          deckImpact: 1 + index / 10,
+          details: {
+            dbfId: 2_000 + index,
+            cardId: `NEW_${index + 1}`,
+            name: `新选牌 ${index + 1}`,
+            manaCost: 1 + index,
+            isSpell: false,
+            relatedCards: []
+          },
+          rating: {
+            pickRate: 70 + index,
+            highWinPickRateImpact: 1 + index / 10
+          }
         })
       );
       const state: PublicTrackerState = createPublicTrackerState({
@@ -386,7 +407,7 @@ describe("standard tracker overlay", () => {
         events: [],
         summary: { totalCards: 30, remainingCards: 30, drawnCards: 0, opponentPlayedCount: 0 },
         arena: {
-          status: "complete",
+          status: "redrafting",
           currentChoices: [],
           picks: [],
           deck: confirmedDeck,
@@ -397,19 +418,32 @@ describe("standard tracker overlay", () => {
           unresolvedCount: 0
         }
       });
-      return toOverlayPanelViewModel(state, { maxDeckRows: 40 });
+      return toOverlayPanelViewModel(parsePublicTrackerState(state), { maxDeckRows: 40 });
     };
-    const preview = render(<OverlayPanel view={overlayFor(33)} />);
+    const preview = render(<OverlayPanel view={overlayFor(30)} />);
 
-    for (const candidateCount of [33, 34, 35]) {
+    for (const candidateCount of [30, 31, 32, 33, 34, 35, 34]) {
       const overlayView = overlayFor(candidateCount);
       preview.rerender(<OverlayPanel view={overlayView} />);
 
       const arena = screen.getByLabelText("竞技场卡组影响");
       expect(overlayView.arena?.deckCount).toBe(candidateCount);
       expect(within(arena).getAllByRole("listitem")).toHaveLength(candidateCount);
-      expect(within(arena).getByLabelText("竞技场阶段")).toHaveTextContent("等待确认替换");
-      expect(arena).toHaveTextContent(`新选牌 ${candidateCount - 30}`);
+      expect(within(arena).getByLabelText("竞技场阶段")).toHaveTextContent("重选中");
+      if (candidateCount > 30) {
+        expect(arena).toHaveTextContent(`新选牌 ${candidateCount - 30}`);
+      } else {
+        expect(arena).not.toHaveTextContent("新选牌");
+      }
+      expect(within(arena).queryAllByLabelText("费用 ?")).toHaveLength(0);
+      expect(within(arena).queryAllByLabelText("选取率 —")).toHaveLength(0);
+      expect(within(arena).queryAllByLabelText("卡组影响 —")).toHaveLength(0);
+
+      const retainedRow = within(arena).getByText("保留牌 1").closest("li");
+      expect(retainedRow).not.toBeNull();
+      expect(within(retainedRow as HTMLElement).getByLabelText("费用 0")).toBeInTheDocument();
+      expect(within(retainedRow as HTMLElement).getByLabelText("选取率 50.0%")).toBeInTheDocument();
+      expect(within(retainedRow as HTMLElement).getByLabelText("卡组影响 0.00")).toBeInTheDocument();
     }
   });
 

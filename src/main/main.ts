@@ -24,7 +24,12 @@ import {
   shouldHandleAppActivate,
   shouldShowMainWindowOnLaunch
 } from "./mainWindowVisibility.js";
-import { requestQaQuit, waitForQaRendererSettled } from "./qaCaptureTiming.js";
+import {
+  hideQaDockAfterLaunch,
+  requestQaQuit,
+  shouldUseQaAccessoryActivationPolicy,
+  waitForQaRendererSettled
+} from "./qaCaptureTiming.js";
 import {
   getAnchoredOverlayWindowBounds,
   getDefaultArenaHeroRankingWindowBounds,
@@ -72,6 +77,11 @@ import type { LadderMode } from "../shared/ladderDeckRecommendation.js";
 if (process.env.QA_USER_DATA_DIR) {
   app.setPath("userData", process.env.QA_USER_DATA_DIR);
   app.setPath("logs", path.join(process.env.QA_USER_DATA_DIR, "logs"));
+}
+
+const useQaAccessoryActivationPolicy = shouldUseQaAccessoryActivationPolicy(process.env, process.platform);
+if (useQaAccessoryActivationPolicy) {
+  app.setActivationPolicy("accessory");
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -413,6 +423,9 @@ async function createWindow(options: { showWhenReady?: boolean; focusWhenReady?:
 if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     diagnosticLogger.info("应用启动");
+    if (useQaAccessoryActivationPolicy) {
+      await hideQaDockAfterLaunch(app.dock);
+    }
     if (process.env.QA_ALLOW_MULTIPLE_INSTANCES !== "1") {
       try {
         await cleanupStaleScreenCaptures(undefined, Number.POSITIVE_INFINITY);
@@ -451,7 +464,8 @@ if (hasSingleInstanceLock) {
       diagnosticLogger.error("启动自动检修未通过", healthCheck.failures);
       if (process.env.QA_USER_DATA_DIR) {
         console.error(formatStartupHealthFailures(healthCheck.failures));
-        app.exit(1);
+        process.exitCode = 1;
+        app.quit();
         return;
       }
       await dialog.showMessageBox({
@@ -536,7 +550,8 @@ if (hasSingleInstanceLock) {
     diagnosticLogger.error("启动过程发生无法自动修复的问题", error);
     if (process.env.QA_USER_DATA_DIR) {
       console.error(reason);
-      app.exit(1);
+      process.exitCode = 1;
+      app.quit();
       return;
     }
     await dialog.showMessageBox({
@@ -2270,6 +2285,10 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
 
   await new Promise((resolve) => setTimeout(resolve, 1200));
 
+  if (shouldUseQaAccessoryActivationPolicy(process.env, process.platform)) {
+    await hideQaDockAfterLaunch(app.dock);
+  }
+
   if (process.env.QA_DECK_TEXT) {
     await tracker.importDeck(process.env.QA_DECK_TEXT);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -2560,6 +2579,7 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
     const completeRendererInspection = {
       ...rendererInspection,
       trackerSettings: rendererInspection.trackerSettings ?? trackerSettings,
+      qaDockVisible: process.platform === "darwin" ? app.dock?.isVisible() : undefined,
       qaMainWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
       bounds,
       workArea: displayWorkArea,

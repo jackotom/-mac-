@@ -1,6 +1,6 @@
 {
   "name": "hearthstone-mac-tracker",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "type": "module",
   "main": "dist-electron/main/main.js",
@@ -9,10 +9,11 @@
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
     "build:native": "bash scripts/build-native-helpers.sh",
     "start": "npm run build:native && npm run build && electron .",
-    "test": "vitest run",
+    "test": "cross-env CHOKIDAR_USEPOLLING=1 vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "package:mac-arm64": "npm run build:native && npm run build && bash scripts/package-mac-arm64.sh",
     "verify:card-lifecycle-ui": "node scripts/verify-card-lifecycle-ui.mjs",
+    "verify:arena-redraft-ui": "VERIFY_ARENA_REDRAFT_ONLY=1 bash scripts/verify-release.sh",
     "verify:release": "bash scripts/verify-release.sh"
   },
   "dependencies": {
