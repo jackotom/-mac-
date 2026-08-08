@@ -29,6 +29,13 @@ describe("release verification entrypoint", () => {
     expect(packageJson.scripts?.["verify:release"]).toBe("bash scripts/verify-release.sh");
   });
 
+  it("regenerates the checksum for every newly packaged archive", () => {
+    const packageScript = read("scripts/package-mac-arm64.sh");
+
+    expect(packageScript).toContain('shasum -a 256 "$(basename "$target_zip")"');
+    expect(packageScript).toContain('mv "$publish_checksum" "$target_checksum"');
+  });
+
   it("fails closed while checking tests, build, replay, screenshots, signing, architecture, and launch", () => {
     const script = read("scripts/verify-release.sh");
 

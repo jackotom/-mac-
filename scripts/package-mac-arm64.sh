@@ -8,19 +8,21 @@ stage_dir="$output_dir/.mac-arm64-stage"
 publish_dir="$output_dir/.mac-arm64-publish"
 publish_app="$publish_dir/炉石记牌器.app"
 publish_zip="$output_dir/.炉石记牌器-mac-arm64.next.zip"
+publish_checksum="$output_dir/.炉石记牌器-mac-arm64.next.zip.sha256"
 target_app="$output_dir/炉石记牌器.app"
 target_zip="$output_dir/炉石记牌器-mac-arm64.zip"
+target_checksum="$output_dir/炉石记牌器-mac-arm64.zip.sha256"
 package_listing="$stage_dir/package-contents.txt"
 runtime_root_pattern='^/(?!(dist|dist-electron|node_modules)(/|$)|package\.json$)'
 
 cleanup() {
   rm -rf "$runtime_source" "$stage_dir" "$publish_dir"
-  rm -f "$publish_zip"
+  rm -f "$publish_zip" "$publish_checksum"
 }
 
 trap cleanup EXIT
 rm -rf "$runtime_source" "$stage_dir" "$publish_dir"
-rm -f "$publish_zip"
+rm -f "$publish_zip" "$publish_checksum"
 mkdir -p "$publish_dir"
 
 for stale_path in "$output_dir"/release-* "$output_dir"/炉石记牌器\ *.app "$output_dir"/炉石记牌器-darwin-*; do
@@ -128,3 +130,9 @@ rm -rf "$target_app"
 mv "$publish_app" "$target_app"
 rm -f "$target_zip"
 mv "$publish_zip" "$target_zip"
+rm -f "$target_checksum"
+(
+  cd "$output_dir"
+  shasum -a 256 "$(basename "$target_zip")" > "$(basename "$publish_checksum")"
+)
+mv "$publish_checksum" "$target_checksum"

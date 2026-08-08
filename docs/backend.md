@@ -27,6 +27,7 @@ This layer only reads Hearthstone log files from disk. It does not read process 
 - `src/main/trackerService.ts`: Electron-facing watcher service that tails the chosen log file.
 - `src/main/matchHistoryStore.ts`: validates and atomically stores at most 100 confirmed local match results under Electron `userData`.
 - `src/main/main.ts` and `src/main/preload.ts`: IPC boundary for renderer calls.
+- `src/main/rendererPage.ts`: resolves the renderer entry. Packaged builds always use the bundled page; development accepts only credential-free local HTTP addresses.
 - `src/main/trackerSettingsStore.ts`: validates settings, migrates older formats, and during startup health checking preserves an invalid file as a timestamped backup before atomically restoring safe defaults.
 - `src/shared/deck.ts`: UI-facing deck parser used by the current tracker engine; it supports manual lists and deck strings when a card database is available.
 - `src/shared/deckImport.ts`: parses manual deck lists and preserves Hearthstone deck strings as raw text.
@@ -292,3 +293,8 @@ Legacy shared fields remain for one compatibility version, but renderer state is
 - `ZONE_POSITION=1` marks a tracked insertion as top. A position equal to the current deck size marks bottom.
 - `SHUFFLE_DECK PlayerID=n` invalidates that player's top/bottom records. It does not remove inserted entities, source groups, or known identities.
 - Generated entities remain deduplicated by entity id across `GameState` and `PowerTaskList` copies.
+
+## v0.3.11 runtime contracts
+
+- Every BrowserWindow uses the same renderer-page resolver. A packaged build ignores `VITE_DEV_SERVER_URL`; an unpackaged build rejects non-local hosts, non-HTTP schemes, and URLs containing credentials.
+- A tailed log range is committed only after its complete lines have been processed. Processing failures retain the previous offset and schedule a retry without requiring additional bytes. Renderer-send failures are isolated from log retries, and partial trailing bytes remain pending until a complete line arrives.
