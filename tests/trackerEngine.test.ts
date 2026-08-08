@@ -1741,6 +1741,27 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=HAND
     expect(engine.getState().deck[0]).toMatchObject({ name: "Fireball", remaining: 1, drawn: 1 });
   });
 
+  it("waits for a split entity controller before applying its zone continuation", () => {
+    const engine = new TrackerEngine();
+    engine.setFriendlyController(1);
+
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() -     SHOW_ENTITY - Updating Entity=[entityName=Chillwind Yeti id=65 zone=HAND zonePos=1 cardId=CS2_182] CardID=CS2_182
+D 12:00:01.000 PowerTaskList.DebugPrintPower() -         tag=ZONE value=PLAY
+`);
+
+    expect(engine.getState().opponentPlayed).toEqual([]);
+
+    engine.applyText(
+      "D 12:00:01.000 PowerTaskList.DebugPrintPower() -         tag=CONTROLLER value=2"
+    );
+
+    expect(engine.getState().opponentPlayed).toEqual([
+      expect.objectContaining({ name: "Chillwind Yeti", cardId: "CS2_182", played: 1 })
+    ]);
+  });
+
   it("returns a mulligan card to the deck when Hearthstone moves it from hand to deck", () => {
     const engine = new TrackerEngine({ deckText: "1x Fireball" });
     engine.setFriendlyController(1);

@@ -298,3 +298,10 @@ Legacy shared fields remain for one compatibility version, but renderer state is
 
 - Every BrowserWindow uses the same renderer-page resolver. A packaged build ignores `VITE_DEV_SERVER_URL`; an unpackaged build rejects non-local hosts, non-HTTP schemes, and URLs containing credentials.
 - A tailed log range is committed only after its complete lines have been processed. Processing failures retain the previous offset and schedule a retry without requiring additional bytes. Renderer-send failures are isolated from log retries, and partial trailing bytes remain pending until a complete line arrives.
+
+## v0.3.12 identity and deck evidence contracts
+
+- A multi-line entity snapshot merges `ZONE` and `CONTROLLER` details before deciding whether the entity belongs to the friendly starting deck. Their line order must not change the result.
+- While the friendly controller is unknown, controller-bearing zone changes stay pending. They replay in original order after friendly identity is confirmed; opponent ownership requires positive controller evidence.
+- A more precise Arena deck received during an active match reconciles base deck rows in place. Matching prefers `cardId` and uses normalized names only when the match is unique; match activity, turns, entities, hand state, opponent records, and match statistics remain intact.
+- Heuristic collection-deck matching requires at least two distinct friendly card observations and a unique best candidate or a strict score lead. Explicit Hearthstone deck selection remains immediate and does not use this threshold.

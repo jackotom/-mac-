@@ -188,6 +188,7 @@ export class TrackerEngine {
   private deckPlacements = new Map<string, "top" | "bottom">();
   private deckPositionInvalidatedEntityIds = new Set<string>();
   private pendingEntityDetail: EntitySnapshot | undefined;
+  private pendingEntityDetailZoneEvents: Extract<ParsedLogEvent, { type: "zone-change" }>[] = [];
   private playerIdByName = new Map<string, number>();
   private playerIdentityIds = new Set<number>();
   private unknownPlayerIds = new Set<number>();
@@ -290,6 +291,7 @@ export class TrackerEngine {
     this.insertedDeckEntityRowKeys.clear();
     this.clearDeckInsertionTracking();
     this.pendingEntityDetail = undefined;
+    this.pendingEntityDetailZoneEvents = [];
     this.pendingKnownEntityReturn = undefined;
     this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
@@ -631,6 +633,7 @@ export class TrackerEngine {
     this.insertedDeckEntityRowKeys.clear();
     this.clearDeckInsertionTracking();
     this.pendingEntityDetail = undefined;
+    this.pendingEntityDetailZoneEvents = [];
     this.pendingKnownEntityReturn = undefined;
     this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
@@ -668,6 +671,7 @@ export class TrackerEngine {
     this.insertedDeckEntityRowKeys.clear();
     this.clearDeckInsertionTracking();
     this.pendingEntityDetail = undefined;
+    this.pendingEntityDetailZoneEvents = [];
     this.pendingKnownEntityReturn = undefined;
     this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
@@ -701,6 +705,9 @@ export class TrackerEngine {
   }
 
   applyLine(line: string) {
+    if (this.pendingEntityDetailZoneEvents.length > 0 && !/-\s+tag=[A-Z0-9_]+\s+value=/i.test(line)) {
+      this.flushPendingEntityDetailZoneEvents();
+    }
     const events = parseLogLine(line);
     for (const event of events) {
       if (event.type === "match-flow" && !/\bTAG_CHANGE\b/.test(line)) {
@@ -712,7 +719,11 @@ export class TrackerEngine {
   }
 
   applyText(text: string) {
-    for (const line of text.split(/\r?\n/)) {
+    const lines = text.split(/\r?\n/);
+    if (lines.at(-1) === "") {
+      lines.pop();
+    }
+    for (const line of lines) {
       this.applyLine(line);
     }
   }
@@ -1314,7 +1325,9 @@ export class TrackerEngine {
     if (tagName === "CONTROLLER") {
       const controller = Number(tagValue);
       if (Number.isFinite(controller)) {
-        this.pendingEntityDetail = this.mergeEntity({ ...this.pendingEntityDetail, controller });
+        this.mergeEntity({ id: this.pendingEntityDetail.id, controller });
+        this.pendingEntityDetail = { ...this.pendingEntityDetail, controller };
+        this.flushPendingEntityDetailZoneEvents(controller);
       }
       return;
     }
@@ -1358,7 +1371,7 @@ export class TrackerEngine {
     }
 
     const toZone = normalizeZone(tagValue);
-    this.applyParsedEvent({
+    const zoneEvent: Extract<ParsedLogEvent, { type: "zone-change" }> = {
       type: "zone-change",
       entityId: this.pendingEntityDetail.id,
       cardName: this.pendingEntityDetail.name,
@@ -1367,11 +1380,37 @@ export class TrackerEngine {
       toZone,
       controller: this.pendingEntityDetail.controller,
       raw: line
-    });
+    };
+    if (this.pendingEntityDetail.controller === undefined) {
+      this.pendingEntityDetailZoneEvents.push(zoneEvent);
+      this.pendingEntityDetail = { ...this.pendingEntityDetail, zone: toZone };
+      return;
+    }
+
+    this.applyParsedEvent(zoneEvent);
     this.pendingEntityDetail = this.entities.get(this.pendingEntityDetail.id) ?? {
       ...this.pendingEntityDetail,
       zone: toZone
     };
+  }
+
+  private flushPendingEntityDetailZoneEvents(controller?: number) {
+    if (this.pendingEntityDetailZoneEvents.length === 0) {
+      return;
+    }
+
+    const pending = this.pendingEntityDetailZoneEvents;
+    this.pendingEntityDetailZoneEvents = [];
+    for (const event of pending) {
+      this.applyParsedEvent({
+        ...event,
+        controller: event.controller ?? controller
+      });
+    }
+
+    if (this.pendingEntityDetail?.id) {
+      this.pendingEntityDetail = this.entities.get(this.pendingEntityDetail.id) ?? this.pendingEntityDetail;
+    }
   }
 
   private incrementOpponentPlayed(cardName: string, cardId?: string) {

@@ -554,13 +554,17 @@ describe("TrackerService match history", () => {
       "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=Local",
       "D 12:00:01.000 PowerTaskList.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED",
       "D 12:01:00.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=1 cardId=CS2_029 player=1] tag=ZONE value=HAND",
+      "D 12:01:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Frostbolt id=65 zone=DECK zonePos=2 cardId=CS2_024 player=1] tag=ZONE value=HAND",
       "D 12:05:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Local id=2 zone=PLAY zonePos=0 cardId= player=1] tag=PLAYSTATE value=WON"
     ].join("\n"), "utf8");
     const deck = {
       id: "auto-deck-1",
       name: "Auto Matched Deck",
       format: "wild",
-      cards: [{ name: "Fireball", count: 1, cardId: "CS2_029" }],
+      cards: [
+        { name: "Fireball", count: 1, cardId: "CS2_029" },
+        { name: "Frostbolt", count: 1, cardId: "CS2_024" }
+      ],
       rawText: "",
       sourcePath: path.join(root, "Decks.log"),
       updatedAt: "2026-07-21T00:00:00.000Z",
