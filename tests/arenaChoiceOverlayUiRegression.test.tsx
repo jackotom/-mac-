@@ -84,6 +84,7 @@ describe("Arena choice overlay UI regression", () => {
     const { container } = render(<ArenaChoiceOverlayPanel arena={scorelessArena} />);
 
     expect(container.querySelector(".arena-choice-metrics")).not.toBeInTheDocument();
+    expect(container.querySelector(".arena-choice-metric")).not.toBeInTheDocument();
     expect(container.querySelectorAll(".arena-choice-overlay-metric")).toHaveLength(12);
   });
 });
