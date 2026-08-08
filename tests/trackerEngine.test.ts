@@ -2545,26 +2545,6 @@ D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=C
       ]);
   });
 
-  it("infers controller 2 from an explicit loaded deck draw and replays pending events", () => {
-    const engine = new TrackerEngine({ deckText: "1x Controller Two Draw" });
-
-    engine.applyText(`
-D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
-D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Pending Opponent Card id=64 zone=HAND zonePos=1 cardId=PENDING_OPPONENT player=1] tag=ZONE value=PLAY
-D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Controller Two Draw id=65 zone=DECK zonePos=1 cardId=CONTROLLER_TWO_DRAW player=2] tag=ZONE value=HAND
-`);
-
-    const state = engine.getState();
-    expect(state.deck.find((card) => card.name === "Controller Two Draw")).toMatchObject({
-      remaining: 0,
-      drawn: 1
-    });
-    expect(state.opponentPlayed).toEqual([
-      expect.objectContaining({ name: "Pending Opponent Card", cardId: "PENDING_OPPONENT", played: 1 })
-    ]);
-    expect(state.events.filter((event) => event.kind === "opponent-play")).toHaveLength(1);
-  });
-
   it("waits for a delayed local id and keeps same-name opponent cards separate", () => {
     const engine = new TrackerEngine({
       collectionDecks: [
