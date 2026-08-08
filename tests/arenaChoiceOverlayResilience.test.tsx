@@ -25,9 +25,9 @@ const choicesWithCachedStatistics: ArenaState = {
   ...choicesWithoutStatistics,
   ratingsVersion: 123,
   currentChoices: [
-    { name: "候选一", count: 1, score: 88, rating: { hearthArena: 88, pickRate: 41.2, highWinPickRate: 49.1 } },
-    { name: "候选二", count: 1, score: 91, rating: { hearthArena: 91, pickRate: 37.5, highWinPickRate: 46.7 } },
-    { name: "候选三", count: 1, score: 77, rating: { hearthArena: 77, pickRate: 29.8, highWinPickRate: 40.3 } }
+    { name: "候选一", count: 1, rating: { drawnImpact: -1.85, deckImpact: -1.75, pickRate: 41.2, highWinPickRate: 49.1, highWinThreshold: 6 } },
+    { name: "候选二", count: 1, rating: { drawnImpact: 0, deckImpact: 0, pickRate: 37.5, highWinPickRate: 46.7, highWinThreshold: 6 } },
+    { name: "候选三", count: 1, rating: { drawnImpact: 1.2, deckImpact: 2.3, pickRate: 29.8, highWinPickRate: 40.3, highWinThreshold: 6 } }
   ]
 };
 
@@ -38,7 +38,7 @@ describe("Arena choice overlay resilience", () => {
     const overlay = screen.getByLabelText("竞技场选牌数据条");
     expect(overlay).toHaveAttribute("data-visible", "true");
     expect(within(overlay).getAllByRole("group", { name: /候选[一二三] 的竞技场指标/ })).toHaveLength(3);
-    expect(within(overlay).getAllByText("暂无")).toHaveLength(9);
+    expect(within(overlay).getAllByText("暂无")).toHaveLength(12);
   });
 
   it("keeps cached statistics visible through a temporary refresh error", () => {
@@ -55,8 +55,8 @@ describe("Arena choice overlay resilience", () => {
 
     const overlay = screen.getByLabelText("竞技场选牌数据条");
     expect(overlay).toHaveAttribute("data-visible", "true");
-    ["88", "91", "77", "41.2%", "37.5%", "29.8%"].forEach((value) => {
-      expect(within(overlay).getByText(value)).toBeInTheDocument();
+    ["-1.85", "-1.75", "0.00", "2.30", "41.2%", "37.5%", "29.8%", "49.1%", "46.7%", "40.3%"].forEach((value) => {
+      expect(within(overlay).getAllByText(value).length).toBeGreaterThan(0);
     });
   });
 

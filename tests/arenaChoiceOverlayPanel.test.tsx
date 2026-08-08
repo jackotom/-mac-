@@ -9,45 +9,54 @@ const draftingArena: ArenaState = {
   draftCount: 7,
   unresolvedCount: 30,
   currentChoices: [
-    { name: "候选一", count: 1, score: 94, rating: { hearthArena: 94, pickRate: 42, highWinPickRate: 51, highWinThreshold: 6 } },
-    { name: "候选二", count: 1, score: 121, rating: { hearthArena: 121, pickRate: 40, highWinPickRate: 49, highWinThreshold: 6 } },
-    { name: "候选三", count: 1, score: 108, rating: { hearthArena: 108, pickRate: 38, highWinPickRate: 45, highWinThreshold: 6 } }
+    { name: "候选一", count: 1, rating: { drawnImpact: -1.85, deckImpact: -1.75, pickRate: 16.8, highWinPickRate: 10.2, highWinThreshold: 6 } },
+    { name: "候选二", count: 1, rating: { drawnImpact: -1.85, deckImpact: -1.75, pickRate: 16.8, highWinPickRate: 10.2, highWinThreshold: 6 } },
+    { name: "候选三", count: 1, rating: { drawnImpact: -1.85, deckImpact: -1.75, pickRate: 16.8, highWinPickRate: 10.2, highWinThreshold: 6 } }
   ],
   picks: [],
   deck: []
 };
 
 describe("ArenaChoiceOverlayPanel", () => {
-  it("shows one three-metric group under each of the three live choices", () => {
+  it("shows one fixed four-metric group under each of the three live choices", () => {
     render(<ArenaChoiceOverlayPanel arena={draftingArena} />);
 
     const overlay = screen.getByLabelText("竞技场选牌数据条");
     expect(overlay).toHaveAttribute("data-visible", "true");
     expect(within(overlay).getAllByRole("group", { name: /候选[一二三] 的竞技场指标/ })).toHaveLength(3);
-    expect(within(overlay).getAllByRole("group", { name: "评分" })).toHaveLength(3);
+    const drawnImpactGroups = within(overlay).getAllByRole("group", { name: "抽到影响" });
+    const deckImpactGroups = within(overlay).getAllByRole("group", { name: "对套牌影响" });
+    expect(drawnImpactGroups).toHaveLength(3);
+    expect(deckImpactGroups).toHaveLength(3);
+    drawnImpactGroups.forEach((group) => expect(group).toHaveClass("is-negative"));
+    deckImpactGroups.forEach((group) => expect(group).toHaveClass("is-negative"));
     expect(within(overlay).getAllByRole("group", { name: "选取率" })).toHaveLength(3);
-    expect(within(overlay).getAllByRole("group", { name: "6+胜选取" })).toHaveLength(3);
+    expect(within(overlay).getAllByRole("group", { name: "6+胜选取率" })).toHaveLength(3);
+    ["-1.85", "-1.75", "16.8%", "10.2%"].forEach((value) => {
+      expect(within(overlay).getAllByText(value)).toHaveLength(3);
+    });
   });
 
-  it("uses the 12-win label only when a real 12-win bucket exists", () => {
+  it("always uses the high-win pick-rate label and never renders a 12-win metric", () => {
     render(
       <ArenaChoiceOverlayPanel
         arena={{
           ...draftingArena,
           currentChoices: [
-            { name: "候选一", count: 1, score: 94, rating: { hearthArena: 94, pickRate: 42, twelveWinRate: 18 } },
-            { name: "候选二", count: 1, score: 121, rating: { hearthArena: 121, pickRate: 40, twelveWinRate: 22 } },
-            { name: "候选三", count: 1, score: 108, rating: { hearthArena: 108, pickRate: 38, twelveWinRate: 20 } }
+            { name: "候选一", count: 1, rating: { drawnImpact: 1.25, deckImpact: 0, pickRate: 42, highWinPickRate: 18, highWinThreshold: 6, twelveWinRate: 18 } },
+            { name: "候选二", count: 1, rating: { drawnImpact: 1.25, deckImpact: 0, pickRate: 40, highWinPickRate: 22, highWinThreshold: 6, twelveWinRate: 22 } },
+            { name: "候选三", count: 1, rating: { drawnImpact: 1.25, deckImpact: 0, pickRate: 38, highWinPickRate: 20, highWinThreshold: 6, twelveWinRate: 20 } }
           ]
         }}
       />
     );
 
     const overlay = screen.getByLabelText("竞技场选牌数据条");
-    expect(within(overlay).getAllByRole("group", { name: "12胜率" })).toHaveLength(3);
+    expect(within(overlay).getAllByRole("group", { name: "6+胜选取率" })).toHaveLength(3);
+    expect(within(overlay).queryByRole("group", { name: "12胜率" })).not.toBeInTheDocument();
   });
 
-  it("shows Firestone rates for all three scoreless legendary-team choices", () => {
+  it("removes the scoreless Firestone special case", () => {
     render(
       <ArenaChoiceOverlayPanel
         arena={{
@@ -78,15 +87,12 @@ describe("ArenaChoiceOverlayPanel", () => {
 
     const overlay = screen.getByLabelText("竞技场选牌数据条");
     expect(within(overlay).getAllByRole("group", { name: /的竞技场指标/ })).toHaveLength(3);
-    const scoreGroups = within(overlay).getAllByRole("group", { name: "评分" });
-    expect(scoreGroups).toHaveLength(3);
-    scoreGroups.forEach((group) => expect(within(group).getByText("暂无")).toBeInTheDocument());
+    expect(within(overlay).getAllByRole("group", { name: "抽到影响" })).toHaveLength(3);
+    expect(within(overlay).getAllByRole("group", { name: "对套牌影响" })).toHaveLength(3);
     expect(within(overlay).getAllByRole("group", { name: "选取率" })).toHaveLength(3);
-    const includedWinrateGroups = within(overlay).getAllByRole("group", { name: "入选胜率" });
-    expect(includedWinrateGroups).toHaveLength(3);
-    expect(within(includedWinrateGroups[0]).getByText("58.4%")).toBeInTheDocument();
-    expect(within(includedWinrateGroups[1]).getByText("55.2%")).toBeInTheDocument();
-    expect(within(includedWinrateGroups[2]).getByText("52.9%")).toBeInTheDocument();
+    expect(within(overlay).getAllByRole("group", { name: "高胜选取率" })).toHaveLength(3);
+    expect(within(overlay).queryByRole("group", { name: "评分" })).not.toBeInTheDocument();
+    expect(within(overlay).queryByRole("group", { name: "入选胜率" })).not.toBeInTheDocument();
   });
 
   it("stays hidden outside the draft selection screen", () => {

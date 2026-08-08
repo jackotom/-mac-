@@ -18,19 +18,19 @@ const ratedState = createPublicTrackerState({
         name: "候选一",
         cardId: "TEST_001",
         count: 1,
-        rating: { pickRate: 41.2, firestone: { includedWinrate: 56.8 } }
+        rating: { drawnImpact: -1.85, deckImpact: -1.75, pickRate: 41.2, highWinPickRate: 56.8, highWinThreshold: 6 }
       },
       {
         name: "候选二",
         cardId: "TEST_002",
         count: 1,
-        rating: { pickRate: 37.5, firestone: { includedWinrate: 54.1 } }
+        rating: { drawnImpact: -1.25, deckImpact: -1.1, pickRate: 37.5, highWinPickRate: 54.1, highWinThreshold: 6 }
       },
       {
         name: "候选三",
         cardId: "TEST_003",
         count: 1,
-        rating: { pickRate: 29.8, firestone: { includedWinrate: 51.6 } }
+        rating: { drawnImpact: 0.25, deckImpact: 0.5, pickRate: 29.8, highWinPickRate: 51.6, highWinThreshold: 6 }
       }
     ],
     picks: [],
@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 describe("arena choice renderer state stability", () => {
-  it("keeps same-card pick and win statistics in the dedicated overlay during a transient refresh", async () => {
+  it("keeps same-card four metrics in the dedicated overlay during a transient refresh", async () => {
     window.history.replaceState({}, "", "/?arena-choice-overlay=1");
     const emit = installTrackerApi();
     const { default: App } = await import("../src/renderer/App.js");
@@ -84,6 +84,8 @@ describe("arena choice renderer state stability", () => {
 
     expect(within(overlay).getByText("41.2%")).toBeInTheDocument();
     expect(within(overlay).getByText("56.8%")).toBeInTheDocument();
+    expect(within(overlay).getByText("-1.85")).toBeInTheDocument();
+    expect(within(overlay).getByText("-1.75")).toBeInTheDocument();
   });
 
   it("keeps same-card pick and win statistics in ArenaPanel during a transient refresh", async () => {
@@ -101,6 +103,6 @@ describe("arena choice renderer state stability", () => {
     act(() => emit(withoutChoiceStatistics(ratedState)));
 
     expect(within(candidateRow!).getByText("41.2%")).toBeInTheDocument();
-    expect(candidateRow).toHaveTextContent("入选胜率 56.8%");
+    expect(candidateRow).toHaveTextContent("6+胜选取 56.8%");
   });
 });

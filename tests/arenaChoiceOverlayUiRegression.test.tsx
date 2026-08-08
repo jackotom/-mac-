@@ -22,10 +22,10 @@ const scorelessArena: ArenaState = {
 };
 
 describe("Arena choice overlay UI regression", () => {
-  it("replaces all score placeholders when live ratings arrive", () => {
+  it("replaces all four metric placeholders when live ratings arrive", () => {
     const { rerender } = render(<ArenaChoiceOverlayPanel arena={scorelessArena} />);
 
-    screen.getAllByRole("group", { name: "评分" }).forEach((group) => {
+    screen.getAllByRole("group", { name: "抽到影响" }).forEach((group) => {
       expect(within(group).getByText("暂无")).toBeInTheDocument();
     });
 
@@ -35,23 +35,26 @@ describe("Arena choice overlay UI regression", () => {
           ...scorelessArena,
           currentChoices: scorelessArena.currentChoices.map((choice, index) => ({
             ...choice,
-            score: [88, 91, 77][index],
             rating: {
               ...choice.rating,
-              hearthArena: [88, 91, 77][index]
+              drawnImpact: [-1.85, 0, 2.4][index],
+              deckImpact: [-1.75, 0, 2.1][index],
+              highWinPickRate: [10.2, 11.8, 13.4][index],
+              highWinThreshold: 6
             }
           }))
         }}
       />
     );
 
-    const scoreGroups = screen.getAllByRole("group", { name: "评分" });
-    expect(scoreGroups).toHaveLength(3);
-    expect(scoreGroups.map((group) => group.textContent)).toEqual(["评分88", "评分91", "评分77"]);
-    scoreGroups.forEach((group) => expect(within(group).queryByText("暂无")).not.toBeInTheDocument());
+    const drawnImpactGroups = screen.getAllByRole("group", { name: "抽到影响" });
+    expect(drawnImpactGroups).toHaveLength(3);
+    expect(drawnImpactGroups.map((group) => group.textContent)).toEqual(["抽到影响-1.85", "抽到影响0.00", "抽到影响2.40"]);
+    expect(screen.getAllByRole("group", { name: "对套牌影响" }).map((group) => group.textContent)).toEqual(["对套牌影响-1.75", "对套牌影响0.00", "对套牌影响2.10"]);
+    expect(screen.getAllByRole("group", { name: "6+胜选取率" }).map((group) => group.textContent)).toEqual(["6+胜选取率10.2%", "6+胜选取率11.8%", "6+胜选取率13.4%"]);
   });
 
-  it("keeps three metric bars readable, non-blocking, and width constrained", () => {
+  it("keeps four metric bars compact, non-blocking, and width constrained", () => {
     expect(styles).toMatch(
       /\.arena-choice-overlay-shell\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);[\s\S]*?gap:\s*6\.5%;[\s\S]*?pointer-events:\s*none;[\s\S]*?background:\s*transparent;/
     );
@@ -59,19 +62,21 @@ describe("Arena choice overlay UI regression", () => {
       /\.arena-choice-overlay-card\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?justify-content:\s*center;/
     );
     expect(styles).toMatch(
-      /\.arena-choice-overlay-shell \.arena-choice-overlay-metrics\s*\{[\s\S]*?width:\s*min\(100%,\s*236px\);[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/
+      /\.arena-choice-overlay-shell \.arena-choice-overlay-metrics\s*\{[\s\S]*?width:\s*min\(100%,\s*236px\);[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/
     );
     expect(styles).toMatch(
       /\.arena-choice-overlay-shell \.arena-choice-metric > strong\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
     );
 
-    const metricColors = Array.from(
-      styles.matchAll(
-        /\.arena-choice-overlay-shell \.arena-choice-metric:nth-child\([123]\)\s*\{[^}]*?color:\s*(#[0-9a-f]{6});/gi
-      ),
-      (match) => match[1]
+    expect(styles).toMatch(
+      /\.arena-choice-overlay-shell \.arena-choice-overlay-metrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?grid-template-rows:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?pointer-events:\s*none;/
     );
-    expect(metricColors).toHaveLength(3);
-    expect(new Set(metricColors).size).toBe(3);
+    expect(styles).toMatch(
+      /\.arena-choice-overlay-shell \.arena-choice-metric\s*\{[\s\S]*?min-height:\s*24px;[\s\S]*?padding:\s*2px\s+4px;[\s\S]*?font-variant-numeric:\s*tabular-nums;/
+    );
+    expect(styles).toMatch(/\.arena-choice-metric\.is-positive\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
+    expect(styles).toMatch(/\.arena-choice-metric\.is-negative\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
+    expect(styles).toMatch(/\.arena-choice-metric\.is-neutral\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
+    expect(styles).not.toMatch(/@media \(max-width: 760px\)[\s\S]*?\.arena-choice-overlay-shell \.arena-choice-metric > strong\s*\{[\s\S]*?font-size:\s*13px;/);
   });
 });
