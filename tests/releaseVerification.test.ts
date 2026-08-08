@@ -11,11 +11,15 @@ function read(relativePath: string) {
 describe("release verification entrypoint", () => {
   it("keeps the visible app version aligned with package metadata", () => {
     const packageJson = JSON.parse(read("package.json")) as { version: string };
+    const packageLock = JSON.parse(read("package-lock.json")) as { version: string; packages: { "": { version: string } } };
     const appSource = read("src/renderer/App.tsx");
     const packageScript = read("scripts/package-mac-arm64.sh");
     const releaseScript = read("scripts/verify-release.sh");
 
     expect(appSource).toContain(`<small>v${packageJson.version}</small>`);
+    expect(packageJson.version).toBe("0.3.13");
+    expect(packageLock.version).toBe(packageJson.version);
+    expect(packageLock.packages[""]?.version).toBe(packageJson.version);
     expect(packageScript).toContain('app_version="$(node -p');
     expect(packageScript).toContain('--app-version="$app_version"');
     expect(packageScript).toContain('--build-version="$app_version"');
@@ -145,6 +149,25 @@ describe("release verification entrypoint", () => {
     expect(mainSource).toContain('"qa-arena-hero-ranking": "1"');
     expect(mainSource).toContain("qaMainWindowVisible");
     expect(script).toContain("report.qaMainWindowVisible !== false");
+  });
+
+  it("requires Arena choice evidence with all four card metrics", () => {
+    const script = read("scripts/verify-release.sh");
+
+    expect(script).toContain('require_file "$screenshots_dir/arena-choice-overlay.png"');
+    expect(script).toContain('require_file "$inspections_dir/arena-choice-overlay.json"');
+    expect(script).toContain('["抽到影响", "对套牌影响", "选取率", "6+胜选取率"]');
+  });
+
+  it("keeps positive, negative, and neutral impact examples in Arena choice QA", () => {
+    const appSource = read("src/renderer/App.tsx");
+
+    expect(appSource).toContain("drawnImpact: 1.85");
+    expect(appSource).toContain("deckImpact: -1.75");
+    expect(appSource).toContain("drawnImpact: -2.4");
+    expect(appSource).toContain("deckImpact: 3.1");
+    expect(appSource).toContain("drawnImpact: 0");
+    expect(appSource).toContain("deckImpact: 0");
   });
 
   it("rejects packaged QA output when isolated defaults drift", () => {

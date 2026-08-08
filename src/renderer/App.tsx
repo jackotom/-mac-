@@ -165,9 +165,9 @@ const qaArenaChoiceOverlayState: ArenaState = {
   draftCount: 7,
   unresolvedCount: 23,
   currentChoices: [
-    { name: "小蜘蛛", count: 1, score: 94, rating: { hearthArena: 94, pickRate: 36.4, highWinPickRate: 40.2, highWinThreshold: 6 } },
-    { name: "癫醉歌迷", count: 1, score: 121, rating: { hearthArena: 121, pickRate: 44.8, highWinPickRate: 51.1, highWinThreshold: 6 } },
-    { name: "致命配方", count: 1, score: 108, rating: { hearthArena: 108, pickRate: 39.6, highWinPickRate: 43.8, highWinThreshold: 6 } }
+    { name: "小蜘蛛", count: 1, score: 94, rating: { hearthArena: 94, drawnImpact: 1.85, deckImpact: -1.75, pickRate: 36.4, highWinPickRate: 40.2, highWinThreshold: 6 } },
+    { name: "癫醉歌迷", count: 1, score: 121, rating: { hearthArena: 121, drawnImpact: -2.4, deckImpact: 3.1, pickRate: 44.8, highWinPickRate: 51.1, highWinThreshold: 6 } },
+    { name: "致命配方", count: 1, score: 108, rating: { hearthArena: 108, drawnImpact: 0, deckImpact: 0, pickRate: 39.6, highWinPickRate: 43.8, highWinThreshold: 6 } }
   ],
   picks: [],
   deck: [{ name: "QA 已选牌", count: 7 }]
@@ -1301,7 +1301,7 @@ function DesktopSidebar({
         <span className="sidebar-brand-mark" aria-hidden="true"><Layers3 size={27} /></span>
         <span>
           <strong>炉石助手</strong>
-          <small>v0.3.12</small>
+          <small>v0.3.13</small>
         </span>
       </section>
       <nav className="sidebar-nav" aria-label="工作区">

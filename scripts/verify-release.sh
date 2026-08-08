@@ -285,6 +285,10 @@ run_capture() {
     if (report.trackerSettings?.overlay?.position !== "right") process.exit(26);
     if (report.trackerSettings?.overlay?.showFriendlyAttack !== false) process.exit(27);
     if (report.trackerSettings?.overlay?.showOpponentAttack !== false) process.exit(28);
+    if (scenario === "arena-choice-overlay") {
+      const metricLabels = ["抽到影响", "对套牌影响", "选取率", "6+胜选取率"];
+      if (!metricLabels.every((label) => String(report.bodyText).includes(label))) process.exit(41);
+    }
     if (scenario.endsWith("-replay")) {
       if (!report.trackerState || !String(report.trackerState.logPath ?? "").includes(fixture)) process.exit(2);
       if (report.trackerState.status !== "watching") process.exit(3);
@@ -466,11 +470,13 @@ run_capture three-window-layout fixtures/logs/arena-session QA_OPEN_THREE_WINDOW
 require_file "$screenshots_dir/arena-redraft-partial-replay.png"
 require_file "$screenshots_dir/arena-redraft-exact-replay.png"
 require_file "$screenshots_dir/arena-playing-replay.png"
+require_file "$screenshots_dir/arena-choice-overlay.png"
 require_file "$screenshots_dir/arena-hero-ranking-overlay.png"
 require_file "$screenshots_dir/three-window-layout.png"
 require_file "$inspections_dir/arena-redraft-partial-replay.json"
 require_file "$inspections_dir/arena-redraft-exact-replay.json"
 require_file "$inspections_dir/arena-playing-replay.json"
+require_file "$inspections_dir/arena-choice-overlay.json"
 require_file "$inspections_dir/arena-hero-ranking-overlay.json"
 require_file "$inspections_dir/three-window-layout.json"
 
