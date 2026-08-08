@@ -134,6 +134,26 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=S
     expect(snapshot).toEqual({ initialDeckSize: 2, remainingDeckSize: 1 });
   });
 
+  it("counts split entity detail tags regardless of zone and controller order", () => {
+    const snapshot = inspectFriendlyDeckSnapshot(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=4 CardID=
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=5 CardID=
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=6 CardID=TEST_001
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=7 CardID=TEST_002
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=CONTROLLER value=1
+D 12:00:00.000 PowerTaskList.DebugPrintPower() -     tag=ZONE value=DECK
+`, 1);
+
+    expect(snapshot).toEqual({ initialDeckSize: 4, remainingDeckSize: 4 });
+  });
+
   it("counts nested SHOW_ENTITY zone continuations in the sanitized real duplicate-start snapshot", async () => {
     const content = await readFile(resolve(duplicateFixtureDir, "Power.log"), "utf8");
 

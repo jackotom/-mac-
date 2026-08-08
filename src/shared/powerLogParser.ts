@@ -537,8 +537,13 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
 
     if (continuesEntityDetail && pendingEntityDetail) {
       const controller = parseTagValueNumber(line, "CONTROLLER");
-      if (controller !== undefined) {
-        pendingEntityDetail = { ...pendingEntityDetail, controller };
+      const zone = parseTagValue(line, "ZONE");
+      if (controller !== undefined || zone) {
+        pendingEntityDetail = {
+          ...pendingEntityDetail,
+          ...(controller !== undefined ? { controller } : {}),
+          ...(zone ? { zone: normalizeZone(zone) } : {})
+        };
       }
     }
 
@@ -557,9 +562,6 @@ export function inspectFriendlyDeckSnapshot(content: string, friendlyController?
     }
 
     zones.set(entity.id, zone);
-    if (pendingEntityDetail?.id === entity.id && zoneChange) {
-      pendingEntityDetail = { ...pendingEntityDetail, zone };
-    }
     if (!setupComplete && zone === "DECK") {
       initialDeckEntityIds.add(entity.id);
     }
