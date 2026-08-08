@@ -162,6 +162,7 @@ describe("release verification entrypoint", () => {
     expect(script).toContain('["1.85", "-1.75", "36.4%", "40.2%", "-2.40", "3.10", "0.00"]');
     expect(mainSource).toContain("arenaChoiceMetrics");
     expect(script).toContain("report.arenaChoiceMetrics");
+    expect(script).toMatch(/if \(scenario === "arena-choice-overlay"\) \{[\s\S]*?report\.arenaChoiceMetrics/);
     expect(script).toContain("items[0].y === items[1].y");
     expect(script).toContain("items[0].x === items[2].x");
   });

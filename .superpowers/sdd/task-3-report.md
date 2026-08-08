@@ -22,6 +22,7 @@
 
 ## 风险与交接
 
-- 未按任务边界运行耗时的 `verify:release`、未替换 `/Applications`、未推送。
-- 现有 `outputs/release-verification/screenshots/arena-choice-overlay.png` 是旧三格证据；主控运行完整发布验证后必须重生成，并人工确认三列四格、不截字、不遮卡。
+- 两轮完整 `verify:release` 已通过；第二轮为 121 个测试文件、993 项通过、1 项跳过，7/7 发布场景通过。
+- 新截图和 inspection 已确认三张牌都是 2×2 四格、不截字、三列对齐；`/Applications/炉石记牌器.app` 已替换为 0.3.13 并成功启动。
+- 分支仍待主控推送。
 - Apple 公证未执行，也未在文档中声称已公证。
