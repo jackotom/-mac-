@@ -528,6 +528,14 @@ export interface EntityReferenceLogEvent {
   raw: string;
 }
 
+export interface EntityScriptDataLogEvent {
+  type: "entity-script-data";
+  entity: EntitySnapshot;
+  index: number;
+  value: number;
+  raw: string;
+}
+
 export interface GeneratedEntityLogEvent {
   type: "generated-entity";
   entityId?: string;
@@ -623,6 +631,7 @@ export type ParsedLogEvent =
   | BlockBoundaryLogEvent
   | CausalTriggerLogEvent
   | EntityReferenceLogEvent
+  | EntityScriptDataLogEvent
   | GameStartLogEvent
   | GameSetupCompleteLogEvent
   | GameEndLogEvent

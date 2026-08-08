@@ -345,12 +345,14 @@ function isPublicCardContextDetails(value: unknown): boolean {
 function isGameContextSections(value: unknown): boolean {
   return Array.isArray(value) && value.every((section) =>
     isRecord(section) &&
-    hasExactKeys(section, ["key", "title", "emptyText", "cards"]) &&
+    hasOnlyKeys(section, ["key", "title", "emptyText", "cards", "totalCount"]) &&
     isNonEmptyString(section.key) &&
     isNonEmptyString(section.title) &&
     isNonEmptyString(section.emptyText) &&
     Array.isArray(section.cards) &&
-    section.cards.every(isRelatedCard));
+    section.cards.every(isRelatedCard) &&
+    (section.totalCount === undefined ||
+      (isNonNegativeInteger(section.totalCount) && section.totalCount >= section.cards.length)));
 }
 
 function isCardOutcomeSections(value: unknown, outcomeBudget: OutcomeTreeBudget): boolean {

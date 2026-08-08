@@ -210,6 +210,17 @@ export function parseLogLine(line: string): ParsedLogEvent[] {
     });
   }
 
+  const scriptData = line.match(/\btag=TAG_SCRIPT_DATA_NUM_(\d+)\s+value=(-?\d+)\b/i);
+  if (scriptData) {
+    events.push({
+      type: "entity-script-data",
+      entity,
+      index: Number(scriptData[1]),
+      value: Number(scriptData[2]),
+      raw: line
+    });
+  }
+
   const displayedCreator = parseTagValueNumber(line, "DISPLAYED_CREATOR");
   if (displayedCreator !== undefined) {
     events.push({

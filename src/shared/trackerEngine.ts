@@ -133,6 +133,8 @@ const MISSING_COLLECTION_DECK_ROW_NAME = "日志缺失的收藏牌";
 const INSERTED_UNKNOWN_DECK_ROW_NAME = "被塞入的未知牌";
 const UNRESOLVED_HAND_CARD_NAME = "未识别手牌";
 const GALACTIC_PROJECTION_ORB_CARD_ID = "toy_378";
+const KELTHUZAD_CARD_IDS = new Set(["rev_514", "core_rev_514"]);
+const THE_FINS_BEYOND_TIME_CARD_IDS = new Set(["time_706"]);
 const FRIENDLY_HAND_ZONES = new Set<Zone>(["HAND"]);
 const FRIENDLY_OTHER_ZONES = new Set<Zone>(["PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SECRET"]);
 const OPPONENT_OTHER_ZONES = new Set<Zone>(["PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SETASIDE", "SECRET"]);
@@ -190,6 +192,9 @@ export class TrackerEngine {
   private playerIdentityIds = new Set<number>();
   private unknownPlayerIds = new Set<number>();
   private matchCountersByPlayerId = new Map<number, PlayerMatchCounters>();
+  private kelthuzadResurrectionCountByController = new Map<number, number>();
+  private openingHandEntityIdsByController = new Map<number, readonly string[]>();
+  private openingHandsCaptured = false;
   private friendlyDeckSnapshot: FriendlyDeckSnapshot | undefined;
   private usingUnmatchedDeckSnapshot = false;
   private lastGameStartTimestamp: string | undefined;
@@ -284,6 +289,7 @@ export class TrackerEngine {
     this.pendingKnownEntityReturn = undefined;
     this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
+    this.kelthuzadResurrectionCountByController.clear();
     this.clearMatchCardHistory();
     this.matchFlow = this.createMatchFlow();
     this.eventCounter = 0;
@@ -426,6 +432,7 @@ export class TrackerEngine {
     this.generatedEntityIds.clear();
     this.insertedDeckEntityRowKeys.clear();
     this.clearDeckInsertionTracking();
+    this.kelthuzadResurrectionCountByController.clear();
     this.error = undefined;
     this.gameActive = false;
     this.gameSetupComplete = false;
@@ -447,6 +454,7 @@ export class TrackerEngine {
     this.generatedEntityIds.clear();
     this.insertedDeckEntityRowKeys.clear();
     this.clearDeckInsertionTracking();
+    this.kelthuzadResurrectionCountByController.clear();
     this.clearMatchCardHistory();
     this.matchFlow = this.createMatchFlow();
     this.gameKey = "no-game";
@@ -471,6 +479,7 @@ export class TrackerEngine {
     this.pendingKnownEntityReturn = undefined;
     this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
+    this.kelthuzadResurrectionCountByController.clear();
     this.clearMatchCardHistory();
     this.matchFlow = this.createMatchFlow();
     this.gameSequence += 1;
@@ -507,6 +516,7 @@ export class TrackerEngine {
     this.pendingKnownEntityReturn = undefined;
     this.pendingKnownEntityReturnCandidateIds.clear();
     this.clearMatchCounters();
+    this.kelthuzadResurrectionCountByController.clear();
     this.clearMatchCardHistory();
     this.matchFlow = this.createMatchFlow();
     this.gameKey = "no-game";
@@ -640,6 +650,9 @@ export class TrackerEngine {
     }
 
     if (event.type === "game-setup-complete") {
+      if (/\btag=STEP\s+value=(?:MAIN_READY|MAIN_ACTION)\b/iu.test(event.raw)) {
+        this.captureOpeningHands();
+      }
       this.gameSetupComplete = true;
       return;
     }
@@ -705,6 +718,22 @@ export class TrackerEngine {
     if (event.type === "entity-reference") {
       const field = event.relation === "attached" ? "attachedToEntityId" : "storedEntityId";
       this.mergeEntity({ id: event.entityId, [field]: event.referencedEntityId });
+      return;
+    }
+
+    if (event.type === "entity-script-data") {
+      const knownEntity = event.entity.id ? this.entities.get(event.entity.id) : undefined;
+      const cardId = normalizeCardId(event.entity.cardId ?? knownEntity?.cardId ?? "");
+      const controller = event.entity.controller ?? knownEntity?.controller;
+      if (
+        event.index === 1 &&
+        KELTHUZAD_CARD_IDS.has(cardId) &&
+        controller !== undefined &&
+        Number.isInteger(event.value) &&
+        event.value >= 0
+      ) {
+        this.kelthuzadResurrectionCountByController.set(controller, event.value);
+      }
       return;
     }
 
@@ -1146,6 +1175,19 @@ export class TrackerEngine {
     }
 
     if (tagName === "ATTACHED" || tagName === "TAG_SCRIPT_DATA_NUM_1") {
+      if (
+        tagName === "TAG_SCRIPT_DATA_NUM_1" &&
+        KELTHUZAD_CARD_IDS.has(normalizeCardId(this.pendingEntityDetail.cardId ?? "")) &&
+        this.pendingEntityDetail.controller !== undefined
+      ) {
+        const resurrectionCount = Number(tagValue);
+        if (Number.isInteger(resurrectionCount) && resurrectionCount >= 0) {
+          this.kelthuzadResurrectionCountByController.set(
+            this.pendingEntityDetail.controller,
+            resurrectionCount
+          );
+        }
+      }
       this.pendingEntityDetail = this.mergeEntity({
         ...this.pendingEntityDetail,
         ...(tagName === "ATTACHED"
@@ -2333,6 +2375,8 @@ export class TrackerEngine {
     this.friendlyDeadMinionsThisGame = [];
     this.opponentDeadMinionsThisGame = [];
     this.recordedDeathEntityIds.clear();
+    this.openingHandEntityIdsByController.clear();
+    this.openingHandsCaptured = false;
     this.pendingUnknownDeckExitZones.clear();
     this.cardOutcomeBlockStack = [];
     this.outcomesByUsageId.clear();
@@ -2340,6 +2384,24 @@ export class TrackerEngine {
     this.cardOutcomeOccurrencesBySource.clear();
     this.cardOutcomeFrameSequence = 0;
     this.lastBlockBoundary = undefined;
+  }
+
+  private captureOpeningHands() {
+    if (this.openingHandsCaptured) {
+      return;
+    }
+
+    this.openingHandsCaptured = true;
+    const entityIdsByController = new Map<number, string[]>();
+    for (const entity of this.entities.values()) {
+      if (entity.zone !== "HAND" || entity.controller === undefined || !entity.id) {
+        continue;
+      }
+      const entityIds = entityIdsByController.get(entity.controller) ?? [];
+      entityIds.push(entity.id);
+      entityIdsByController.set(entity.controller, entityIds);
+    }
+    this.openingHandEntityIdsByController = entityIdsByController;
   }
 
   private buildCardDetails(card: CardInfo, side: CardOutcomeSide): CardDetails {
@@ -2357,7 +2419,7 @@ export class TrackerEngine {
     const cardId = normalizeCardId(card.cardId ?? card.id ?? "");
     const friendlyUsed = this.resolveKnownCardsFromUses("friendly");
     const opponentUsed = this.resolveKnownCardsFromUses("opponent");
-    const gameContextSections = resolveMatchCardRelations(card, {
+    const relationSections = resolveMatchCardRelations(card, {
       friendlyUsed,
       opponentUsed,
       friendlyDeadMinions: this.friendlyDeadMinionsThisGame,
@@ -2377,13 +2439,54 @@ export class TrackerEngine {
       ? this.friendlyController
       : [...this.matchCountersByPlayerId.keys()].find((playerId) =>
           this.isKnownOpponentController(playerId)
-        );
+        ) ?? [...this.entities.values()].find((entity) =>
+          entity.controller !== undefined && this.isKnownOpponentController(entity.controller)
+        )?.controller;
     const loggedSpellCount = counterPlayerId === undefined
       ? undefined
       : this.matchCountersByPlayerId.get(counterPlayerId)?.spellsPlayed;
     const playedSpellsThisGameCount = playedSpellsThisGame
       ? Math.max(loggedSpellCount ?? 0, playedSpellsThisGame.length)
       : undefined;
+    const openingHandCards = side === "friendly" && THE_FINS_BEYOND_TIME_CARD_IDS.has(cardId)
+      ? (this.friendlyController === undefined
+          ? []
+          : (this.openingHandEntityIdsByController.get(this.friendlyController) ?? [])
+              .flatMap((entityId) => {
+                const entity = this.entities.get(entityId);
+                const openingCard = this.findCardInfo(entity?.cardId, entity?.name);
+                return openingCard && !isCoinCard(openingCard)
+                  ? [toRelatedCardInfo(openingCard)]
+                  : [];
+              }))
+      : undefined;
+    const resurrectionCount = KELTHUZAD_CARD_IDS.has(cardId) && counterPlayerId !== undefined
+      ? this.kelthuzadResurrectionCountByController.get(counterPlayerId)
+      : undefined;
+    const gameContextSections = [
+      ...relationSections,
+      ...(openingHandCards === undefined
+        ? []
+        : [{
+            key: "friendly-opening-hand",
+            title: "我的起始手牌",
+            emptyText: this.openingHandsCaptured
+              ? "本局起始手牌尚未识别"
+              : "换牌结束后显示起始手牌",
+            cards: openingHandCards
+          }]),
+      ...(resurrectionCount === undefined
+        ? []
+        : [{
+            key: "kelthuzad-resurrection-count",
+            title: "会复活",
+            emptyText: resurrectionCount === 0
+              ? "本局还没有不稳定的骷髅死亡"
+              : "数量来自对局日志",
+            cards: [],
+            totalCount: resurrectionCount
+          }])
+    ];
     return {
       ...(gameContextSections.length > 0 ? { gameContextSections } : {}),
       ...(playedSpellsThisGame
@@ -2907,6 +3010,15 @@ function sortZoneCards(cards: Iterable<TrackerZoneCard>, firstName?: string) {
     if (right.name === firstName) return 1;
     return left.name.localeCompare(right.name);
   });
+}
+
+function isCoinCard(card: CardInfo): boolean {
+  const cardId = normalizeCardId(card.cardId ?? card.id ?? "");
+  const name = normalizeCardKey(card.name);
+  return cardId === "game_005" ||
+    /(?:^|_)coin\d*$/u.test(cardId) ||
+    name === "幸运币" ||
+    name === "the coin";
 }
 
 function normalizeCardKey(name: string) {

@@ -447,4 +447,69 @@ describe("CardDetailBody related cards", () => {
     expect(screen.getByRole("region", { name: "本次实际施放，共 0 张" }))
       .toHaveTextContent("本次尚未确认施放结果");
   });
+
+  it("shows Kel'Thuzad's logged resurrection count and fills the blank card-text placeholder", () => {
+    render(
+      <CardDetailBody
+        mode="interactive"
+        details={{
+          dbfId: 79767,
+          cardId: "REV_514",
+          name: "天定之灾克尔苏加德",
+          manaCost: 8,
+          cardType: "随从",
+          text: "战吼：复活你的不稳定的骷髅。战场上放不下的骷髅会立即爆炸。（复活 个）",
+          isSpell: false,
+          relatedCards: [],
+          gameContextSections: [{
+            key: "kelthuzad-resurrection-count",
+            title: "会复活",
+            emptyText: "数量来自对局日志",
+            cards: [],
+            totalCount: 5
+          }]
+        }}
+      />
+    );
+
+    expect(screen.getByText(/复活 5 个/)).toBeInTheDocument();
+    expect(screen.queryByText(/复活\s*个/)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "会复活，共 5 张" }))
+      .toHaveTextContent("会复活（5）");
+  });
+
+  it("shows the friendly opening hand without a misleading empty related-card section", () => {
+    render(
+      <CardDetailBody
+        mode="interactive"
+        details={{
+          dbfId: 140706,
+          cardId: "TIME_706",
+          name: "超时空鳍侠",
+          manaCost: 2,
+          cardType: "随从",
+          text: "战吼：将你的手牌替换为你的起始手牌。在你的回合结束时换回。",
+          isSpell: false,
+          relatedCards: [],
+          gameContextSections: [{
+            key: "friendly-opening-hand",
+            title: "我的起始手牌",
+            emptyText: "本局起始手牌尚未识别",
+            cards: [
+              { dbfId: 1, cardId: "START_A", name: "起手牌甲", manaCost: 1, cardType: "法术" },
+              { dbfId: 2, cardId: "START_C", name: "起手牌乙", manaCost: 3, cardType: "武器" },
+              { dbfId: 3, cardId: "START_D", name: "换入的起手牌", manaCost: 4, cardType: "法术" }
+            ]
+          }]
+        }}
+      />
+    );
+
+    const openingHand = screen.getByRole("region", { name: "我的起始手牌，共 3 张" });
+    expect(openingHand).toHaveTextContent("起手牌甲");
+    expect(openingHand).toHaveTextContent("起手牌乙");
+    expect(openingHand).toHaveTextContent("换入的起手牌");
+    expect(screen.queryByRole("region", { name: "关联牌，共 0 张" })).not.toBeInTheDocument();
+    expect(screen.queryByText("暂无关联牌资料")).not.toBeInTheDocument();
+  });
 });
