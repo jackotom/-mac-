@@ -678,6 +678,7 @@ export class TrackerService {
       return;
     }
     const timer = setTimeout(() => {
+      this.logReadRetryTimers.delete(logPath);
       if (this.isCurrentMonitoringGeneration(monitoringGeneration)) {
         this.enqueueLogRead(logPath, monitoringGeneration);
       }
@@ -1577,19 +1578,18 @@ export class TrackerService {
       return;
     }
 
-    let published = false;
-    let publishFailed = false;
+    let attempted = false;
     for (const window of this.windows) {
       if (!window.isDestroyed()) {
+        attempted = true;
         try {
           window.webContents.send("tracker:update", state);
-          published = true;
         } catch {
-          publishFailed = true;
+          // A closing renderer must not turn an already-processed log chunk into a retry.
         }
       }
     }
-    if (published && !publishFailed) {
+    if (attempted) {
       this.lastPublishedStateSignature = signature;
     }
   }

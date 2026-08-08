@@ -131,10 +131,10 @@ describe("TrackerService log selection", () => {
     const scanner = {
       scanAndImportDecks: vi.fn(async () => {
         calls += 1;
-        if (calls === 2) {
+        if (calls === 2 || calls === 3) {
           throw new Error("temporary Decks.log processing failure");
         }
-        if (calls >= 3) {
+        if (calls >= 4) {
           recoveredScans += 1;
           return { status: "ok" as const, decks: [recoveredDeck], activeDeck: recoveredDeck };
         }
@@ -149,8 +149,8 @@ describe("TrackerService log selection", () => {
 
     await appendFile(decksLog, "appended once\n", "utf8");
     await vi.waitFor(() => expect(service.getState().status).toBe("error"));
-    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(3), {
-      timeout: 700,
+    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(4), {
+      timeout: 1_000,
       interval: 25
     });
     await vi.waitFor(() => expect(service.getState()).toMatchObject({
@@ -159,7 +159,7 @@ describe("TrackerService log selection", () => {
     }));
     await service.dispose();
 
-    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(3);
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(4);
     expect(recoveredScans).toBe(1);
   });
 
@@ -548,7 +548,7 @@ describe("TrackerService log selection", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("does not retry processed log data when a renderer update throws", async () => {
+  it("does not repeat an unchanged state when a renderer update throws", async () => {
     const { TrackerService } = await import("../src/main/trackerService.js");
     const service = new TrackerService();
     const send = vi.fn()
@@ -564,7 +564,7 @@ describe("TrackerService log selection", () => {
     service.setCollectionDecks([]);
     await service.dispose();
 
-    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("publishes a constructed mode when the already-previewed deck stays selected", async () => {
