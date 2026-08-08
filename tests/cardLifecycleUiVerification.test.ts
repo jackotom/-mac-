@@ -170,9 +170,9 @@ describe("card lifecycle Electron QA verification", () => {
     expect(main).toContain('webContents.on("console-message"');
     expect(main).toContain("getQaConsoleErrorCount(cardPreviewWindow)");
     expect(main.indexOf("installQaConsoleErrorListener(window)"))
-      .toBeLessThan(main.indexOf("await window.loadFile"));
+      .toBeLessThan(main.indexOf("await loadRendererPage(window)"));
     expect(main.indexOf("installQaConsoleErrorListener(cardPreviewWindow)"))
-      .toBeLessThan(main.indexOf("await cardPreviewWindow.loadFile"));
+      .toBeLessThan(main.indexOf('await loadRendererPage(cardPreviewWindow, { "card-preview": "1" })'));
     expect(overlayStyles).toMatch(
       /\.overlay-card-groups:has\(> \.card-tracking-layout\)\s*\{[^}]*height:\s*100%;[^}]*max-height:\s*100%;[^}]*overflow:\s*hidden;/
     );

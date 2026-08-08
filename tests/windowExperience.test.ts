@@ -163,7 +163,7 @@ describe("window experience configuration", () => {
       /refreshArenaHeroRankingWindow[\s\S]*?window\.showInactive\(\)[\s\S]*?refreshArenaHeroRankingData/
     );
     expect(main).toMatch(
-      /createArenaHeroRankingWindow[\s\S]*?const createdWindow = arenaHeroRankingWindow[\s\S]*?await createdWindow\.load/
+      /createArenaHeroRankingWindow[\s\S]*?const createdWindow = arenaHeroRankingWindow[\s\S]*?await loadRendererPage\(createdWindow, query\)/
     );
   });
 

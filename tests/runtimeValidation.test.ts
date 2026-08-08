@@ -61,6 +61,30 @@ function createDetailsWithOutcomeSections() {
 }
 
 describe("card tracking runtime validation", () => {
+  it("rejects malformed deck and event rows", () => {
+    const malformedDeck = createPublicTrackerState() as unknown as Record<string, unknown>;
+    malformedDeck.deck = [null];
+    expect(() => parsePublicTrackerState(malformedDeck)).toThrow(/状态数据无效/);
+
+    const malformedEvent = createPublicTrackerState() as unknown as Record<string, unknown>;
+    malformedEvent.events = [null];
+    expect(() => parsePublicTrackerState(malformedEvent)).toThrow(/状态数据无效/);
+  });
+
+  it("rejects negative summary counts", () => {
+    const state = createPublicTrackerState();
+    (state.summary as unknown as Record<string, unknown>).drawnCards = -1;
+
+    expect(() => parsePublicTrackerState(state)).toThrow(/状态数据无效/);
+  });
+
+  it("allows future top-level fields while validating known fields", () => {
+    const state = createPublicTrackerState() as unknown as Record<string, unknown>;
+    state.futureField = { enabled: true };
+
+    expect(() => parsePublicTrackerState(state)).not.toThrow();
+  });
+
   it("rejects states without required card tracking", () => {
     const state = createPublicTrackerState() as unknown as Record<string, unknown>;
     delete state.cardTracking;

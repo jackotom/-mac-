@@ -10,6 +10,11 @@ const arenaStatuses = new Set(["inactive", "drafting", "redrafting", "complete",
 const arenaScoreTiers = new Set(["s", "a", "b", "c", "d", "f", "unknown"]);
 const matchModes = new Set(["standard", "wild", "arena", "unknown"]);
 const matchResults = new Set(["win", "loss", "tie"]);
+const eventKinds = new Set([
+  "game-start", "game-end", "draw", "friendly-play", "opponent-play", "arena-pick", "zone-change", "info"
+]);
+const eventPlayers = new Set(["friendly", "opponent", "unknown"]);
+const trackerZones = new Set(["DECK", "HAND", "PLAY", "GRAVEYARD", "REMOVEDFROMGAME", "SETASIDE", "SECRET", "UNKNOWN"]);
 const publicCardZones = ["deck", "hand", "play", "secret", "graveyard", "removed"] as const;
 const publicTrackingStatuses = new Set(["known", "partial", "unknown"]);
 const publicTrackingConfidences = new Set(["confirmed", "inferred"]);
@@ -19,7 +24,9 @@ const MAX_OUTCOME_TREE_NODES = 512;
 
 export function parsePublicTrackerState(value: unknown): PublicTrackerState {
   if (!isRecord(value) || typeof value.status !== "string" || !trackerStatuses.has(value.status) || !Array.isArray(value.deck) ||
-      !Array.isArray(value.events) || !isSummary(value.summary)) {
+      !value.deck.every((card) => isCardTrackerRow(card, false)) || !Array.isArray(value.opponentPlayed) ||
+      !value.opponentPlayed.every((card) => isCardTrackerRow(card, true)) || !Array.isArray(value.events) ||
+      !value.events.every(isTrackerEvent) || !isSummary(value.summary)) {
     throw new Error("记牌器状态数据无效，已拒绝更新界面。");
   }
   if (value.arena !== undefined && !isArenaState(value.arena)) {
@@ -72,8 +79,30 @@ export function parseMatchHistoryResult(value: unknown): MatchHistoryResult {
 }
 
 function isSummary(value: unknown): boolean {
-  return isRecord(value) && ["totalCards", "remainingCards", "drawnCards"]
-    .every((key) => typeof value[key] === "number" && Number.isFinite(value[key]));
+  return isRecord(value) && ["totalCards", "remainingCards", "drawnCards", "opponentPlayedCount"]
+    .every((key) => isNonNegativeInteger(value[key]));
+}
+
+function isCardTrackerRow(value: unknown, allowZeroCount: boolean): boolean {
+  return isRecord(value) && isNonEmptyString(value.name) &&
+    (allowZeroCount ? isNonNegativeInteger(value.count) : isPositiveInteger(value.count)) &&
+    isNonNegativeInteger(value.remaining) && isNonNegativeInteger(value.drawn) &&
+    isNonNegativeInteger(value.played) && isOptionalString(value.cardId) &&
+    (value.details === undefined || isCardDetails(value.details)) &&
+    (value.unresolved === undefined || value.unresolved === true);
+}
+
+function isTrackerEvent(value: unknown): boolean {
+  return isRecord(value) && isNonEmptyString(value.id) && isNonEmptyString(value.at) &&
+    typeof value.kind === "string" && eventKinds.has(value.kind) &&
+    typeof value.player === "string" && eventPlayers.has(value.player) &&
+    isOptionalPositiveInteger(value.turn) && isOptionalString(value.cardName) &&
+    isOptionalTrackerZone(value.fromZone) && isOptionalTrackerZone(value.toZone) &&
+    isOptionalString(value.raw) && isOptionalString(value.cardId);
+}
+
+function isOptionalTrackerZone(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && trackerZones.has(value));
 }
 
 function isTrackerModeSettings(value: unknown): boolean {

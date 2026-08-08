@@ -268,6 +268,7 @@ function App() {
   const isQaBoardAttackOverlay = isBoardAttackOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
   const isQaFriendlyOverlay = isOverlay && overlaySearchParams.get("qa-opponent-demo") === "1";
   const [state, setState] = useState<PublicTrackerState>(demoState);
+  const [hasAcceptedTrackerState, setHasAcceptedTrackerState] = useState(false);
   const [candidates, setCandidates] = useState<LogCandidate[]>([]);
   const [selectedLogPath, setSelectedLogPath] = useState<string | undefined>();
   const [deckText, setDeckText] = useState(defaultDeckText);
@@ -315,14 +316,16 @@ function App() {
 
     let disposed = false;
     let hasReceivedLiveState = false;
+    setHasAcceptedTrackerState(false);
     setIsInitializing(true);
     setInitializationError(undefined);
     const unsubscribe = api.onUpdate((nextState) => {
       if (!disposed) {
-        hasReceivedLiveState = true;
         try {
           const parsedState = parsePublicTrackerState(nextState);
+          hasReceivedLiveState = true;
           setState((current) => preserveArenaChoiceStatistics(current, parsedState));
+          setHasAcceptedTrackerState(true);
           setInitializationError(undefined);
         } catch (error) {
           setInitializationError(toUserErrorMessage(error, "收到的记牌状态无效。"));
@@ -341,6 +344,8 @@ function App() {
           try {
             const parsedState = parsePublicTrackerState(stateResult.value);
             setState((current) => preserveArenaChoiceStatistics(current, parsedState));
+            setHasAcceptedTrackerState(true);
+            setInitializationError(undefined);
           } catch (error) {
             setInitializationError(toUserErrorMessage(error, "读取到的记牌状态无效。"));
           }
@@ -997,9 +1002,13 @@ function App() {
   }
 
   if (isOpponentOverlay) {
+    const retainedStateError = !isQaOpponentOverlay && hasAcceptedTrackerState
+      ? initializationError
+      : undefined;
     return (
       <>
         <style>{rendererStyles}</style>
+        {retainedStateError ? <div className="notice" role="alert">{retainedStateError}</div> : null}
         <OpponentOverlayWindow
           state={isQaOpponentOverlay ? qaOpponentOverlayState : state}
           showSecrets={showOpponentSecrets}
@@ -1008,7 +1017,7 @@ function App() {
             ? (collapsed) => { void api.setOpponentOverlayCollapsed!(collapsed); }
             : undefined}
           isLoading={isQaOpponentOverlay ? false : isInitializing}
-          loadError={isQaOpponentOverlay ? undefined : initializationError}
+          loadError={isQaOpponentOverlay || hasAcceptedTrackerState ? undefined : initializationError}
         />
       </>
     );
@@ -1030,15 +1039,19 @@ function App() {
   }
 
   if (isOverlay) {
+    const retainedStateError = !isQaFriendlyOverlay && hasAcceptedTrackerState
+      ? initializationError
+      : undefined;
     return (
       <>
         <style>{rendererStyles}</style>
+        {retainedStateError ? <div className="notice" role="alert">{retainedStateError}</div> : null}
         <OverlayWindow
           state={isQaFriendlyOverlay ? qaOpponentOverlayState : state}
           onClose={api?.closeFriendlyOverlay ? closeFriendlyOverlay : undefined}
           onOpenSettings={api ? openSettingsInMainWindow : undefined}
           isLoading={isQaFriendlyOverlay ? false : isInitializing}
-          loadError={isQaFriendlyOverlay ? undefined : initializationError}
+          loadError={isQaFriendlyOverlay || hasAcceptedTrackerState ? undefined : initializationError}
         />
       </>
     );
