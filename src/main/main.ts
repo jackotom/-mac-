@@ -2654,6 +2654,13 @@ async function inspectQaRenderer(window: BrowserWindow): Promise<Record<string, 
       const value = element.getBoundingClientRect();
       return style.display !== "none" && style.visibility !== "hidden" && value.width > 0 && value.height > 0;
     });
+    const arenaChoiceMetrics = Array.from(document.querySelectorAll(".arena-choice-overlay-metrics"))
+      .map((element) => ({
+        rect: rect(element),
+        gridTemplateColumns: getComputedStyle(element).gridTemplateColumns,
+        gridTemplateRows: getComputedStyle(element).gridTemplateRows,
+        items: Array.from(element.querySelectorAll(":scope > .arena-choice-overlay-metric")).map(rect)
+      }));
     const allElements = [document.documentElement, document.body, ...document.querySelectorAll("*")];
     const actualScrollableSelectors = [...new Set(allElements.filter((element) => {
       const style = getComputedStyle(element);
@@ -2687,6 +2694,7 @@ async function inspectQaRenderer(window: BrowserWindow): Promise<Record<string, 
       mainRect: rect(main),
       footerRect: rect(footer),
       visibleCardRowRects: visibleRows.map(rect),
+      arenaChoiceMetrics,
       shellScrollSize: size(shell),
       mainScrollSize: size(main),
       designatedScrollOwners: Array.from(document.querySelectorAll("[data-scroll-owner]"))

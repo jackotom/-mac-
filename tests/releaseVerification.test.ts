@@ -153,12 +153,17 @@ describe("release verification entrypoint", () => {
 
   it("requires Arena choice evidence with all four card metrics", () => {
     const script = read("scripts/verify-release.sh");
+    const mainSource = read("src/main/main.ts");
 
     expect(script).toContain('require_file "$screenshots_dir/arena-choice-overlay.png"');
     expect(script).toContain('require_file "$inspections_dir/arena-choice-overlay.json"');
     expect(script).toContain('scenario === "arena-choice-overlay"');
     expect(script).toContain('["抽到影响", "对套牌影响", "选取率", "6+胜选取率"]');
     expect(script).toContain('["1.85", "-1.75", "36.4%", "40.2%", "-2.40", "3.10", "0.00"]');
+    expect(mainSource).toContain("arenaChoiceMetrics");
+    expect(script).toContain("report.arenaChoiceMetrics");
+    expect(script).toContain("items[0].y === items[1].y");
+    expect(script).toContain("items[0].x === items[2].x");
   });
 
   it("keeps positive, negative, and neutral impact examples in Arena choice QA", () => {

@@ -291,6 +291,15 @@ run_capture() {
       const bodyText = String(report.bodyText);
       if (!metricLabels.every((label) => bodyText.includes(label))) process.exit(41);
       if (!metricValues.every((value) => bodyText.includes(value))) process.exit(42);
+      if (!Array.isArray(report.arenaChoiceMetrics) || report.arenaChoiceMetrics.length !== 3) process.exit(43);
+      for (const group of report.arenaChoiceMetrics) {
+        const items = group.items;
+        if (!Array.isArray(items) || items.length !== 4 || !group.rect || group.rect.height > 62) process.exit(44);
+        if (!(items[0].y === items[1].y && items[2].y === items[3].y && items[0].x === items[2].x && items[1].x === items[3].x)) process.exit(45);
+        if (!(items[2].y > items[0].y && items[1].x > items[0].x)) process.exit(46);
+        if (String(group.gridTemplateColumns).trim().split(/\s+/).length !== 2) process.exit(47);
+        if (String(group.gridTemplateRows).trim().split(/\s+/).length !== 2) process.exit(48);
+      }
     }
     if (scenario.endsWith("-replay")) {
       if (!report.trackerState || !String(report.trackerState.logPath ?? "").includes(fixture)) process.exit(2);
