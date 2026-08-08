@@ -54,6 +54,8 @@ describe("ArenaChoiceOverlayPanel", () => {
     const overlay = screen.getByLabelText("竞技场选牌数据条");
     expect(within(overlay).getAllByRole("group", { name: "6+胜选取率" })).toHaveLength(3);
     expect(within(overlay).queryByRole("group", { name: "12胜率" })).not.toBeInTheDocument();
+    within(overlay).getAllByRole("group", { name: "抽到影响" }).forEach((group) => expect(group).toHaveClass("is-positive"));
+    within(overlay).getAllByRole("group", { name: "对套牌影响" }).forEach((group) => expect(group).toHaveClass("is-neutral"));
   });
 
   it("removes the scoreless Firestone special case", () => {
