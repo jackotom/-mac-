@@ -60,6 +60,7 @@ import { LadderDeckRecommendationService } from "./ladderDeckRecommendationServi
 import { LadderDeckOverlayController, resolveLadderDeckMode } from "./ladderDeckOverlayController.js";
 import { getLadderDeckOverlayBounds } from "./ladderDeckOverlayBounds.js";
 import { assertTrustedIpcEvent, configureSecureNavigation, createSecureWebPreferences } from "./electronSecurity.js";
+import { resolveTrustedDevServerUrl } from "./rendererPage.js";
 import { AppQuitController } from "./appQuitController.js";
 import { DEFAULT_TRACKER_SETTINGS, parseTrackerSettings, TrackerSettingsStore } from "./trackerSettingsStore.js";
 import { createCardLibraryErrorResult, listCardLibrary } from "../shared/cardDatabase.js";
@@ -85,6 +86,23 @@ if (useQaAccessoryActivationPolicy) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+async function loadRendererPage(
+  window: BrowserWindow,
+  query: Readonly<Record<string, string>> = {}
+): Promise<void> {
+  const devUrl = resolveTrustedDevServerUrl(
+    process.env.VITE_DEV_SERVER_URL,
+    app.isPackaged,
+    query
+  );
+  if (devUrl) {
+    await window.loadURL(devUrl);
+    return;
+  }
+  await window.loadFile(path.join(__dirname, "../../dist/index.html"), { query });
+}
+
 const diagnosticLogger = new DiagnosticLogger(app.getPath("logs"));
 process.on("uncaughtExceptionMonitor", (error) => {
   diagnosticLogger.error("主进程未捕获异常", error);
@@ -393,12 +411,7 @@ async function createWindow(options: { showWhenReady?: boolean; focusWhenReady?:
     }
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    await window.loadURL(devUrl);
-  } else {
-    await window.loadFile(path.join(__dirname, "../../dist/index.html"));
-  }
+  await loadRendererPage(window);
   window.webContents.setZoomFactor(trackerSettings.appearance.zoom / 100);
 
   if (showWhenReady) {
@@ -1099,12 +1112,7 @@ async function createOverlayWindowInstance(): Promise<BrowserWindow> {
     }
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    await createdWindow.loadURL(`${devUrl}?overlay=1`);
-  } else {
-    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query: { overlay: "1" } });
-  }
+  await loadRendererPage(createdWindow, { overlay: "1" });
 
   return createdWindow;
 }
@@ -1202,14 +1210,7 @@ async function createLadderDeckOverlayWindow(options: { showWhenReady?: boolean;
   const mode = options.mode ?? resolveLadderDeckMode(tracker.getState()) ?? "standard";
   const params = new URLSearchParams({ "ladder-deck-overlay": "1", mode });
   if (options.qaDemo) params.set("qa-ladder-demo", "1");
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    const url = new URL(devUrl);
-    params.forEach((value, key) => url.searchParams.set(key, value));
-    await createdWindow.loadURL(url.toString());
-  } else {
-    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query: Object.fromEntries(params) });
-  }
+  await loadRendererPage(createdWindow, Object.fromEntries(params));
   if (options.showWhenReady !== false && !createdWindow.isDestroyed()) createdWindow.showInactive();
   return createdWindow;
 }
@@ -1316,24 +1317,11 @@ async function createOpponentOverlayWindowInstance(qaDemo: boolean): Promise<Bro
     opponentOverlayInteractionActiveUntil = 0;
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    const url = new URL(devUrl);
-    url.searchParams.set("opponent-overlay", "1");
-    url.searchParams.set("show-secret-prediction", trackerSettings.overlay.secretPrediction ? "1" : "0");
-    if (qaDemo) {
-      url.searchParams.set("qa-opponent-demo", "1");
-    }
-    await createdWindow.loadURL(url.toString());
-  } else {
-    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
-      query: {
-        "opponent-overlay": "1",
-        "show-secret-prediction": trackerSettings.overlay.secretPrediction ? "1" : "0",
-        ...(qaDemo ? { "qa-opponent-demo": "1" } : {})
-      }
-    });
-  }
+  await loadRendererPage(createdWindow, {
+    "opponent-overlay": "1",
+    "show-secret-prediction": trackerSettings.overlay.secretPrediction ? "1" : "0",
+    ...(qaDemo ? { "qa-opponent-demo": "1" } : {})
+  });
 
   return createdWindow;
 }
@@ -1526,24 +1514,13 @@ async function createBoardAttackOverlayWindow(
   });
 
   try {
-    const devUrl = process.env.VITE_DEV_SERVER_URL;
-    if (devUrl) {
-      const url = new URL(devUrl);
-      for (const [key, value] of Object.entries(getBoardAttackOverlayQuery(Boolean(options.qaDemo), {
+    await loadRendererPage(
+      boardAttackOverlayWindow,
+      getBoardAttackOverlayQuery(Boolean(options.qaDemo), {
         showFriendly: trackerSettings.overlay.showFriendlyAttack,
         showOpponent: trackerSettings.overlay.showOpponentAttack
-      }))) {
-        url.searchParams.set(key, value);
-      }
-      await boardAttackOverlayWindow.loadURL(url.toString());
-    } else {
-      await boardAttackOverlayWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
-        query: getBoardAttackOverlayQuery(Boolean(options.qaDemo), {
-          showFriendly: trackerSettings.overlay.showFriendlyAttack,
-          showOpponent: trackerSettings.overlay.showOpponentAttack
-        })
-      });
-    }
+      })
+    );
     const rendererStatus = await boardAttackOverlayWindow.webContents.executeJavaScript(`
       (() => {
         const canvas = document.querySelector(".board-attack-overlay-canvas");
@@ -1609,22 +1586,10 @@ async function createArenaChoiceOverlayWindow(options: { qaDemo?: boolean } = {}
     if (arenaChoiceOverlayWindow === createdWindow) arenaChoiceOverlayWindow = undefined;
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    const url = new URL(devUrl);
-    url.searchParams.set("arena-choice-overlay", "1");
-    if (options.qaDemo) {
-      url.searchParams.set("qa-arena-demo", "1");
-    }
-    await createdWindow.loadURL(url.toString());
-  } else {
-    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
-      query: {
-        "arena-choice-overlay": "1",
-        ...(options.qaDemo ? { "qa-arena-demo": "1" } : {})
-      }
-    });
-  }
+  await loadRendererPage(createdWindow, {
+    "arena-choice-overlay": "1",
+    ...(options.qaDemo ? { "qa-arena-demo": "1" } : {})
+  });
 
   if (options.qaDemo) {
     if (!createdWindow.isDestroyed()) createdWindow.showInactive();
@@ -1670,16 +1635,7 @@ async function createCardPreviewWindow() {
     cardPreviewWindow = undefined;
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    const url = new URL(devUrl);
-    url.searchParams.set("card-preview", "1");
-    await cardPreviewWindow.loadURL(url.toString());
-  } else {
-    await cardPreviewWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
-      query: { "card-preview": "1" }
-    });
-  }
+  await loadRendererPage(cardPreviewWindow, { "card-preview": "1" });
 
   return cardPreviewWindow;
 }
@@ -2134,15 +2090,7 @@ async function createArenaHeroRankingWindow(options: { qaDemo?: boolean } = {}) 
     "arena-hero-ranking-overlay": "1",
     ...(options.qaDemo ? { "qa-arena-hero-ranking": "1" } : {})
   };
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    const url = new URL(devUrl);
-    url.searchParams.set("arena-hero-ranking-overlay", "1");
-    if (options.qaDemo) url.searchParams.set("qa-arena-hero-ranking", "1");
-    await createdWindow.loadURL(url.toString());
-  } else {
-    await createdWindow.loadFile(path.join(__dirname, "../../dist/index.html"), { query });
-  }
+  await loadRendererPage(createdWindow, query);
   return createdWindow;
 }
 
