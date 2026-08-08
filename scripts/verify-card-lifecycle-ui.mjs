@@ -18,6 +18,8 @@ const scenarioNames = [
   "friendly-insertions",
   "opponent-secret",
   "opponent-unknown-hand",
+  "opponent-kelthuzad-preview",
+  "friendly-fins-preview",
   "inline-normal",
   "inline-pinned",
   "external-normal",
@@ -50,6 +52,27 @@ const insertionFixtureText = [
   }),
   "D 14:00:26.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=星界碎片 id=300 zone=DECK zonePos=0 cardId=TOKEN_001 player=1] tag=ZONE_POSITION value=1"
 ].join("\n");
+const kelthuzadFixtureText = [
+  fixtureText,
+  "D 14:00:24.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=天定之灾克尔苏加德 id=240 zone=DECK cardId=REV_514 player=2] tag=ZONE value=HAND",
+  "D 14:00:24.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=天定之灾克尔苏加德 id=240 zone=HAND cardId=REV_514 player=2] tag=TAG_SCRIPT_DATA_NUM_1 value=5",
+  "D 14:00:24.100 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=天定之灾克尔苏加德 id=240 zone=HAND cardId=REV_514 player=2] tag=TAG_SCRIPT_DATA_NUM_1 value=5"
+].join("\n");
+const finsFixtureText = [
+  "D 15:02:59.000 GameState.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED",
+  "D 15:02:59.100 GameState.DebugPrintGame() - PlayerID=1, PlayerName=本地玩家",
+  "D 15:02:59.200 GameState.DebugPrintGame() - PlayerID=2, PlayerName=UNKNOWN HUMAN PLAYER",
+  "D 15:03:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌甲 id=40 zone=DECK cardId=START_A player=1] tag=ZONE value=HAND",
+  "D 15:03:00.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=被换掉的牌 id=41 zone=DECK cardId=MULLIGAN_B player=1] tag=ZONE value=HAND",
+  "D 15:03:00.200 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌乙 id=42 zone=DECK cardId=START_C player=1] tag=ZONE value=HAND",
+  "D 15:03:00.300 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=幸运币 id=46 zone=DECK cardId=TIME_COIN1 player=1] tag=ZONE value=HAND",
+  "D 15:03:00.400 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=NEXT_STEP value=MAIN_READY",
+  "D 15:03:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=被换掉的牌 id=41 zone=HAND cardId=MULLIGAN_B player=1] tag=ZONE value=DECK",
+  "D 15:03:01.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=换入的起手牌 id=43 zone=DECK cardId=START_D player=1] tag=ZONE value=HAND",
+  "D 15:03:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_READY",
+  "D 15:03:03.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=超时空鳍侠 id=44 zone=DECK cardId=TIME_706 player=1] tag=ZONE value=HAND",
+  "D 15:03:04.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION"
+].join("\n");
 const temporaryRoot = await mkdtemp(join(tmpdir(), "hearthstone-card-lifecycle-ui-"));
 const failures = [];
 let workArea;
@@ -73,6 +96,29 @@ const cardCache = {
     { dbfId: 2, cardId: "FRIEND_USE", name: "普通使用牌", collectible: 1, type: "SPELL", cost: 2 },
     { dbfId: 3, cardId: "SOURCE_001", name: "天空主母", collectible: 1, type: "MINION", cost: 6 },
     { dbfId: 4, cardId: "TOKEN_001", name: "星界碎片", collectible: 0, type: "SPELL", cost: 2 },
+    {
+      dbfId: 79767,
+      cardId: "REV_514",
+      name: "天定之灾克尔苏加德",
+      collectible: 1,
+      type: "MINION",
+      cost: 8,
+      text: "战吼：复活你的不稳定的骷髅。战场上放不下的骷髅会立即爆炸。（复活 个）"
+    },
+    {
+      dbfId: 120774,
+      cardId: "TIME_706",
+      name: "超时空鳍侠",
+      collectible: 1,
+      type: "MINION",
+      cost: 2,
+      text: "战吼：将你的手牌替换为你的起始手牌。在你的回合结束时换回。"
+    },
+    { dbfId: 200001, cardId: "START_A", name: "起手牌甲", collectible: 1, type: "SPELL", cost: 1 },
+    { dbfId: 200002, cardId: "MULLIGAN_B", name: "被换掉的牌", collectible: 1, type: "MINION", cost: 2 },
+    { dbfId: 200003, cardId: "START_C", name: "起手牌乙", collectible: 1, type: "WEAPON", cost: 3 },
+    { dbfId: 200004, cardId: "START_D", name: "换入的起手牌", collectible: 1, type: "SPELL", cost: 4 },
+    { dbfId: 200005, cardId: "TIME_COIN1", name: "幸运币", collectible: 0, type: "SPELL", cost: 0 },
     ...Array.from({ length: 15 }, (_, index) => ({
       dbfId: 200 + index,
       cardId: `RANDOM_SPELL_${index + 1}`,
@@ -384,6 +430,90 @@ async function verifyOpponentUnknownHand() {
   assert.deepEqual(inspection.unknownHandRows, ["未公开 ×1"]);
 }
 
+async function verifyOpponentKelthuzadPreview() {
+  const inspection = await runElectronScenario(
+    "opponent-kelthuzad-preview",
+    {
+      QA_OPEN_OPPONENT_OVERLAY: "1",
+      QA_OPPONENT_REAL_STATE: "1",
+      QA_SHOW_CARD_PREVIEW: "1",
+      QA_KELTHUZAD_CARD_PREVIEW: "1",
+      QA_OPEN_TRACKING_GROUP: "hand"
+    },
+    {
+      x: workArea?.x ?? 0,
+      y: workArea?.y ?? 0,
+      width: 250,
+      height: 300
+    },
+    true,
+    kelthuzadFixtureText
+  );
+  assertExactWindow("opponent-kelthuzad-preview", inspection, 250, 300);
+  assertCommon("opponent-kelthuzad-preview", inspection);
+  assert.match(inspection.bodyText, /天定之灾克尔苏加德/);
+  assert.equal(
+    inspection.trackerState?.cardTracking?.contextDetailsBySideAndCardKey?.opponent?.["id:rev_514"]
+      ?.gameContextSections?.[0]?.totalCount,
+    5,
+    "真实日志状态必须记录复活数 5"
+  );
+  assert.equal(
+    inspection.preview.visible,
+    true,
+    `克尔苏加德详情应显示；${JSON.stringify({
+      bodyText: inspection.bodyText,
+      expandedKeys: inspection.expandedKeys,
+      preview: inspection.preview
+    })}`
+  );
+  assert.match(inspection.preview.text, /复活 5 个/);
+  assert.match(inspection.preview.text, /会复活（5）/);
+  assert.doesNotMatch(inspection.preview.text, /复活\s*个/);
+  assert.equal(inspection.preview.consoleErrorCount, 0, "克尔苏加德详情不能有控制台错误");
+}
+
+async function verifyFriendlyFinsPreview() {
+  const previewScreenshotPath = join(
+    projectRoot,
+    "outputs/release-verification/friendly-fins-preview.png"
+  );
+  const inspection = await runElectronScenario(
+    "friendly-fins-preview",
+    {
+      QA_OPEN_OVERLAY: "1",
+      QA_SHOW_CARD_PREVIEW: "1",
+      QA_TIME_FINS_CARD_PREVIEW: "1",
+      QA_OPEN_TRACKING_GROUP: "hand",
+      QA_CARD_PREVIEW_SCREENSHOT_PATH: previewScreenshotPath
+    },
+    {
+      x: workArea?.x ?? 0,
+      y: workArea?.y ?? 0,
+      width: 250,
+      height: 320
+    },
+    false,
+    finsFixtureText
+  );
+  assertExactWindow("friendly-fins-preview", inspection, 250, 320);
+  assertCommon("friendly-fins-preview", inspection);
+  assert.equal(inspection.qaDockVisible, false, "隔离验收不能在 Dock 留下测试图标");
+  assert.deepEqual(
+    inspection.trackerState?.cardTracking?.contextDetailsBySideAndCardKey?.friendly?.["id:time_706"]
+      ?.gameContextSections?.[0]?.cards?.map((card) => card.name),
+    ["起手牌甲", "起手牌乙", "换入的起手牌"],
+    "真实日志状态必须保存换牌后的三张起始牌，并排除换掉的牌和幸运币"
+  );
+  assert.equal(inspection.preview.visible, true, "超时空鳍侠详情应显示");
+  assert.match(inspection.preview.text, /我的起始手牌（3）/);
+  assert.match(inspection.preview.text, /起手牌甲/);
+  assert.match(inspection.preview.text, /起手牌乙/);
+  assert.match(inspection.preview.text, /换入的起手牌/);
+  assert.doesNotMatch(inspection.preview.text, /关联牌（0）|暂无关联牌资料|被换掉的牌|幸运币/);
+  assert.equal(inspection.preview.consoleErrorCount, 0, "超时空鳍侠详情不能有控制台错误");
+}
+
 function assertNormalPreview(name, preview) {
   assertPreviewScrollContract(name, preview);
   assert.equal(preview.visible, true, `${name}: 预览应显示`);
@@ -466,6 +596,8 @@ const verifications = [
   ["friendly-insertions", verifyFriendlyInsertions],
   ["opponent-secret", verifyOpponentSecret],
   ["opponent-unknown-hand", verifyOpponentUnknownHand],
+  ["opponent-kelthuzad-preview", verifyOpponentKelthuzadPreview],
+  ["friendly-fins-preview", verifyFriendlyFinsPreview],
   ["inline-normal", () => verifyInline("inline-normal", false)],
   ["inline-pinned", () => verifyInline("inline-pinned", true)],
   ["external-normal", () => verifyExternal("external-normal", false)],
@@ -493,4 +625,4 @@ if (failures.length > 0) {
   throw new AggregateError(failures.map((message) => new Error(message)), `生命周期 UI 验证失败：${failures.length} 项`);
 }
 
-process.stdout.write(scenarioFilter ? `指定场景 ${scenarioFilter} 通过\n` : "9 个生命周期 Electron 场景全部通过\n");
+process.stdout.write(scenarioFilter ? `指定场景 ${scenarioFilter} 通过\n` : `${scenarioNames.length} 个生命周期 Electron 场景全部通过\n`);

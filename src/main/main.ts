@@ -2365,7 +2365,59 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
 
   if (process.env.QA_SHOW_CARD_PREVIEW === "1") {
     const anchorRect = { left: 16, top: 72, right: 196, bottom: 112, width: 180, height: 40 };
-    if (process.env.QA_CARD_PREVIEW_SEQUENCE === "1") {
+    if (process.env.QA_KELTHUZAD_CARD_PREVIEW === "1") {
+      await window.webContents.executeJavaScript(`
+        window.hearthstoneTracker?.showCardPreview?.(${JSON.stringify({
+          details: {
+            dbfId: 79767,
+            cardId: "REV_514",
+            name: "天定之灾克尔苏加德",
+            manaCost: 8,
+            cardType: "随从",
+            text: "战吼：复活你的不稳定的骷髅。战场上放不下的骷髅会立即爆炸。（复活 个）",
+            isSpell: false,
+            relatedCards: [],
+            gameContextSections: [{
+              key: "kelthuzad-resurrection-count",
+              title: "会复活",
+              emptyText: "数量来自对局日志",
+              cards: [],
+              totalCount: 5
+            }]
+          },
+          anchorRect
+        })});
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    } else if (process.env.QA_TIME_FINS_CARD_PREVIEW === "1") {
+      await window.webContents.executeJavaScript(`
+        window.hearthstoneTracker?.showCardPreview?.(${JSON.stringify({
+          details: {
+            dbfId: 120774,
+            cardId: "TIME_706",
+            name: "超时空鳍侠",
+            manaCost: 2,
+            cardType: "随从",
+            text: "战吼：将你的手牌替换为你的起始手牌。在你的回合结束时换回。",
+            isSpell: false,
+            relatedCards: [],
+            gameContextSections: [{
+              key: "friendly-opening-hand",
+              title: "我的起始手牌",
+              emptyText: "本局起始手牌尚未识别",
+              cards: [
+                { dbfId: 200001, cardId: "START_A", name: "起手牌甲", manaCost: 1, cardType: "法术" },
+                { dbfId: 200003, cardId: "START_C", name: "起手牌乙", manaCost: 3, cardType: "武器" },
+                { dbfId: 200004, cardId: "START_D", name: "换入的起手牌", manaCost: 4, cardType: "法术" }
+              ]
+            }]
+          },
+          anchorRect
+        })});
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    } else {
+      if (process.env.QA_CARD_PREVIEW_SEQUENCE === "1") {
       await window.webContents.executeJavaScript(`
         window.hearthstoneTracker?.showCardPreview?.(${JSON.stringify({
           details: {
@@ -2384,7 +2436,7 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    await window.webContents.executeJavaScript(`
+      await window.webContents.executeJavaScript(`
       window.hearthstoneTracker?.showCardPreview?.(${JSON.stringify({
         details: {
           dbfId: 103270,
@@ -2460,7 +2512,8 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
         anchorRect
       })});
     `);
-    await new Promise((resolve) => setTimeout(resolve, 700));
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
   }
 
   if (process.env.QA_HOVER_CARD === "1") {
@@ -2554,6 +2607,10 @@ async function captureQaScreenshotIfRequested(window: BrowserWindow) {
       if (hasTrackingLayout) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  }
+
+  if (shouldUseQaAccessoryActivationPolicy(process.env, process.platform)) {
+    await hideQaDockAfterLaunch(app.dock);
   }
 
   if (inspectPath) {

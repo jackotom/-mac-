@@ -236,6 +236,31 @@ describe("card tracking runtime validation", () => {
     expect(() => parsePublicTrackerState(contradictory)).toThrow(/卡牌生命周期数据无效/);
   });
 
+  it("accepts a logged game-context total and rejects impossible totals", () => {
+    const valid = createPublicTrackerState();
+    overwriteContextDetails(valid, {
+      friendly: {},
+      opponent: {
+        "id:rev_514": {
+          gameContextSections: [{
+            key: "kelthuzad-resurrection-count",
+            title: "会复活",
+            emptyText: "数量来自对局日志",
+            cards: [],
+            totalCount: 5
+          }]
+        }
+      }
+    });
+    expect(() => parsePublicTrackerState(valid)).not.toThrow();
+
+    const invalid = structuredClone(valid);
+    const section = invalid.cardTracking.contextDetailsBySideAndCardKey.opponent["id:rev_514"]!
+      .gameContextSections![0] as unknown as Record<string, unknown>;
+    section.totalCount = -1;
+    expect(() => parsePublicTrackerState(invalid)).toThrow(/卡牌生命周期数据无效/);
+  });
+
   it("rejects known groups whose total differs from the known count", () => {
     const state = createPublicTrackerState();
     overwriteZone(state, "friendly", "hand", {

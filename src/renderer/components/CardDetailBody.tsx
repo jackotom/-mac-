@@ -39,6 +39,12 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
   const gameContextSections = hasPlayedSpellContext
     ? (details.gameContextSections ?? []).filter((section) => section.key !== "played-spells")
     : details.gameContextSections ?? [];
+  const resurrectionCount = gameContextSections.find(
+    (section) => section.key === "kelthuzad-resurrection-count"
+  )?.totalCount;
+  const displayText = resurrectionCount === undefined
+    ? details.text
+    : details.text?.replace(/（\s*复活\s*个\s*）/u, `（复活 ${resurrectionCount} 个）`);
 
   return (
     <div className={`card-detail-body${className ? ` ${className}` : ""}`}>
@@ -50,7 +56,7 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
         </div>
         {stats.length > 0 ? <div className="card-detail-stats">{stats.join(" · ")}</div> : null}
         {details.spellSchool ? <div className="card-detail-meta">法术派系：{details.spellSchool}</div> : null}
-        {details.text ? <p className="card-detail-text">{details.text}</p> : null}
+        {displayText ? <p className="card-detail-text">{displayText}</p> : null}
       </div>
       {hasPlayedSpellContext ? (
         <PlayedSpellsSection
@@ -62,7 +68,7 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
           }
         />
       ) : null}
-      {!hasPlayedSpellContext || details.relatedCards.length > 0 ? (
+      {details.relatedCards.length > 0 || (!hasPlayedSpellContext && gameContextSections.length === 0) ? (
         <CardListSection
           cards={details.relatedCards}
           className="card-detail-related"
@@ -94,6 +100,7 @@ export function CardDetailBody({ details, className, mode }: CardDetailBodyProps
           emptyText={section.emptyText}
           key={section.key}
           title={section.title}
+          totalCount={section.totalCount}
         />
       ))}
     </div>

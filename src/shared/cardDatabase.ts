@@ -77,6 +77,7 @@ export interface GameContextSection {
   readonly title: string;
   readonly emptyText: string;
   readonly cards: readonly RelatedCardInfo[];
+  readonly totalCount?: number;
 }
 
 export type CardDatabase = Readonly<Record<string, unknown>>;

@@ -106,6 +106,21 @@ describe("parseLogLine", () => {
     );
   });
 
+  it("keeps Kel'Thuzad's resurrection counter as script data", () => {
+    const events = parseLogLine(
+      "D 15:03:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=天定之灾克尔苏加德 id=40 zone=HAND cardId=REV_514 player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=5"
+    );
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "entity-script-data",
+        entity: expect.objectContaining({ id: "40", cardId: "REV_514", controller: 1 }),
+        index: 1,
+        value: 5
+      })
+    ]));
+  });
+
   it("keeps card ids when Hearthstone logs an unknown nested entity", () => {
     const events = parseLogLine(
       "D 12:00:00.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=64 zone=DECK zonePos=1 cardId=TEST_001 player=1] tag=ZONE value=HAND"
@@ -927,6 +942,169 @@ D 20:14:22.9982780 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityNa
         })
       })
     );
+  });
+
+  it("shows the friendly post-mulligan opening hand for The Fins Beyond Time", () => {
+    const richDb = createCardDatabase([
+      {
+        id: 140706,
+        cardId: "TIME_706",
+        name: "超时空鳍侠",
+        type: "MINION",
+        cost: 2,
+        text: "战吼：将你的手牌替换为你的起始手牌。在你的回合结束时换回。"
+      },
+      { id: 200001, cardId: "START_A", name: "起手牌甲", type: "SPELL", cost: 1 },
+      { id: 200002, cardId: "MULLIGAN_B", name: "被换掉的牌", type: "MINION", cost: 2 },
+      { id: 200003, cardId: "START_C", name: "起手牌乙", type: "WEAPON", cost: 3 },
+      { id: 200004, cardId: "START_D", name: "换入的起手牌", type: "SPELL", cost: 4 },
+      { id: 200005, cardId: "TIME_COIN1", name: "幸运币", type: "SPELL", cost: 0 }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 15:02:59.000 GameState.DebugPrintPower() - CREATE_GAME
+D 15:03:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌甲 id=40 zone=DECK cardId=START_A player=2] tag=ZONE value=HAND
+D 15:03:00.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=被换掉的牌 id=41 zone=DECK cardId=MULLIGAN_B player=2] tag=ZONE value=HAND
+D 15:03:00.200 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌乙 id=42 zone=DECK cardId=START_C player=2] tag=ZONE value=HAND
+D 15:03:00.300 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=幸运币 id=46 zone=DECK cardId=TIME_COIN1 player=2] tag=ZONE value=HAND
+D 15:03:00.400 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=NEXT_STEP value=MAIN_READY
+D 15:03:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=被换掉的牌 id=41 zone=HAND cardId=MULLIGAN_B player=2] tag=ZONE value=DECK
+D 15:03:01.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=换入的起手牌 id=43 zone=DECK cardId=START_D player=2] tag=ZONE value=HAND
+D 15:03:01.200 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌甲 id=45 zone=DECK cardId=START_A player=2] tag=ZONE value=HAND
+D 15:03:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_READY
+D 15:03:02.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌甲 id=40 zone=HAND cardId=START_A player=2] tag=ZONE value=PLAY
+D 15:03:02.200 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=起手牌乙 id=42 zone=HAND cardId=START_C player=2] tag=ZONE value=PLAY
+D 15:03:02.300 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=换入的起手牌 id=43 zone=HAND cardId=START_D player=2] tag=ZONE value=PLAY
+D 15:03:03.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=超时空鳍侠 id=44 zone=DECK cardId=TIME_706 player=2] tag=ZONE value=HAND
+D 15:03:04.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+`);
+
+    const state = engine.getState();
+    expect(state.friendlyHand).toContainEqual(
+      expect.objectContaining({
+        cardId: "TIME_706",
+        details: expect.objectContaining({
+          gameContextSections: [
+            expect.objectContaining({
+              key: "friendly-opening-hand",
+              title: "我的起始手牌",
+              cards: [
+                expect.objectContaining({ cardId: "START_A", name: "起手牌甲" }),
+                expect.objectContaining({ cardId: "START_C", name: "起手牌乙" }),
+                expect.objectContaining({ cardId: "START_D", name: "换入的起手牌" }),
+                expect.objectContaining({ cardId: "START_A", name: "起手牌甲" })
+              ]
+            })
+          ]
+        })
+      })
+    );
+    expect(state.cardTracking?.contextDetailsBySideAndCardKey.friendly["id:time_706"])
+      .toMatchObject({
+        gameContextSections: [expect.objectContaining({
+          key: "friendly-opening-hand",
+          cards: [
+            expect.objectContaining({ cardId: "START_A" }),
+            expect.objectContaining({ cardId: "START_C" }),
+            expect.objectContaining({ cardId: "START_D" }),
+            expect.objectContaining({ cardId: "START_A" })
+          ]
+        })]
+      });
+    expect(state.cardTracking?.contextDetailsBySideAndCardKey.opponent)
+      .not.toHaveProperty("id:time_706");
+
+    engine.applyText(`
+D 16:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 16:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=超时空鳍侠 id=140 zone=DECK cardId=TIME_706 player=2] tag=ZONE value=HAND
+D 16:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+`);
+    expect(engine.getState().cardTracking?.contextDetailsBySideAndCardKey.friendly["id:time_706"])
+      .toMatchObject({
+        gameContextSections: [expect.objectContaining({
+          cards: [expect.objectContaining({ cardId: "TIME_706" })]
+        })]
+      });
+  });
+
+  it("shows the real Kel'Thuzad resurrection count from Power.log and keeps duplicate sources idempotent", () => {
+    const richDb = createCardDatabase([
+      {
+        id: 79767,
+        cardId: "REV_514",
+        name: "天定之灾克尔苏加德",
+        type: "MINION",
+        cost: 8,
+        text: "战吼：复活你的不稳定的骷髅。战场上放不下的骷髅会立即爆炸。（复活 个）"
+      }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 15:02:59.000 GameState.DebugPrintPower() - CREATE_GAME
+D 15:03:00.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=天定之灾克尔苏加德 id=40 zone=HAND cardId=REV_514 player=1] CardID=REV_514
+D 15:03:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=天定之灾克尔苏加德 id=40 zone=HAND cardId=REV_514 player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=5
+D 15:03:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=天定之灾克尔苏加德 id=40 zone=HAND cardId=REV_514 player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=5
+`);
+
+    const state = engine.getState();
+    expect(state.opponentHand).toContainEqual(
+      expect.objectContaining({
+        cardId: "REV_514",
+        details: expect.objectContaining({
+          gameContextSections: [
+            expect.objectContaining({
+              key: "kelthuzad-resurrection-count",
+              title: "会复活",
+              totalCount: 5,
+              cards: []
+            })
+          ]
+        })
+      })
+    );
+    expect(state.cardTracking?.contextDetailsBySideAndCardKey.opponent["id:rev_514"])
+      .toMatchObject({
+        gameContextSections: [expect.objectContaining({ totalCount: 5 })]
+      });
+    expect(state.cardTracking?.contextDetailsBySideAndCardKey.friendly)
+      .not.toHaveProperty("id:rev_514");
+  });
+
+  it("reads Kel'Thuzad's resurrection count from FULL_ENTITY continuation tags and clears it next game", () => {
+    const richDb = createCardDatabase([
+      { id: 79767, cardId: "REV_514", name: "天定之灾克尔苏加德", type: "MINION" },
+      { id: 79768, cardId: "CORE_REV_514", name: "天定之灾克尔苏加德", type: "MINION" }
+    ]);
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.setFriendlyController(2);
+    engine.applyText(`
+D 16:00:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 16:00:01.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=天定之灾克尔苏加德 id=40 zone=HAND cardId=REV_514 player=1] CardID=REV_514
+D 16:00:01.100 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 16:00:01.200 GameState.DebugPrintPower() -     tag=TAG_SCRIPT_DATA_NUM_1 value=7
+`);
+    expect(engine.getState().cardTracking?.contextDetailsBySideAndCardKey.opponent["id:rev_514"])
+      .toMatchObject({
+        gameContextSections: [expect.objectContaining({ totalCount: 7 })]
+      });
+
+    engine.applyText(`
+D 16:00:02.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=天定之灾克尔苏加德 id=41 zone=HAND cardId=CORE_REV_514 player=1] CardID=CORE_REV_514
+D 16:00:02.100 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY id=41 zone=HAND cardId= player=1] tag=TAG_SCRIPT_DATA_NUM_1 value=9
+`);
+    expect(engine.getState().cardTracking?.contextDetailsBySideAndCardKey.opponent["id:core_rev_514"])
+      .toMatchObject({
+        gameContextSections: [expect.objectContaining({ totalCount: 9 })]
+      });
+
+    engine.applyText(`
+D 16:10:00.000 GameState.DebugPrintPower() - CREATE_GAME
+D 16:10:01.000 GameState.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=天定之灾克尔苏加德 id=140 zone=HAND cardId=REV_514 player=1] CardID=REV_514
+`);
+    expect(engine.getState().cardTracking?.contextDetailsBySideAndCardKey.opponent["id:rev_514"])
+      .toBeUndefined();
   });
 
   it("reports known opponent cards in deck, hand, and other current zones", () => {
