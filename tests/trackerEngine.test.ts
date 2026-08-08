@@ -1710,6 +1710,7 @@ D 12:00:05.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
 
   it("tracks draws and opponent plays from sample power lines", () => {
     const engine = new TrackerEngine({ deckText: "2x Fireball\n1x Miracle Salesman" });
+    engine.setFriendlyController(1);
 
     engine.applyText(`
 D 12:00:00.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME
@@ -2051,6 +2052,7 @@ D 12:05:00.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=本地玩家 tag=
   it("tracks draws by card id when the log has no card name", () => {
     const deckCode = encodeDeckString([0, 1, 2, 1, 7, 1, 1001, 0, 0]);
     const engine = new TrackerEngine({ deckText: deckCode, cardDatabase: cardDb });
+    engine.setFriendlyController(1);
 
     engine.applyText(`
 D 12:00:00.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME
@@ -2095,6 +2097,7 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
 
   it("resolves opponent card names from card ids when no deck is imported", () => {
     const engine = new TrackerEngine({ cardDatabase: cardDb });
+    engine.setFriendlyController(1);
 
     engine.applyText(`
 D 12:00:00.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME
@@ -2366,6 +2369,110 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
       "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=65 zone=DECK zonePos=1 cardId=TEST_001 player=1] tag=ZONE value=HAND"
     );
     expect(engine.getState().autoMatchedDeckId).toBe("deck-a");
+  });
+
+  it("waits for the friendly controller before classifying controller 1 plays without collection decks", () => {
+    const engine = new TrackerEngine();
+
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Pending Card id=64 zone=DECK zonePos=1 cardId=PENDING_CARD player=1] tag=ZONE value=HAND
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Pending Card id=64 zone=HAND zonePos=1 cardId=PENDING_CARD player=1] tag=ZONE value=PLAY
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=Pending Card id=64 zone=HAND zonePos=1 cardId=PENDING_CARD player=1] CardID=PENDING_CARD
+`);
+
+    expect(engine.getState().opponentPlayed).toEqual([]);
+
+    engine.setFriendlyController(2);
+
+    const state = engine.getState();
+    expect(state.opponentPlayed).toEqual([
+      expect.objectContaining({ name: "Pending Card", cardId: "PENDING_CARD", played: 1 })
+    ]);
+    expect(state.events
+      .filter((event) => event.cardId === "PENDING_CARD")
+      .reverse()
+      .map((event) => ({ kind: event.kind, fromZone: event.fromZone, toZone: event.toZone })))
+      .toEqual([
+        { kind: "zone-change", fromZone: "DECK", toZone: "HAND" },
+        { kind: "opponent-play", fromZone: "HAND", toZone: "PLAY" }
+      ]);
+
+    engine.setFriendlyController(2);
+    expect(engine.getState().opponentPlayed).toEqual([
+      expect.objectContaining({ name: "Pending Card", cardId: "PENDING_CARD", played: 1 })
+    ]);
+  });
+
+  it("replays mixed friendly and opponent plays once after controller identity arrives", () => {
+    const engine = new TrackerEngine({ deckText: "1x Friendly Loaded Card" });
+
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Friendly Loaded Card id=64 zone=HAND zonePos=1 cardId=FRIENDLY_LOADED player=1] tag=ZONE value=PLAY
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Opponent Pending Card id=65 zone=HAND zonePos=1 cardId=OPPONENT_PENDING player=2] tag=ZONE value=PLAY
+`);
+
+    expect(engine.getState().opponentPlayed).toEqual([]);
+
+    engine.setFriendlyController(1);
+
+    const state = engine.getState();
+    expect(state.deck.find((card) => card.name === "Friendly Loaded Card")).toMatchObject({ played: 1 });
+    expect(state.opponentPlayed).toEqual([
+      expect.objectContaining({ name: "Opponent Pending Card", cardId: "OPPONENT_PENDING", played: 1 })
+    ]);
+    expect(state.events.filter((event) => event.kind === "friendly-play")).toHaveLength(1);
+    expect(state.events.filter((event) => event.kind === "opponent-play")).toHaveLength(1);
+  });
+
+  it("waits for controllerless zone changes that inherit an existing entity controller", () => {
+    const engine = new TrackerEngine({ deckText: "1x Controllerless Card" });
+
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - FULL_ENTITY - Updating Entity=[entityName=Controllerless Card id=64 zone=SETASIDE zonePos=1 cardId=CONTROLLERLESS player=1] CardID=CONTROLLERLESS
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Controllerless Card id=64 zone=SETASIDE zonePos=1 cardId=CONTROLLERLESS player=1] tag=ZONE value=HAND
+D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Controllerless Card id=64 zone=HAND zonePos=1 cardId=CONTROLLERLESS] tag=ZONE value=PLAY
+`);
+
+    expect(engine.getState()).toMatchObject({ friendlyHand: [], friendlyOther: [], opponentPlayed: [] });
+
+    engine.setFriendlyController(1);
+
+    const state = engine.getState();
+    expect(state.friendlyHand).toEqual([]);
+    expect(state.friendlyOther).toEqual([
+      expect.objectContaining({ name: "Controllerless Card", cardId: "CONTROLLERLESS", count: 1 })
+    ]);
+    expect(state.events
+      .filter((event) => event.cardId === "CONTROLLERLESS")
+      .reverse()
+      .map((event) => ({ fromZone: event.fromZone, toZone: event.toZone })))
+      .toEqual([
+        { fromZone: "SETASIDE", toZone: "HAND" },
+        { fromZone: "HAND", toZone: "PLAY" }
+      ]);
+  });
+
+  it("infers controller 2 from an explicit loaded deck draw and replays pending events", () => {
+    const engine = new TrackerEngine({ deckText: "1x Controller Two Draw" });
+
+    engine.applyText(`
+D 12:00:00.000 PowerTaskList.DebugPrintPower() - CREATE_GAME
+D 12:00:01.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Pending Opponent Card id=64 zone=HAND zonePos=1 cardId=PENDING_OPPONENT player=1] tag=ZONE value=PLAY
+D 12:00:02.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Controller Two Draw id=65 zone=DECK zonePos=1 cardId=CONTROLLER_TWO_DRAW player=2] tag=ZONE value=HAND
+`);
+
+    const state = engine.getState();
+    expect(state.deck.find((card) => card.name === "Controller Two Draw")).toMatchObject({
+      remaining: 0,
+      drawn: 1
+    });
+    expect(state.opponentPlayed).toEqual([
+      expect.objectContaining({ name: "Pending Opponent Card", cardId: "PENDING_OPPONENT", played: 1 })
+    ]);
+    expect(state.events.filter((event) => event.kind === "opponent-play")).toHaveLength(1);
   });
 
   it("waits for a delayed local id and keeps same-name opponent cards separate", () => {

@@ -254,11 +254,15 @@ export class TrackerEngine {
 
   setFriendlyController(controller?: number) {
     this.configuredFriendlyController = controller;
+    this.applyFriendlyController(controller);
+  }
+
+  private applyFriendlyController(controller?: number) {
     this.friendlyController = controller;
     if (controller !== undefined && this.pendingControllerEvents.length > 0) {
       const pending = this.pendingControllerEvents;
       this.pendingControllerEvents = [];
-      pending.forEach((event) => this.applyParsedEvent(event));
+      pending.forEach((event) => this.applyParsedEvent(event, true));
     }
   }
 
@@ -623,7 +627,12 @@ export class TrackerEngine {
     };
   }
 
-  private applyParsedEvent(event: ParsedLogEvent) {
+  private applyParsedEvent(event: ParsedLogEvent, replayingPendingControllerEvent = false) {
+    const inferredFriendlyController = this.inferFriendlyControllerFromLoadedDeckDraw(event);
+    if (inferredFriendlyController !== undefined) {
+      this.applyFriendlyController(inferredFriendlyController);
+    }
+
     if (this.shouldWaitForFriendlyController(event)) {
       this.pendingControllerEvents.push(event);
       return;
@@ -829,9 +838,11 @@ export class TrackerEngine {
     const cardId = event.cardId ?? existing?.cardId;
     const cardName = this.resolveCardName(event.cardName ?? existing?.name, cardId);
     const controller = event.controller ?? existing?.controller;
-    const fromZone = existing?.zone === event.toZone
-      ? existing.zone
-      : event.fromZone ?? existing?.zone;
+    const fromZone = replayingPendingControllerEvent
+      ? event.fromZone ?? existing?.zone
+      : existing?.zone === event.toZone
+        ? existing.zone
+        : event.fromZone ?? existing?.zone;
 
     if (event.entityId && this.gameSetupComplete) {
       if (event.toZone === "DECK" && fromZone !== "DECK") {
@@ -893,9 +904,8 @@ export class TrackerEngine {
     const deckRow = this.resolveDeckRow(cardName, cardId) ?? this.resolveDeckRow(event.cardName ?? existing?.name, cardId);
     const isFriendly =
       this.isFriendlyController(controller) ||
-      (deckRow !== undefined && controller === undefined) ||
-      (this.friendlyController === undefined && this.collectionDecks.length === 0 && controller === 1 && deckRow !== undefined);
-    const isOpponent = this.isKnownOpponentController(controller) || (this.friendlyController === undefined && controller !== undefined && !isFriendly);
+      (deckRow !== undefined && controller === undefined);
+    const isOpponent = this.isKnownOpponentController(controller);
     const cardInfo = this.findCardInfo(cardId, cardName);
 
     if (
@@ -2200,16 +2210,47 @@ export class TrackerEngine {
   }
 
   private shouldWaitForFriendlyController(event: ParsedLogEvent) {
-    if (this.friendlyController !== undefined || this.collectionDecks.length === 0 || event.type !== "zone-change") {
+    if (this.friendlyController !== undefined || event.type !== "zone-change") {
       return false;
     }
 
-    const controller = event.controller;
+    return this.resolveZoneEventController(event) !== undefined;
+  }
+
+  private resolveZoneEventController(event: ParsedLogEvent) {
+    if (event.type !== "zone-change") {
+      return undefined;
+    }
+
+    return event.controller ?? (event.entityId ? this.entities.get(event.entityId)?.controller : undefined);
+  }
+
+  private inferFriendlyControllerFromLoadedDeckDraw(event: ParsedLogEvent) {
+    if (
+      this.friendlyController !== undefined ||
+      !this.gameActive ||
+      event.type !== "zone-change" ||
+      event.fromZone !== "DECK" ||
+      event.toZone !== "HAND"
+    ) {
+      return undefined;
+    }
+
+    const controller = this.resolveZoneEventController(event);
     if (controller === undefined) {
-      return false;
+      return undefined;
     }
 
-    return (event.fromZone === "DECK" && event.toZone === "HAND") || event.toZone === "PLAY";
+    const existing = event.entityId ? this.entities.get(event.entityId) : undefined;
+    const cardId = event.cardId ?? existing?.cardId;
+    const rawCardName = event.cardName ?? existing?.name;
+    if (!cardId && !rawCardName) {
+      return undefined;
+    }
+
+    const cardName = this.resolveCardName(rawCardName, cardId);
+    const deckRow = this.resolveDeckRow(cardName, cardId) ?? this.resolveDeckRow(rawCardName, cardId);
+    return deckRow ? controller : undefined;
   }
 
   private resolveCardName(rawName?: string, cardId?: string): string | undefined {
