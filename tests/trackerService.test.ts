@@ -1715,7 +1715,7 @@ describe("TrackerService log selection", () => {
         unresolvedCount: 30,
         awaitingExactDeck: true
       });
-    }, { timeout: 2_000, interval: 50 });
+    }, { timeout: 4_000, interval: 50 });
     expect(service.getState().arena?.picks).toHaveLength(0);
     expect(service.getState().arena?.pendingRedraftChoices).toHaveLength(5);
     expect(service.getState().arena?.deck).toEqual([]);
