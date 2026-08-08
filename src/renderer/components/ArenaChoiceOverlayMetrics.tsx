@@ -6,7 +6,7 @@ export function ArenaChoiceOverlayMetrics({ choice }: { readonly choice: ArenaCa
     : "高胜选取率";
 
   return (
-    <section className="arena-choice-metrics arena-choice-overlay-metrics" role="group" aria-label={`${choice.name} 的竞技场指标`}>
+    <section className="arena-choice-overlay-metrics" role="group" aria-label={`${choice.name} 的竞技场指标`}>
       <ImpactMetric label="抽到影响" value={choice.rating?.drawnImpact} />
       <ImpactMetric label="对套牌影响" value={choice.rating?.deckImpact} />
       <RateMetric label="选取率" value={choice.rating?.pickRate} />
@@ -25,7 +25,7 @@ function RateMetric({ label, value }: { readonly label: string; readonly value: 
 
 function Metric({ label, value, tone }: { readonly label: string; readonly value: string; readonly tone: ImpactTone }) {
   return (
-    <div className={`arena-choice-metric ${tone}`} role="group" aria-label={label}>
+    <div className={`arena-choice-overlay-metric ${tone}`} role="group" aria-label={label}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

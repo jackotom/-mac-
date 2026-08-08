@@ -241,8 +241,8 @@ describe("window experience configuration", () => {
 
   it("keeps arena choice labels legible at narrow widths", () => {
     const styles = source("src/renderer/arenaChoiceOverlayStyles.css");
-    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?> span \{\s*font-size:\s*9px/);
-    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?> strong \{\s*font-size:\s*10px/);
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.arena-choice-overlay-metric > span \{\s*font-size:\s*9px/);
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.arena-choice-overlay-metric > strong \{\s*font-size:\s*10px/);
   });
 
   it("keeps the arena hero ranking draggable and readable at its narrow size", () => {

@@ -70,5 +70,8 @@ describe("Arena choice overlay resilience", () => {
     expect(styles).toMatch(
       /\.arena-choice-overlay-shell \.arena-choice-overlay-metrics\s*\{[\s\S]*?pointer-events:\s*none;/
     );
+    expect(styles).toMatch(
+      /\.arena-choice-overlay-shell \.arena-choice-overlay-metric\s*\{[\s\S]*?pointer-events:\s*none;/
+    );
   });
 });

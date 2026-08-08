@@ -58,7 +58,7 @@ body:has(.arena-choice-overlay-shell),
   pointer-events: none;
 }
 
-.arena-choice-overlay-shell .arena-choice-metric {
+.arena-choice-overlay-shell .arena-choice-overlay-metric {
   display: grid;
   min-width: 0;
   min-height: 24px;
@@ -78,7 +78,7 @@ body:has(.arena-choice-overlay-shell),
   pointer-events: none;
 }
 
-.arena-choice-overlay-shell .arena-choice-metric > span {
+.arena-choice-overlay-shell .arena-choice-overlay-metric > span {
   overflow: hidden;
   color: #b3cbd4;
   font-size: 9px;
@@ -88,7 +88,7 @@ body:has(.arena-choice-overlay-shell),
   white-space: nowrap;
 }
 
-.arena-choice-overlay-shell .arena-choice-metric > strong {
+.arena-choice-overlay-shell .arena-choice-overlay-metric > strong {
   overflow: hidden;
   color: inherit;
   font-size: 10px;
@@ -98,19 +98,19 @@ body:has(.arena-choice-overlay-shell),
   white-space: nowrap;
 }
 
-.arena-choice-overlay-shell .arena-choice-metric.is-positive {
+.arena-choice-overlay-shell .arena-choice-overlay-metric.is-positive {
   border-color: rgba(136, 226, 184, 0.42);
   color: #8ae6b8;
   background: rgba(22, 66, 49, 0.62);
 }
 
-.arena-choice-overlay-shell .arena-choice-metric.is-negative {
+.arena-choice-overlay-shell .arena-choice-overlay-metric.is-negative {
   border-color: rgba(255, 156, 156, 0.42);
   color: #ff9c9c;
   background: rgba(78, 28, 31, 0.62);
 }
 
-.arena-choice-overlay-shell .arena-choice-metric.is-neutral {
+.arena-choice-overlay-shell .arena-choice-overlay-metric.is-neutral {
   border-color: rgba(221, 236, 244, 0.28);
   color: #e9f5f8;
   background: rgba(8, 16, 22, 0.72);
@@ -121,16 +121,16 @@ body:has(.arena-choice-overlay-shell),
     gap: 4%;
   }
 
-  .arena-choice-overlay-shell .arena-choice-metric {
+  .arena-choice-overlay-shell .arena-choice-overlay-metric {
     min-height: 24px;
     padding: 2px 4px;
   }
 
-  .arena-choice-overlay-shell .arena-choice-metric > span {
+  .arena-choice-overlay-shell .arena-choice-overlay-metric > span {
     font-size: 9px;
   }
 
-  .arena-choice-overlay-shell .arena-choice-metric > strong {
+  .arena-choice-overlay-shell .arena-choice-overlay-metric > strong {
     font-size: 10px;
   }
 }

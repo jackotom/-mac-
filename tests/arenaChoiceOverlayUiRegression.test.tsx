@@ -65,18 +65,25 @@ describe("Arena choice overlay UI regression", () => {
       /\.arena-choice-overlay-shell \.arena-choice-overlay-metrics\s*\{[\s\S]*?width:\s*min\(100%,\s*236px\);[\s\S]*?min-width:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/
     );
     expect(styles).toMatch(
-      /\.arena-choice-overlay-shell \.arena-choice-metric > strong\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
+      /\.arena-choice-overlay-shell \.arena-choice-overlay-metric > strong\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/
     );
 
     expect(styles).toMatch(
       /\.arena-choice-overlay-shell \.arena-choice-overlay-metrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?grid-template-rows:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?pointer-events:\s*none;/
     );
     expect(styles).toMatch(
-      /\.arena-choice-overlay-shell \.arena-choice-metric\s*\{[\s\S]*?min-height:\s*24px;[\s\S]*?padding:\s*2px\s+4px;[\s\S]*?font-variant-numeric:\s*tabular-nums;/
+      /\.arena-choice-overlay-shell \.arena-choice-overlay-metric\s*\{[\s\S]*?min-height:\s*24px;[\s\S]*?padding:\s*2px\s+4px;[\s\S]*?font-variant-numeric:\s*tabular-nums;/
     );
-    expect(styles).toMatch(/\.arena-choice-metric\.is-positive\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
-    expect(styles).toMatch(/\.arena-choice-metric\.is-negative\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
-    expect(styles).toMatch(/\.arena-choice-metric\.is-neutral\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
-    expect(styles).not.toMatch(/@media \(max-width: 760px\)[\s\S]*?\.arena-choice-overlay-shell \.arena-choice-metric > strong\s*\{[\s\S]*?font-size:\s*13px;/);
+    expect(styles).toMatch(/\.arena-choice-overlay-metric\.is-positive\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
+    expect(styles).toMatch(/\.arena-choice-overlay-metric\.is-negative\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
+    expect(styles).toMatch(/\.arena-choice-overlay-metric\.is-neutral\s*\{[^}]*?color:\s*#[0-9a-f]{6};/i);
+    expect(styles).not.toMatch(/@media \(max-width: 760px\)[\s\S]*?\.arena-choice-overlay-shell \.arena-choice-overlay-metric > strong\s*\{[\s\S]*?font-size:\s*13px;/);
+  });
+
+  it("isolates overlay metric classes from the main Arena panel cascade", () => {
+    const { container } = render(<ArenaChoiceOverlayPanel arena={scorelessArena} />);
+
+    expect(container.querySelector(".arena-choice-metrics")).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".arena-choice-overlay-metric")).toHaveLength(12);
   });
 });
