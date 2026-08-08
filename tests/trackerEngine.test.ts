@@ -2004,6 +2004,96 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
     expect(engine.getState().deck.find((card) => card.unresolved)).toMatchObject({ remaining: 1, drawn: 0 });
   });
 
+  it("syncs an exact Arena deck without resetting the active match", () => {
+    const engine = new TrackerEngine({ cardDatabase: cardDb });
+    engine.loadDeckCards([
+      { name: "Sample Singleton", count: 1, cardId: "TEST_001" },
+      { name: "未解析竞技场牌", count: 3, unresolved: true }
+    ], "竞技场牌库");
+    engine.applyLine("D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME");
+    engine.setFriendlyController(1);
+    engine.applyText([
+      "D 12:00:01.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=TURN value=5",
+      "D 12:00:02.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=本地玩家 id=1 zone=PLAY cardId= player=1] tag=CURRENT_PLAYER value=1",
+      "D 12:00:03.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Sample Singleton id=64 zone=DECK zonePos=1 cardId=TEST_001 player=1] tag=ZONE value=HAND",
+      "D 12:00:04.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Sample Pair id=65 zone=DECK zonePos=2 cardId=TEST_002 player=1] tag=ZONE value=HAND",
+      "D 12:00:05.000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=Sample Multi id=66 zone=HAND zonePos=1 cardId=TEST_003 player=2] tag=ZONE value=PLAY"
+    ].join("\n"));
+    const before = engine.getState();
+
+    engine.syncDeckCards([
+      { name: "Sample Singleton", count: 1, cardId: "TEST_001" },
+      { name: "Sample Pair", count: 2, cardId: "TEST_002" },
+      { name: "Sample Multi", count: 1, cardId: "TEST_003" }
+    ], "竞技场牌库");
+
+    const state = engine.getState();
+    expect(state.gameActive).toBe(true);
+    expect(state.matchFlow).toEqual(before.matchFlow);
+    expect((state.friendlyHand ?? []).reduce((total, card) => total + card.count, 0)).toBe(
+      (before.friendlyHand ?? []).reduce((total, card) => total + card.count, 0)
+    );
+    expect(state.friendlyHand).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: "TEST_001", count: 1 }),
+      expect.objectContaining({ cardId: "TEST_002", count: 1 })
+    ]));
+    expect(state.opponentPlayed).toEqual(before.opponentPlayed);
+    expect(state.events).toEqual(before.events);
+    expect(state.deck.find((card) => card.cardId === "TEST_001")).toMatchObject({ count: 1, remaining: 0, drawn: 1 });
+    expect(state.deck.find((card) => card.cardId === "TEST_002")).toMatchObject({ count: 2, remaining: 1, drawn: 1 });
+    expect(state.deck.find((card) => card.cardId === "TEST_003")).toMatchObject({ count: 1, remaining: 1, drawn: 0 });
+    expect(state.deck.some((card) => card.unresolved)).toBe(false);
+    expect(state.summary).toMatchObject({ totalCards: 4, remainingCards: 2, drawnCards: 2, opponentPlayedCount: 1 });
+  });
+
+  it("keeps one generated deck card across repeated exact Arena deck syncs", () => {
+    const richDb = createCardDatabase([
+      { id: 1, cardId: "BASE_001", name: "竞技场基础牌", type: "MINION" },
+      { id: 2, cardId: "SOURCE_001", name: "生成来源", type: "MINION" },
+      { id: 3, cardId: "TOKEN_001", name: "生成牌", type: "SPELL" }
+    ]);
+    const exactDeck = [{ name: "竞技场基础牌", count: 2, cardId: "BASE_001" }];
+    const engine = new TrackerEngine({ cardDatabase: richDb });
+    engine.loadDeckCards(exactDeck, "竞技场牌库");
+    engine.setFriendlyController(1);
+    engine.applyText(`
+D 20:28:00.0000000 GameState.DebugPrintPower() - CREATE_GAME
+D 20:28:20.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=GameEntity tag=STEP value=MAIN_ACTION
+D 20:28:21.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Updating [entityName=生成来源 id=219 zone=PLAY zonePos=1 cardId=SOURCE_001 player=1] CardID=SOURCE_001
+D 20:28:22.0000000 GameState.DebugPrintPower() - FULL_ENTITY - Creating ID=300 CardID=
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:22.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=300 tag=DISPLAYED_CREATOR value=219
+D 20:28:22.0000000 GameState.DebugPrintPower() - SHOW_ENTITY - Updating Entity=300 CardID=TOKEN_001
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=CONTROLLER value=1
+D 20:28:22.0000000 GameState.DebugPrintPower() -     tag=ZONE value=DECK
+`);
+
+    expect(engine.getState().deck.find((card) => card.cardId === "TOKEN_001")).toMatchObject({
+      count: 1,
+      remaining: 1,
+      drawn: 0
+    });
+
+    engine.syncDeckCards(exactDeck, "竞技场牌库");
+    expect(engine.getState().deck.find((card) => card.cardId === "TOKEN_001")).toMatchObject({
+      count: 1,
+      remaining: 1,
+      drawn: 0
+    });
+
+    engine.applyLine(
+      "D 20:28:23.0000000 GameState.DebugPrintPower() - TAG_CHANGE Entity=[entityName=生成牌 id=300 zone=DECK zonePos=1 cardId=TOKEN_001 player=1] tag=ZONE value=HAND"
+    );
+    engine.syncDeckCards(exactDeck, "竞技场牌库");
+
+    const state = engine.getState();
+    const generatedRows = state.deck.filter((card) => card.cardId === "TOKEN_001");
+    expect(generatedRows).toHaveLength(1);
+    expect(generatedRows[0]).toMatchObject({ count: 1, remaining: 0, drawn: 1 });
+    expect(state.gameActive).toBe(true);
+  });
+
   it("clears friendly zone cards across game, import, and reset boundaries", () => {
     const engine = new TrackerEngine({ deckText: "1x Fireball" });
     engine.setFriendlyController(1);

@@ -443,6 +443,157 @@ export class TrackerEngine {
     this.matchFlow = this.createMatchFlow();
   }
 
+  syncDeckCards(cards: readonly DeckCard[], name: string) {
+    if (!this.gameActive) {
+      this.loadDeckCards(cards, name);
+      return;
+    }
+
+    const nextDeckCards = cards.map((card) => ({ ...card }));
+    const nextBaseRows: CardTrackerRow[] = createEmptyDeckRows(nextDeckCards);
+    const oldBaseRows = [...new Set(this.deckCards
+      .map((card) => this.deckRows.get(deckCardKey(card)))
+      .filter((row): row is CardTrackerRow => row !== undefined))];
+    const oldKeyByRow = new Map<CardTrackerRow, string>();
+    for (const [key, row] of this.deckRows) {
+      oldKeyByRow.set(row, key);
+    }
+
+    const findUniqueRow = (
+      rows: readonly CardTrackerRow[],
+      card: Pick<DeckCard, "name" | "cardId">,
+      namePeers?: readonly CardTrackerRow[]
+    ) => {
+      if (card.cardId) {
+        const idMatches = rows.filter(
+          (row) => row.cardId && normalizeCardId(row.cardId) === normalizeCardId(card.cardId!)
+        );
+        if (idMatches.length === 1) {
+          return idMatches[0];
+        }
+        if (idMatches.length > 1) {
+          return undefined;
+        }
+      }
+      const nameMatches = rows.filter(
+        (row) =>
+          normalizeCardKey(row.name) === normalizeCardKey(card.name) &&
+          (!card.cardId || !row.cardId)
+      );
+      if (
+        namePeers &&
+        namePeers.filter((row) => normalizeCardKey(row.name) === normalizeCardKey(card.name)).length !== 1
+      ) {
+        return undefined;
+      }
+      return nameMatches.length === 1 ? nameMatches[0] : undefined;
+    };
+
+    const insertedByOldKey = new Map<string, { count: number; remaining: number; drawn: number }>();
+    for (const [entityId, rowKey] of this.insertedDeckEntityRowKeys) {
+      const current = insertedByOldKey.get(rowKey) ?? { count: 0, remaining: 0, drawn: 0 };
+      current.count += 1;
+      if (this.entities.get(entityId)?.zone === "DECK") {
+        current.remaining += 1;
+      } else {
+        current.drawn += 1;
+      }
+      insertedByOldKey.set(rowKey, current);
+    }
+
+    const usedOldRows = new Set<CardTrackerRow>();
+    for (const nextRow of nextBaseRows) {
+      let oldRow = findUniqueRow(oldBaseRows, nextRow, nextBaseRows);
+      if (oldRow && usedOldRows.has(oldRow)) {
+        oldRow = undefined;
+      }
+      if (!oldRow) {
+        continue;
+      }
+      usedOldRows.add(oldRow);
+      const inserted = insertedByOldKey.get(oldKeyByRow.get(oldRow) ?? "") ?? {
+        count: 0,
+        remaining: 0,
+        drawn: 0
+      };
+      const drawn = Math.max(0, oldRow.drawn - inserted.drawn);
+      nextRow.drawn = Math.min(nextRow.count, drawn);
+      nextRow.remaining = Math.max(0, nextRow.count - nextRow.drawn);
+      nextRow.played = oldRow.played;
+    }
+
+    const resolvedUnresolvedDraws = new Set<string>();
+    for (const entityId of this.unresolvedDrawEntityIds) {
+      const entity = this.entities.get(entityId);
+      if (!entity) {
+        continue;
+      }
+      const target = findUniqueRow(nextBaseRows, {
+        name: this.resolveCardName(entity.name, entity.cardId) ?? entity.name ?? "",
+        cardId: entity.cardId
+      });
+      if (!target) {
+        continue;
+      }
+      target.drawn = Math.min(target.count, target.drawn + 1);
+      target.remaining = Math.max(0, target.count - target.drawn);
+      resolvedUnresolvedDraws.add(entityId);
+    }
+
+    const nextRows = new Map<string, CardTrackerRow>(
+      nextBaseRows.map((row) => [deckCardKey(row), row])
+    );
+    const preservedDynamicRows = new Map<string, CardTrackerRow>();
+    const preservedDynamicPlayedKeys = new Set<string>();
+    for (const [entityId, oldRowKey] of this.insertedDeckEntityRowKeys) {
+      const entity = this.entities.get(entityId);
+      const oldRow = this.deckRows.get(oldRowKey);
+      const target = entity
+        ? findUniqueRow(nextBaseRows, {
+            name: this.resolveCardName(entity.name, entity.cardId) ?? entity.name ?? oldRow?.name ?? "",
+            cardId: entity.cardId
+          })
+        : undefined;
+      const targetKey = target ? deckCardKey(target) : oldRowKey;
+      let row = target ?? preservedDynamicRows.get(targetKey);
+      if (!row) {
+        row = {
+          name: oldRow?.name ?? entity?.name ?? INSERTED_UNKNOWN_DECK_ROW_NAME,
+          count: 0,
+          remaining: 0,
+          drawn: 0,
+          played: 0,
+          cardId: oldRow?.cardId ?? entity?.cardId
+        };
+        preservedDynamicRows.set(targetKey, row);
+        nextRows.set(targetKey, row);
+      }
+      if (oldRow && !usedOldRows.has(oldRow) && !preservedDynamicPlayedKeys.has(oldRowKey)) {
+        row.played += oldRow.played;
+        preservedDynamicPlayedKeys.add(oldRowKey);
+      }
+      row.count += 1;
+      if (entity?.zone === "DECK") {
+        row.remaining += 1;
+      } else {
+        row.drawn += 1;
+      }
+      this.insertedDeckEntityRowKeys.set(entityId, targetKey);
+    }
+
+    for (const entityId of resolvedUnresolvedDraws) {
+      this.unresolvedDrawEntityIds.delete(entityId);
+    }
+    this.deckCards = nextDeckCards;
+    this.deckCode = undefined;
+    this.deckName = name;
+    this.autoMatchedDeckId = undefined;
+    this.deckRows = nextRows;
+    this.rebuildDeckCardIdIndex();
+    this.usingUnmatchedDeckSnapshot = false;
+    this.error = undefined;
+  }
+
   clearArenaDeck() {
     if (this.deckName !== "竞技场牌库") {
       return;

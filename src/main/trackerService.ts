@@ -1384,7 +1384,7 @@ export class TrackerService {
     }
 
     this.lastArenaDeckSignature = signature;
-    this.engine.loadDeckCards(trackerEngineDeck, trackerDeckName);
+    this.engine.syncDeckCards(trackerEngineDeck, trackerDeckName);
   }
 
   private applyExactArenaDeck(deck: CollectionDeck | undefined) {

@@ -1792,6 +1792,61 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
+  it("keeps an active Arena game alive when an exact deck arrives", async () => {
+    vi.resetModules();
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const arenaLog = join(sessionDir, "Arena.log");
+    const powerLog = join(sessionDir, "Power.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(arenaLog, [
+      "D 12:00:00.000 DraftManager.OnChoicesAndContents - Draft Deck ID: 9466340632, Hero Card = HERO_05",
+      ...Array.from(
+        { length: 30 },
+        (_value, index) => `D 12:00:00.${String(index).padStart(3, "0")} DraftManager.OnChoicesAndContents - Draft deck contains card TEST_001`
+      ),
+      "D 12:00:01.000 Arena.SetDraftMode - ACTIVE_DRAFT_DECK"
+    ].join("\n") + "\n", "utf8");
+    await writeFile(powerLog, [
+      "D 12:01:00.000 GameState.DebugPrintPower() - CREATE_GAME",
+      "D 12:01:00.100 GameState.DebugPrintGame() - GameType=GT_UNDERGROUND_ARENA",
+      "D 12:01:00.200 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
+      "D 12:01:00.300 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234"
+    ].join("\n") + "\n", "utf8");
+    const exactArenaDeck = {
+      id: "active-exact-arena",
+      deckId: "9466340632",
+      mode: "arena",
+      cards: [{ name: "Exact Arena Card", count: 30, cardId: "TEST_EXACT" }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-07-21T09:00:00.000Z",
+      warnings: []
+    };
+    let exactAvailable = false;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => exactAvailable
+        ? { status: "ok" as const, decks: [exactArenaDeck], activeDeck: exactArenaDeck }
+        : { status: "missing-log" as const, decks: [] })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+
+    await service.start({ logPath: powerLog });
+    expect(service.getState()).toMatchObject({ gameActive: true, arena: { status: "playing" } });
+
+    exactAvailable = true;
+    await writeFile(decksLog, "I 12:02:00.000 Starting Arena Game With Deck\n", "utf8");
+    await vi.waitFor(() => {
+      expect(service.getState().deck).toEqual([
+        expect.objectContaining({ cardId: "TEST_EXACT", count: 30 })
+      ]);
+    }, { timeout: 2_000, interval: 50 });
+    expect(service.getState()).toMatchObject({ gameActive: true, arena: { status: "playing" } });
+    await service.dispose();
+  });
+
   it("refreshes the active Arena deck from a matching Finished Editing Deck snapshot", async () => {
     vi.resetModules();
     const { TrackerService } = await import("../src/main/trackerService.js");
