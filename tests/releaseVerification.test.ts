@@ -156,7 +156,9 @@ describe("release verification entrypoint", () => {
 
     expect(script).toContain('require_file "$screenshots_dir/arena-choice-overlay.png"');
     expect(script).toContain('require_file "$inspections_dir/arena-choice-overlay.json"');
+    expect(script).toContain('scenario === "arena-choice-overlay"');
     expect(script).toContain('["抽到影响", "对套牌影响", "选取率", "6+胜选取率"]');
+    expect(script).toContain('["1.85", "-1.75", "36.4%", "40.2%", "-2.40", "3.10", "0.00"]');
   });
 
   it("keeps positive, negative, and neutral impact examples in Arena choice QA", () => {

@@ -287,7 +287,10 @@ run_capture() {
     if (report.trackerSettings?.overlay?.showOpponentAttack !== false) process.exit(28);
     if (scenario === "arena-choice-overlay") {
       const metricLabels = ["抽到影响", "对套牌影响", "选取率", "6+胜选取率"];
-      if (!metricLabels.every((label) => String(report.bodyText).includes(label))) process.exit(41);
+      const metricValues = ["1.85", "-1.75", "36.4%", "40.2%", "-2.40", "3.10", "0.00"];
+      const bodyText = String(report.bodyText);
+      if (!metricLabels.every((label) => bodyText.includes(label))) process.exit(41);
+      if (!metricValues.every((value) => bodyText.includes(value))) process.exit(42);
     }
     if (scenario.endsWith("-replay")) {
       if (!report.trackerState || !String(report.trackerState.logPath ?? "").includes(fixture)) process.exit(2);

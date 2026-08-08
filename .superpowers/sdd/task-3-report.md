@@ -15,6 +15,8 @@
 - `rtk npm run typecheck`：通过。
 - `rtk npm run build`：通过。
 - `rtk git diff --check`：通过。
+- `rtk npm audit --omit=dev`：0 个漏洞。
+- 独立审查后补强发布门槛：除四个标签外，还必须出现 QA 的正、负、零和百分比示例值，并锁定检查只作用于选牌悬浮窗场景。
 
 ## 风险与交接
 
