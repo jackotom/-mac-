@@ -72,7 +72,7 @@ describe("ArenaRatingService", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("loads deck impact for only the current Arena class", async () => {
+  it("loads deck and drawn impact for only the current Arena class", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
     tempDirs.push(root);
     const cachePath = path.join(root, "ratings.json");
@@ -128,7 +128,10 @@ describe("ArenaRatingService", () => {
           json: async () => ({
             lastUpdated: "2026-07-22T00:30:00.000Z",
             stats: [
-              { cardId: "TEST_001", stats: { decksWithCard: 3, decksWithCardThenWin: 2 } },
+              {
+                cardId: "TEST_001",
+                stats: { decksWithCard: 3, decksWithCardThenWin: 2, drawn: 4, drawnThenWin: 3 }
+              },
               { cardId: "TEST_NO_SAMPLE", stats: { decksWithCard: 0, decksWithCardThenWin: 0 } }
             ]
           })
@@ -144,10 +147,23 @@ describe("ArenaRatingService", () => {
       playerClass: "priest",
       overallWinrate: 50,
       ratings: {
-        TEST_001: { includedWinrate: 66.67, sampleSize: 3, deckImpact: 16.67 }
+        TEST_001: {
+          includedWinrate: 66.67,
+          sampleSize: 3,
+          deckImpact: 16.67,
+          drawnWinrate: 75,
+          drawnWins: 3,
+          drawnSampleSize: 4,
+          drawnImpact: 25
+        }
       }
     });
     expect(result.table?.firestoneClasses?.priest.ratings.TEST_NO_SAMPLE).toBeUndefined();
+    const { getArenaCardRating } = await import("../src/shared/arenaRatings.js");
+    expect(getArenaCardRating(result.table, "TEST_001", "Priest")).toMatchObject({
+      deckImpact: 16.67,
+      drawnImpact: 25
+    });
     expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
       expect.stringContaining("/stats/classes/arena-underground/last-patch/overview.gz.json"),
       expect.stringContaining("/stats/cards/arena-underground/last-patch/priest.gz.json?v=6")
@@ -157,18 +173,73 @@ describe("ArenaRatingService", () => {
     expect(JSON.parse(await readFile(classCachePath, "utf8"))).toMatchObject({
       overallWins: 2,
       overallGames: 4,
-      ratings: { TEST_001: { includedWins: 2, sampleSize: 3 } }
+      schemaVersion: 1,
+      ratings: { TEST_001: { includedWins: 2, sampleSize: 3, drawnWins: 3, drawnSampleSize: 4 } }
     });
-    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-    await utimes(classCachePath, old, old);
     const offlineFetcher = vi.fn(async () => { throw new Error("offline"); });
     const offlineService = new ArenaRatingService(cachePath, offlineFetcher);
     const offlineResult = await offlineService.loadRatings("Priest");
     expect(offlineResult.table?.firestoneClasses?.priest.ratings.TEST_001?.deckImpact).toBe(16.67);
-    expect(offlineResult.firestoneClassCacheStatus).toBe("stale");
-    expect(offlineResult.warnings).toEqual(expect.arrayContaining([expect.stringContaining("继续使用本地缓存")]));
-    await offlineService.loadRatings("Priest");
-    await vi.waitFor(() => expect(offlineFetcher).toHaveBeenCalledTimes(4));
+    expect(offlineResult.table?.firestoneClasses?.priest.ratings.TEST_001?.drawnImpact).toBe(25);
+    expect(offlineResult.firestoneClassCacheStatus).toBe("fresh");
+    expect(offlineFetcher).not.toHaveBeenCalled();
+  });
+
+  it("treats class caches without the drawn-impact schema as stale", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "arena-ratings-"));
+    tempDirs.push(root);
+    const cachePath = path.join(root, "ratings.json");
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        source: "cached",
+        version: 3,
+        fetchedAt: "2026-07-10T00:00:00.000Z",
+        ratings: { Priest: { TEST_001: 88 } },
+        hearthArenaWeb: {
+          source: "HearthArena Web",
+          version: "zh-cn:web-v1",
+          locales: {
+            "zh-cn": {
+              locale: "zh-cn",
+              url: "https://www.heartharena.com/zh-cn/tierlist",
+              version: "web-v1",
+              fetchedAt: "2026-07-10T00:00:00.000Z",
+              ratingCount: 1,
+              ratings: { Priest: { TEST_001: 89 } }
+            }
+          }
+        },
+        firestone: {
+          source: "Firestone",
+          version: "firestone-v1",
+          lastUpdated: "2026-07-10T00:00:00.000Z",
+          ratings: { TEST_001: { pickRate: 42.1, highWinPickRate: 49.5, highWinThreshold: 6 } }
+        }
+      }),
+      "utf8"
+    );
+    await writeFile(
+      path.join(root, "ratings-firestone-priest.json"),
+      JSON.stringify({
+        source: "Firestone",
+        playerClass: "priest",
+        version: "legacy-priest-cache",
+        lastUpdated: "2026-07-10T00:00:00.000Z",
+        overallWins: 2,
+        overallGames: 4,
+        ratings: { TEST_001: { includedWins: 3, sampleSize: 4 } }
+      }),
+      "utf8"
+    );
+    const offlineFetcher = vi.fn(async () => { throw new Error("offline"); });
+
+    const { ArenaRatingService } = await import("../src/main/arenaRatingService.js");
+    const result = await new ArenaRatingService(cachePath, offlineFetcher).loadRatings("Priest");
+
+    expect(result.table?.firestoneClasses?.priest.ratings.TEST_001?.deckImpact).toBe(25);
+    expect(result.firestoneClassCacheStatus).toBe("stale");
+    await vi.waitFor(() => expect(offlineFetcher).toHaveBeenCalledTimes(2));
   });
 
   it("keeps class tables loaded by concurrent requests", async () => {
@@ -880,7 +951,20 @@ describe("ArenaRatingService", () => {
         } as Response;
       }
       if (url.includes("/stats/draft/")) {
-        return { ok: true, status: 200, json: async () => ({ lastUpdateDate: "2026-07-10T00:00:00.000Z", stats: [] }) } as Response;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            lastUpdateDate: "2026-07-10T00:00:00.000Z",
+            stats: [{
+              cardId: "TEST_004",
+              statsByWins: {
+                0: { offered: 1000, picked: 500 },
+                4: { offered: 300, picked: 180 }
+              }
+            }]
+          })
+        } as Response;
       }
       return { ok: true, status: 200, json: async () => ({ Hunter: { TEST_004: 90 } }) } as Response;
     });

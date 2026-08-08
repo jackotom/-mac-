@@ -28,6 +28,10 @@ export interface FirestoneCardRating {
   readonly includedWins?: number;
   readonly playedWinrate?: number;
   readonly sampleSize?: number;
+  readonly drawnWinrate?: number;
+  readonly drawnWins?: number;
+  readonly drawnSampleSize?: number;
+  readonly drawnImpact?: number;
   readonly pickRate?: number;
   readonly pickRateSampleSize?: number;
   readonly highWinPickRate?: number;
@@ -56,6 +60,7 @@ export interface FirestoneRatingSource {
 export interface FirestoneClassRatingSource {
   readonly source: "Firestone";
   readonly playerClass: string;
+  readonly schemaVersion?: number;
   readonly version: string;
   readonly lastUpdated: string;
   readonly overallWinrate: number;
@@ -72,6 +77,7 @@ export interface ArenaCardRating {
   readonly highWinPickRateImpact?: number;
   readonly twelveWinRate?: number;
   readonly deckImpact?: number;
+  readonly drawnImpact?: number;
   readonly firestone?: FirestoneCardRating;
 }
 
@@ -122,6 +128,7 @@ export function getArenaCardRating(
     highWinPickRateImpact: firestone?.highWinPickRateImpact,
     twelveWinRate: firestone?.twelveWinRate,
     deckImpact: classFirestone?.deckImpact,
+    drawnImpact: classFirestone?.drawnImpact,
     firestone
   };
 }

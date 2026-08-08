@@ -543,13 +543,15 @@ function isOptionalArenaRating(value: unknown): boolean {
     return true;
   }
   if (!isRecord(value) || !numericFieldsAreOptional(value, [
-    "hearthArena", "pickRate", "highWinPickRate", "highWinThreshold", "highWinPickRateImpact", "twelveWinRate"
+    "hearthArena", "pickRate", "highWinPickRate", "highWinThreshold", "highWinPickRateImpact", "twelveWinRate",
+    "deckImpact", "drawnImpact"
   ]) || !isOptionalPercentage(value.pickRate)) {
     return false;
   }
   return value.firestone === undefined || (isRecord(value.firestone) && numericFieldsAreOptional(value.firestone, [
     "includedWinrate", "playedWinrate", "sampleSize", "pickRate", "pickRateSampleSize", "highWinPickRate",
-    "highWinPickRateSampleSize", "highWinThreshold", "highWinPickRateImpact", "twelveWinRate", "twelveWinRateSampleSize"
+    "highWinPickRateSampleSize", "highWinThreshold", "highWinPickRateImpact", "twelveWinRate", "twelveWinRateSampleSize",
+    "drawnWinrate", "drawnWins", "drawnSampleSize", "drawnImpact"
   ]) && isOptionalPercentage(value.firestone.pickRate));
 }
 

@@ -27,6 +27,7 @@ const HEARTH_ARENA_WEB_SOURCES = [
   { locale: "zh-tw", url: "https://www.heartharena.com/zh-tw/tierlist" }
 ] as const;
 const CACHE_FILE_NAME = "hearthstone-arena-ratings.json";
+const FIRESTONE_CLASS_CACHE_SCHEMA_VERSION = 1;
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
 const FETCH_RETRY_DELAY_MS = 150;
@@ -86,7 +87,7 @@ export class ArenaRatingService {
     const cachedClass = base.table.firestoneClasses?.[classSlug] ?? await this.readFirestoneClassCache(classSlug);
     if (cachedClass) {
       const table = this.mergeFirestoneClass(base.table, cachedClass);
-      if (!(await this.isClassCacheStale(classSlug))) {
+      if (!(await this.isClassCacheStale(classSlug, cachedClass))) {
         this.firestoneClassLoadedAt.set(classSlug, Date.now());
         return {
           table,
@@ -236,7 +237,7 @@ export class ArenaRatingService {
     classSlug: string
   ): Promise<ArenaRatingLoadResult> {
     const cached = await this.readFirestoneClassCache(classSlug);
-    if (cached && !(await this.isClassCacheStale(classSlug))) {
+    if (cached && !(await this.isClassCacheStale(classSlug, cached))) {
       return { table: withFirestoneClass(table, cached), warnings: [], firestoneClassCacheStatus: "fresh" };
     }
 
@@ -274,7 +275,10 @@ export class ArenaRatingService {
     }
   }
 
-  private async isClassCacheStale(classSlug: string) {
+  private async isClassCacheStale(classSlug: string, source?: FirestoneClassRatingSource) {
+    if (source?.schemaVersion !== FIRESTONE_CLASS_CACHE_SCHEMA_VERSION) {
+      return true;
+    }
     try {
       const stat = await fs.stat(this.getClassCachePath(classSlug));
       return Date.now() - stat.mtimeMs > CACHE_MAX_AGE_MS;
@@ -693,21 +697,32 @@ function parseFirestoneClass(
     const sampleSize = numberValue(entry.stats.decksWithCard);
     const includedWins = numberValue(entry.stats.decksWithCardThenWin);
     const includedRatio = ratioValue(includedWins, sampleSize);
-    if (includedRatio === undefined) {
+    const drawnSampleSize = numberValue(entry.stats.drawn);
+    const drawnWins = numberValue(entry.stats.drawnThenWin);
+    const drawnRatio = ratioValue(drawnWins, drawnSampleSize);
+    if (includedRatio === undefined && drawnRatio === undefined) {
       continue;
     }
-    const includedWinrate = roundPercent(includedRatio * 100);
     ratings[entry.cardId.trim().toUpperCase()] = {
-      includedWinrate,
-      includedWins,
-      sampleSize,
-      deckImpact: roundPercent((includedRatio - overallRatio) * 100)
+      ...(includedRatio === undefined ? {} : {
+        includedWinrate: roundPercent(includedRatio * 100),
+        includedWins,
+        sampleSize,
+        deckImpact: roundPercent((includedRatio - overallRatio) * 100)
+      }),
+      ...(drawnRatio === undefined ? {} : {
+        drawnWinrate: roundPercent(drawnRatio * 100),
+        drawnWins,
+        drawnSampleSize,
+        drawnImpact: roundPercent((drawnRatio - overallRatio) * 100)
+      })
     };
   }
 
   return {
     source: "Firestone",
     playerClass: classSlug,
+    schemaVersion: FIRESTONE_CLASS_CACHE_SCHEMA_VERSION,
     version: `overview:${overviewValue.lastUpdated}|cards:${cardValue.lastUpdated}`,
     lastUpdated: [overviewValue.lastUpdated, cardValue.lastUpdated].sort().at(-1)!,
     overallWinrate,
@@ -720,6 +735,7 @@ function parseFirestoneClass(
 function parseFirestoneClassCache(value: unknown, classSlug: string): FirestoneClassRatingSource | undefined {
   const overallWins = isRecord(value) ? numberValue(value.overallWins) : undefined;
   const overallGames = isRecord(value) ? numberValue(value.overallGames) : undefined;
+  const schemaVersion = isRecord(value) ? numberValue(value.schemaVersion) : undefined;
   const overallRatio = ratioValue(overallWins, overallGames);
   if (
     !isRecord(value) ||
@@ -741,16 +757,23 @@ function parseFirestoneClassCache(value: unknown, classSlug: string): FirestoneC
     }
     const rating: FirestoneCardRating = {
       includedWins: numberValue(rawRating.includedWins),
-      sampleSize: numberValue(rawRating.sampleSize)
+      sampleSize: numberValue(rawRating.sampleSize),
+      drawnWins: numberValue(rawRating.drawnWins),
+      drawnSampleSize: numberValue(rawRating.drawnSampleSize)
     };
     const includedRatio = ratioValue(rating.includedWins, rating.sampleSize);
-    if (
-      includedRatio !== undefined
-    ) {
+    const drawnRatio = ratioValue(rating.drawnWins, rating.drawnSampleSize);
+    if (includedRatio !== undefined || drawnRatio !== undefined) {
       ratings[cardId.trim().toUpperCase()] = {
         ...rating,
-        includedWinrate: roundPercent(includedRatio * 100),
-        deckImpact: roundPercent((includedRatio - overallRatio) * 100)
+        ...(includedRatio === undefined ? {} : {
+          includedWinrate: roundPercent(includedRatio * 100),
+          deckImpact: roundPercent((includedRatio - overallRatio) * 100)
+        }),
+        ...(drawnRatio === undefined ? {} : {
+          drawnWinrate: roundPercent(drawnRatio * 100),
+          drawnImpact: roundPercent((drawnRatio - overallRatio) * 100)
+        })
       };
     }
   }
@@ -758,6 +781,7 @@ function parseFirestoneClassCache(value: unknown, classSlug: string): FirestoneC
   return {
     source: "Firestone",
     playerClass: classSlug,
+    schemaVersion,
     version: value.version,
     lastUpdated: value.lastUpdated,
     overallWinrate,
@@ -941,6 +965,7 @@ function hasUsefulFirestoneRating(rating: FirestoneCardRating): boolean {
   return (
     rating.includedWinrate !== undefined ||
     rating.playedWinrate !== undefined ||
+    rating.drawnWinrate !== undefined ||
     rating.pickRate !== undefined ||
     rating.highWinPickRate !== undefined ||
     rating.twelveWinRate !== undefined

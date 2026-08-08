@@ -61,6 +61,37 @@ function createDetailsWithOutcomeSections() {
 }
 
 describe("card tracking runtime validation", () => {
+  it("accepts numeric drawn and deck impacts but rejects non-numeric values", () => {
+    const valid = createPublicTrackerState() as unknown as Record<string, unknown>;
+    valid.arena = {
+      status: "drafting",
+      draftCount: 0,
+      unresolvedCount: 30,
+      currentChoices: [{
+        name: "测试牌",
+        count: 1,
+        rating: {
+          drawnImpact: 25,
+          deckImpact: 16.67,
+          firestone: { drawnWinrate: 75, drawnWins: 3, drawnSampleSize: 4, drawnImpact: 25 }
+        }
+      }],
+      picks: [],
+      deck: []
+    };
+    expect(() => parsePublicTrackerState(valid)).not.toThrow();
+
+    const invalidTopLevel = structuredClone(valid);
+    ((invalidTopLevel.arena as { currentChoices: Array<{ rating: Record<string, unknown> }> })
+      .currentChoices[0]!.rating.drawnImpact) = "25";
+    expect(() => parsePublicTrackerState(invalidTopLevel)).toThrow(/状态数据无效/);
+
+    const invalidFirestone = structuredClone(valid);
+    ((invalidFirestone.arena as { currentChoices: Array<{ rating: { firestone: Record<string, unknown> } }> })
+      .currentChoices[0]!.rating.firestone.drawnWins) = "3";
+    expect(() => parsePublicTrackerState(invalidFirestone)).toThrow(/状态数据无效/);
+  });
+
   it("rejects malformed deck and event rows", () => {
     const malformedDeck = createPublicTrackerState() as unknown as Record<string, unknown>;
     malformedDeck.deck = [null];

@@ -34,7 +34,17 @@ const ratedChoice: ArenaCardChoice = {
   rating: {
     hearthArena: 88,
     pickRate: 41.2,
-    firestone: { includedWinrate: 56.8, playedWinrate: 58.1, sampleSize: 3000 }
+    deckImpact: 16.67,
+    drawnImpact: 25,
+    firestone: {
+      includedWinrate: 56.8,
+      playedWinrate: 58.1,
+      sampleSize: 3000,
+      drawnWinrate: 75,
+      drawnWins: 3,
+      drawnSampleSize: 4,
+      drawnImpact: 25
+    }
   }
 };
 
@@ -57,7 +67,17 @@ describe("preserveArenaChoiceStatistics", () => {
       rating: {
         hearthArena: 88,
         pickRate: 43,
-        firestone: { includedWinrate: 57.4, playedWinrate: 58.1, sampleSize: 3000 }
+        deckImpact: 16.67,
+        drawnImpact: 25,
+        firestone: {
+          includedWinrate: 57.4,
+          playedWinrate: 58.1,
+          sampleSize: 3000,
+          drawnWinrate: 75,
+          drawnWins: 3,
+          drawnSampleSize: 4,
+          drawnImpact: 25
+        }
       }
     });
   });
