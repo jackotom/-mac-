@@ -107,6 +107,62 @@ describe("TrackerService log selection", () => {
     await service.dispose();
   });
 
+  it("retries an uncommitted appended chunk without requiring more bytes", async () => {
+    vi.resetModules();
+    vi.doMock("../src/main/cardDataService.js", () => ({ CardDataService: class { async loadCardDatabase() { return { warnings: [] }; } } }));
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const sessionDir = await createSessionDir();
+    const powerLog = join(sessionDir, "Power.log");
+    const decksLog = join(sessionDir, "Decks.log");
+    await writeFile(powerLog, "D 10:00:00 GameState.DebugPrintPower() - CREATE_GAME GameType=GT_RANKED\n", "utf8");
+    await writeFile(decksLog, "initial\n", "utf8");
+    const recoveredDeck = {
+      id: "recovered-deck",
+      name: "重试恢复牌组",
+      format: "标准",
+      cards: [{ name: "Recovered Card", count: 30 }],
+      rawText: "",
+      sourcePath: decksLog,
+      updatedAt: "2026-08-08T00:00:00.000Z",
+      warnings: []
+    };
+    let calls = 0;
+    let recoveredScans = 0;
+    const scanner = {
+      scanAndImportDecks: vi.fn(async () => {
+        calls += 1;
+        if (calls === 2) {
+          throw new Error("temporary Decks.log processing failure");
+        }
+        if (calls >= 3) {
+          recoveredScans += 1;
+          return { status: "ok" as const, decks: [recoveredDeck], activeDeck: recoveredDeck };
+        }
+        return { status: "ok" as const, decks: [] };
+      })
+    };
+    const service = new TrackerService(scanner, {
+      recognize: vi.fn(async () => ({ status: "ok" as const, texts: [] }))
+    });
+    await service.start({ logPath: powerLog });
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(1);
+
+    await appendFile(decksLog, "appended once\n", "utf8");
+    await vi.waitFor(() => expect(service.getState().status).toBe("error"));
+    await vi.waitFor(() => expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(3), {
+      timeout: 700,
+      interval: 25
+    });
+    await vi.waitFor(() => expect(service.getState()).toMatchObject({
+      status: "watching",
+      deckName: "重试恢复牌组"
+    }));
+    await service.dispose();
+
+    expect(scanner.scanAndImportDecks).toHaveBeenCalledTimes(3);
+    expect(recoveredScans).toBe(1);
+  });
+
   it("serializes overlapping updates from the same log path", async () => {
     vi.resetModules();
     vi.doMock("../src/main/cardDataService.js", () => ({
@@ -490,6 +546,25 @@ describe("TrackerService log selection", () => {
     await service.dispose();
 
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry processed log data when a renderer update throws", async () => {
+    const { TrackerService } = await import("../src/main/trackerService.js");
+    const service = new TrackerService();
+    const send = vi.fn()
+      .mockImplementationOnce(() => { throw new Error("renderer closed during update"); })
+      .mockImplementation(() => undefined);
+    service.attachWindow({
+      on: vi.fn(),
+      isDestroyed: () => false,
+      webContents: { send }
+    } as unknown as Parameters<typeof service.attachWindow>[0]);
+
+    expect(() => service.setCollectionDecks([])).not.toThrow();
+    service.setCollectionDecks([]);
+    await service.dispose();
+
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("publishes a constructed mode when the already-previewed deck stays selected", async () => {

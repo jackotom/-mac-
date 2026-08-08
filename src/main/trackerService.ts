@@ -472,14 +472,12 @@ export class TrackerService {
         if (stat.size < offset) {
           wasTruncated = true;
           offset = 0;
-          this.pendingLogBytes.delete(logPath);
         } else if (
           this.isArenaLog(logPath) &&
           await hasLogFileFingerprintChanged(handle, stat, this.logFileFingerprints.get(logPath))
         ) {
           wasTruncated = true;
           offset = 0;
-          this.pendingLogBytes.delete(logPath);
         }
 
         modifiedAtMs = stat.mtimeMs;
@@ -498,17 +496,18 @@ export class TrackerService {
       if (!this.isCurrentMonitoringGeneration(monitoringGeneration)) {
         return;
       }
-      this.clearLogReadRetry(logPath);
       if (buffer.length === 0) {
         return;
       }
-      this.offsets.set(logPath, offset + buffer.length);
-      if (replacementFingerprint) {
-        this.logFileFingerprints.set(logPath, replacementFingerprint);
-      }
-      const { text, pending } = splitCompleteLogChunk(this.pendingLogBytes.get(logPath), buffer);
-      this.setPendingLogBytes(logPath, pending);
+      const previousPending = wasTruncated ? undefined : this.pendingLogBytes.get(logPath);
+      const { text, pending } = splitCompleteLogChunk(previousPending, buffer);
       if (!text) {
+        this.offsets.set(logPath, offset + buffer.length);
+        this.setPendingLogBytes(logPath, pending);
+        if (replacementFingerprint) {
+          this.logFileFingerprints.set(logPath, replacementFingerprint);
+        }
+        this.clearLogReadRetry(logPath);
         return;
       }
       if (this.engine.getState().status === "error") {
@@ -573,6 +572,15 @@ export class TrackerService {
       this.ensureArenaRatingsForCurrentArena(monitoringGeneration);
       this.syncArenaDeckToTracker();
       this.pushState();
+      if (!this.isCurrentMonitoringGeneration(monitoringGeneration)) {
+        return;
+      }
+      this.offsets.set(logPath, offset + buffer.length);
+      this.setPendingLogBytes(logPath, pending);
+      if (replacementFingerprint) {
+        this.logFileFingerprints.set(logPath, replacementFingerprint);
+      }
+      this.clearLogReadRetry(logPath);
       void this.refreshArenaScreenChoices(monitoringGeneration);
     } catch (error) {
       if (!this.isCurrentMonitoringGeneration(monitoringGeneration)) {
@@ -1570,13 +1578,18 @@ export class TrackerService {
     }
 
     let published = false;
+    let publishFailed = false;
     for (const window of this.windows) {
       if (!window.isDestroyed()) {
-        window.webContents.send("tracker:update", state);
-        published = true;
+        try {
+          window.webContents.send("tracker:update", state);
+          published = true;
+        } catch {
+          publishFailed = true;
+        }
       }
     }
-    if (published) {
+    if (published && !publishFailed) {
       this.lastPublishedStateSignature = signature;
     }
   }
