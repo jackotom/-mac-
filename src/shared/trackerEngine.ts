@@ -1433,7 +1433,7 @@ export class TrackerEngine {
     const observedDistinctCards = new Set(this.friendlyObservations.map((observation) => observationKey(observation))).size;
     const best = matches[0];
     const second = matches[1];
-    const isConfident = matches.length === 1 || (observedDistinctCards >= 2 && (!second || best.score > second.score));
+    const isConfident = observedDistinctCards >= 2 && (!second || best.score > second.score);
 
     if (!isConfident) {
       return;

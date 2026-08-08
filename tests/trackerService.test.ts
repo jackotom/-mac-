@@ -735,7 +735,8 @@ describe("TrackerService log selection", () => {
         "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
         "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
         "D 12:00:01.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME",
-        "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=1 cardId=CS2_029 player=2] tag=ZONE value=HAND"
+        "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=1 cardId=CS2_029 player=2] tag=ZONE value=HAND",
+        "D 12:00:03.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Frostbolt id=65 zone=DECK zonePos=2 cardId=CS2_024 player=2] tag=ZONE value=HAND"
       ].join("\n") + "\n",
       "utf8"
     );
@@ -745,8 +746,11 @@ describe("TrackerService log selection", () => {
       {
         id: "power-log-local-deck",
         name: "Power.log 本方套牌",
-        cards: [{ name: "Fireball", count: 1, cardId: "CS2_029" }],
-        rawText: "1x Fireball",
+        cards: [
+          { name: "Fireball", count: 1, cardId: "CS2_029" },
+          { name: "Frostbolt", count: 1, cardId: "CS2_024" }
+        ],
+        rawText: "1x Fireball\n1x Frostbolt",
         sourcePath: "/tmp/Decks.log",
         updatedAt: "2026-07-11T00:00:00.000Z",
         warnings: []
@@ -758,7 +762,7 @@ describe("TrackerService log selection", () => {
 
     expect(state.autoMatchedDeckId).toBe("power-log-local-deck");
     expect(state.deckName).toBe("Power.log 本方套牌");
-    expect(state.summary).toMatchObject({ totalCards: 1, remainingCards: 0, drawnCards: 1 });
+    expect(state.summary).toMatchObject({ totalCards: 2, remainingCards: 0, drawnCards: 2 });
   });
 
   it("restores the real hand from a duplicate CREATE_GAME dump with one privacy-hidden opponent", async () => {
@@ -768,7 +772,8 @@ describe("TrackerService log selection", () => {
         async loadCardDatabase() {
           return {
             database: {
-              "1001": { dbfId: 1001, name: "火羽精灵", cardId: "CORE_UNG_809", type: "MINION" }
+              "1001": { dbfId: 1001, name: "火羽精灵", cardId: "CORE_UNG_809", type: "MINION" },
+              "1002": { dbfId: 1002, name: "火球术", cardId: "CS2_029", type: "SPELL" }
             },
             warnings: []
           };
@@ -787,7 +792,10 @@ describe("TrackerService log selection", () => {
         "D 20:00:14.3904530 PowerTaskList.DebugPrintPower() - CREATE_GAME",
         "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=37 zone=DECK zonePos=0 cardId= player=2] CardID=CORE_UNG_809",
         "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - tag=CONTROLLER value=2",
-        "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - tag=ZONE value=HAND"
+        "D 20:00:17.7867120 PowerTaskList.DebugPrintPower() - tag=ZONE value=HAND",
+        "D 20:00:18.7867120 PowerTaskList.DebugPrintPower() - SHOW_ENTITY - Updating Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=38 zone=DECK zonePos=0 cardId= player=2] CardID=CS2_029",
+        "D 20:00:18.7867120 PowerTaskList.DebugPrintPower() - tag=CONTROLLER value=2",
+        "D 20:00:18.7867120 PowerTaskList.DebugPrintPower() - tag=ZONE value=PLAY"
       ].join("\n") + "\n",
       "utf8"
     );
@@ -797,8 +805,11 @@ describe("TrackerService log selection", () => {
       {
         id: "real-log-deck",
         name: "法术法师",
-        cards: [{ name: "火羽精灵", count: 1, cardId: "CORE_UNG_809" }],
-        rawText: "1x 火羽精灵",
+        cards: [
+          { name: "火羽精灵", count: 1, cardId: "CORE_UNG_809" },
+          { name: "火球术", count: 1, cardId: "CS2_029" }
+        ],
+        rawText: "1x 火羽精灵\n1x 火球术",
         sourcePath: "/tmp/Decks.log",
         updatedAt: "2026-07-21T00:00:00.000Z",
         warnings: []
@@ -812,7 +823,7 @@ describe("TrackerService log selection", () => {
       expect.objectContaining({ name: "火羽精灵", count: 1, cardId: "CORE_UNG_809" })
     ]);
     expect(state.deckName).toBe("法术法师");
-    expect(state.summary).toMatchObject({ totalCards: 1, remainingCards: 0, drawnCards: 1 });
+    expect(state.summary).toMatchObject({ totalCards: 2, remainingCards: 1, drawnCards: 1 });
   });
 
   it("uses the current game's local player slot when it changes between games", async () => {
@@ -828,7 +839,8 @@ describe("TrackerService log selection", () => {
         "D 12:00:00.000 GameState.DebugPrintPower() - CREATE_GAME",
         "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=1, PlayerName=UNKNOWN HUMAN PLAYER",
         "D 12:00:00.000 GameState.DebugPrintGame() - PlayerID=2, PlayerName=本地玩家#1234",
-        "D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=1 cardId=CS2_029 player=2] tag=ZONE value=HAND"
+        "D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Fireball id=64 zone=DECK zonePos=1 cardId=CS2_029 player=2] tag=ZONE value=HAND",
+        "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Frostbolt id=65 zone=DECK zonePos=2 cardId=CS2_024 player=2] tag=ZONE value=HAND"
       ].join("\n"),
       "utf8"
     );
@@ -838,8 +850,11 @@ describe("TrackerService log selection", () => {
       {
         id: "current-game-player-two",
         name: "当前对局本方套牌",
-        cards: [{ name: "Fireball", count: 1, cardId: "CS2_029" }],
-        rawText: "1x Fireball",
+        cards: [
+          { name: "Fireball", count: 1, cardId: "CS2_029" },
+          { name: "Frostbolt", count: 1, cardId: "CS2_024" }
+        ],
+        rawText: "1x Fireball\n1x Frostbolt",
         sourcePath: "/tmp/Decks.log",
         updatedAt: "2026-07-11T00:00:00.000Z",
         warnings: []
@@ -851,7 +866,7 @@ describe("TrackerService log selection", () => {
 
     expect(state.autoMatchedDeckId).toBe("current-game-player-two");
     expect(state.deckName).toBe("当前对局本方套牌");
-    expect(state.summary).toMatchObject({ totalCards: 1, remainingCards: 0, drawnCards: 1 });
+    expect(state.summary).toMatchObject({ totalCards: 2, remainingCards: 0, drawnCards: 2 });
   });
 
   it("loads Hearthstone's selected collection deck whenever a Power.log session starts", async () => {

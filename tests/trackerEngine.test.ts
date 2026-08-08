@@ -2440,11 +2440,14 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
     });
   });
 
-  it("does not auto match before a game starts or from the opponent's draw", () => {
+  it("waits for two distinct friendly cards before auto matching a unique collection deck", () => {
     const engine = new TrackerEngine({
       cardDatabase: cardDb,
       collectionDecks: [
-        createCollectionDeck("deck-a", "自动套牌 A", [{ name: "Sample Singleton", count: 1, cardId: "TEST_001" }])
+        createCollectionDeck("deck-a", "自动套牌 A", [
+          { name: "Sample Singleton", count: 1, cardId: "TEST_001" },
+          { name: "Sample Pair", count: 1, cardId: "TEST_002" }
+        ])
       ]
     });
     engine.setFriendlyController(1);
@@ -2458,7 +2461,33 @@ D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityNa
     engine.applyLine(
       "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=65 zone=DECK zonePos=1 cardId=TEST_001 player=1] tag=ZONE value=HAND"
     );
+    expect(engine.getState().autoMatchedDeckId).toBeUndefined();
+
+    engine.applyLine(
+      "D 12:00:03.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=66 zone=DECK zonePos=2 cardId=TEST_002 player=1] tag=ZONE value=HAND"
+    );
     expect(engine.getState().autoMatchedDeckId).toBe("deck-a");
+  });
+
+  it("does not auto match when the same friendly card is observed twice", () => {
+    const engine = new TrackerEngine({
+      cardDatabase: cardDb,
+      collectionDecks: [
+        createCollectionDeck("deck-a", "自动套牌 A", [
+          { name: "Sample Pair", count: 2, cardId: "TEST_002" },
+          { name: "Sample Multi", count: 1, cardId: "TEST_003" }
+        ])
+      ]
+    });
+    engine.setFriendlyController(1);
+
+    engine.applyText([
+      "D 12:00:00.000 PowerTaskList.DebugPrintPower() -     CREATE_GAME",
+      "D 12:00:01.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=64 zone=DECK zonePos=1 cardId=TEST_002 player=1] tag=ZONE value=HAND",
+      "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=65 zone=DECK zonePos=2 cardId=TEST_002 player=1] tag=ZONE value=HAND"
+    ].join("\n"));
+
+    expect(engine.getState().autoMatchedDeckId).toBeUndefined();
   });
 
   it("waits for the friendly controller before classifying controller 1 plays without collection decks", () => {
@@ -2550,7 +2579,8 @@ D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=C
       collectionDecks: [
         createCollectionDeck("same-name", "同名测试套牌", [
           { name: "Twin Card", count: 1, cardId: "CARD_A" },
-          { name: "Twin Card", count: 1, cardId: "CARD_B" }
+          { name: "Twin Card", count: 1, cardId: "CARD_B" },
+          { name: "Second Friendly Card", count: 1, cardId: "CARD_C" }
         ])
       ]
     });
@@ -2564,6 +2594,9 @@ D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=C
       "D 12:00:02.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Twin Card id=65 zone=DECK zonePos=1 cardId=CARD_A player=1] tag=ZONE value=HAND"
     );
     engine.applyLine(
+      "D 12:00:02.500 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Second Friendly Card id=67 zone=DECK zonePos=2 cardId=CARD_C player=1] tag=ZONE value=HAND"
+    );
+    engine.applyLine(
       "D 12:00:03.000 PowerTaskList.DebugPrintPower() -     TAG_CHANGE Entity=[entityName=Twin Card id=66 zone=HAND zonePos=1 cardId=CARD_B player=2] tag=ZONE value=PLAY"
     );
 
@@ -2571,7 +2604,8 @@ D 12:00:03.000 PowerTaskList.DebugPrintPower() - TAG_CHANGE Entity=[entityName=C
     expect(state.autoMatchedDeckId).toBe("same-name");
     expect(state.deck).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Twin Card", cardId: "CARD_A", drawn: 1, remaining: 0 }),
-      expect.objectContaining({ name: "Twin Card", cardId: "CARD_B", drawn: 0, remaining: 1 })
+      expect.objectContaining({ name: "Twin Card", cardId: "CARD_B", drawn: 0, remaining: 1 }),
+      expect.objectContaining({ name: "Second Friendly Card", cardId: "CARD_C", drawn: 1, remaining: 0 })
     ]));
     expect(state.opponentPlayed).toEqual([
       expect.objectContaining({ name: "Twin Card", cardId: "CARD_B", played: 1 })
